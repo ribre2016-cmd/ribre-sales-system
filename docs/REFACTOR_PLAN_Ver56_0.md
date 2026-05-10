@@ -1,5 +1,7 @@
 # Ver56.0 Refactor Plan
 
+> **Ver60 更新**: 現行の詳細手順・セクション対応表・フェーズ分けは [ARCHITECTURE_SPLIT_PLAN_Ver60.md](ARCHITECTURE_SPLIT_PLAN_Ver60.md) を参照。本ファイルは当初のディレクトリ案と安全な大まかな順序の記録として残す。
+
 ## Target structure
 /pages
 /components

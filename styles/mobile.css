@@ -1,0 +1,135 @@
+/* RIBRE 売上管理 — モバイル・固定アクション（ver310、index.html から Phase1 で分離） */
+@media (max-width: 760px) {
+  body {
+    padding: 0;
+    background: #f8fafc;
+  }
+  header {
+    display: block;
+    padding: 12px;
+  }
+  header h1 {
+    font-size: 16px;
+    line-height: 1.4;
+    margin-bottom: 6px;
+  }
+  #topUser {
+    font-size: 12px;
+    color: #cbd5e1;
+    word-break: break-all;
+  }
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 8px;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  nav button {
+    flex: 0 0 auto;
+    font-size: 13px;
+    padding: 9px 12px;
+  }
+  main {
+    padding: 8px;
+  }
+  .panel {
+    padding: 12px;
+    border-radius: 16px;
+    margin-bottom: 10px;
+  }
+  .panel h2 {
+    font-size: 17px;
+  }
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+  .controls button,
+  .controls input,
+  .controls select,
+  .controls textarea {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    font-size: 15px;
+  }
+  .editor {
+    grid-template-columns: 1fr;
+  }
+  .editor input,
+  .editor select {
+    width: 100%;
+    min-width: 0;
+  }
+  .grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .card {
+    padding: 10px;
+    border-radius: 14px;
+  }
+  .label {
+    font-size: 11px;
+  }
+  .value {
+    font-size: 18px;
+  }
+  .list {
+    max-height: 360px;
+    border-radius: 14px;
+  }
+  .row {
+    display: block;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .badge {
+    display: inline-block;
+    margin-top: 6px;
+  }
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  th,
+  td {
+    font-size: 11px;
+    padding: 7px;
+  }
+  iframe {
+    height: 360px;
+  }
+}
+@media (max-width: 420px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  header h1 {
+    font-size: 15px;
+  }
+  nav button {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+}
+.ver310-fixed-action {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 30;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 16px;
+  font-weight: 900;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.35);
+}
