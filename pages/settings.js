@@ -27,10 +27,31 @@ function saveOpenAI() {
     alert('APIキーを入れてください');
     return;
   }
-  localStorage.setItem(LS.openai, k);
-  localStorage.setItem('ribre_openai_key180', k);
+  let compacted = false;
+  try {
+    localStorage.setItem(LS.openai, k);
+    localStorage.setItem('ribre_openai_key180', k);
+  } catch (e) {
+    if (!(e && e.name === 'QuotaExceededError')) throw e;
+    localStorage.removeItem('ribre_ai_auto_candidates500');
+    compacted = true;
+    try {
+      localStorage.setItem(LS.openai, k);
+      localStorage.setItem('ribre_openai_key180', k);
+    } catch (e2) {
+      renderList('settingsList', [{ type: '容量', level: 'warn', msg: '保存容量がいっぱいです。古い候補を削除しました' }]);
+      throw e2;
+    }
+  }
   document.getElementById('openaiKey').value = '';
   refreshAll();
+  if (compacted) {
+    renderList('settingsList', [
+      { type: '容量', level: 'warn', msg: '保存容量がいっぱいです。古い候補を削除しました' },
+      { type: 'OK', msg: 'OpenAI APIキーを保存しました' }
+    ]);
+    return;
+  }
   renderList('settingsList', [{ type: 'OK', msg: 'OpenAI APIキーを保存しました' }]);
 }
 
@@ -64,9 +85,17 @@ async function signIn() {
     renderList('settingsList', [{ type: 'ERROR', level: 'danger', msg: res.error.message }]);
     return;
   }
-  const s = res.data || {};
-  s.email = e;
-  s.role = r;
+  const raw = res.data || {};
+  const s = {
+    access_token: raw.access_token || (raw.session && raw.session.access_token) || '',
+    refresh_token: raw.refresh_token || (raw.session && raw.session.refresh_token) || '',
+    token_type: raw.token_type || (raw.session && raw.session.token_type) || 'bearer',
+    expires_at: raw.expires_at || (raw.session && raw.session.expires_at) || 0,
+    expires_in: raw.expires_in || (raw.session && raw.session.expires_in) || 0,
+    user: raw.user || (raw.session && raw.session.user) || null,
+    email: e,
+    role: r
+  };
   setLS(LS.sess, s);
   localStorage.setItem('ribre_current_user140', e);
   localStorage.setItem('ribre_current_role140', r);

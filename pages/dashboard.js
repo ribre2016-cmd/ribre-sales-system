@@ -583,7 +583,10 @@ function ver510Export() {
   csvDownload(rows, 'analytics_Ver51_0.csv');
 }
 
-window.monthlySummary = monthlySummary;
+window.monthlySummary = function () {
+  console.log('[dashboard] monthlySummary click');
+  monthlySummary();
+};
 window.ver420Render = ver420Render;
 window.ver420Set = ver420Set;
 window.ver420Num = ver420Num;

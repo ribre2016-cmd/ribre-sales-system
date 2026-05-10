@@ -66,8 +66,8 @@
       <div class="card"><div class="label">利益目安</div><div id="dashProfit" class="value">0円</div></div>
     </div>
     <div class="controls">
-      <button onclick="refreshAll()">再集計</button>
-      <button class="secondary" onclick="monthlySummary()">月別集計</button>
+      <button onclick="window.refreshAll()">再集計</button>
+      <button class="secondary" onclick="window.monthlySummary()">月別集計</button>
     </div>
     <div id="dashList" class="list"></div>
   </div>
@@ -5957,6 +5957,7 @@ function ver600ExportPlan(){
 
 <script src="pages/dashboard.js"></script>
 <script src="pages/settings.js"></script>
+<script src="pages/ocr.js"></script>
 
 </body>
 </html>

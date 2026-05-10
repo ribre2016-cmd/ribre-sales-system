@@ -27,7 +27,18 @@ function purchases() { return get(LS.purchases, []); }
 function evidences() { return get(LS.ev, []); }
 function candidates() { return get(LS.cand, []); }
 function sb() { return get(LS.sb, {}); }
-function sess() { return get(LS.sess, {}); }
+function sess() {
+  const s = get(LS.sess, {});
+  if (s && s.access_token) return s;
+  if (s && s.session && s.session.access_token) {
+    return Object.assign({}, s, {
+      access_token: s.session.access_token,
+      refresh_token: s.session.refresh_token || s.refresh_token || '',
+      user: s.user || s.session.user || null
+    });
+  }
+  return s || {};
+}
 function email() {
   const s = sess();
   return s.email || (s.user && s.user.email) || localStorage.getItem('ribre_current_user140') || '';

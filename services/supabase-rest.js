@@ -2,9 +2,10 @@
 function restHeaders() {
   const c = sb(),
     s = sess();
+  const token = s.access_token || (s.session && s.session.access_token) || '';
   return {
     apikey: c.key,
-    Authorization: 'Bearer ' + (s.access_token || c.key),
+    Authorization: 'Bearer ' + (token || c.key),
     'Content-Type': 'application/json',
     Prefer: 'return=representation'
   };
@@ -33,8 +34,12 @@ async function rest(t, opt = {}) {
     } catch (e) {
       data = text;
     }
-    if (!res.ok)
+    if (!res.ok) {
+      if (res.status === 401) {
+        return { error: { message: '401 Unauthorized: 再ログインしてください' } };
+      }
       return { error: { message: (data && data.message) || text || 'HTTP ' + res.status } };
+    }
     return { data };
   } catch (e) {
     return { error: { message: e.message } };

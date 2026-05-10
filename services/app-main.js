@@ -13,18 +13,61 @@ function refreshTop() {
       : '未設定';
 }
 function refreshAll() {
-  refreshTop();
-  const s = sales(),
+  try {
+    refreshTop();
+  } catch (e) {
+    console.error('[dashboard] refreshTop failed', e);
+  }
+
+  let s = [],
+    p = [];
+  try {
+    s = sales();
+  } catch (e) {
+    console.error('[dashboard] sales() failed, fallback localStorage', e);
+    try {
+      s = JSON.parse(localStorage.getItem(LS.sales) || '[]');
+    } catch (e2) {
+      s = JSON.parse(localStorage.getItem('ribre_full_sales221') || '[]');
+    }
+  }
+  try {
     p = purchases();
-  const st = s.reduce((a, x) => a + num(x.amount), 0);
-  const pt = p.reduce((a, x) => a + num(x.total || x.amount), 0);
-  document.getElementById('dashSalesCount').textContent = s.length + '件';
-  document.getElementById('dashPurchaseCount').textContent = p.length + '件';
-  document.getElementById('dashSalesTotal').textContent = yen(st);
-  document.getElementById('dashProfit').textContent = yen(st - pt);
-  renderSales();
-  renderPurchases();
-  if (typeof window.monthlySummary === 'function') window.monthlySummary();
+  } catch (e) {
+    console.error('[dashboard] purchases() failed, fallback localStorage', e);
+    try {
+      p = JSON.parse(localStorage.getItem(LS.purchases) || '[]');
+    } catch (e2) {
+      p = JSON.parse(localStorage.getItem('ribre_full_purchases221') || '[]');
+    }
+  }
+
+  const st = (s || []).reduce((a, x) => a + num(x.amount), 0);
+  const pt = (p || []).reduce((a, x) => a + num(x.total || x.amount), 0);
+  const salesCount = document.getElementById('dashSalesCount');
+  const purchaseCount = document.getElementById('dashPurchaseCount');
+  const salesTotal = document.getElementById('dashSalesTotal');
+  const dashProfit = document.getElementById('dashProfit');
+  if (salesCount) salesCount.textContent = (s || []).length + '件';
+  if (purchaseCount) purchaseCount.textContent = (p || []).length + '件';
+  if (salesTotal) salesTotal.textContent = yen(st);
+  if (dashProfit) dashProfit.textContent = yen(st - pt);
+
+  try {
+    renderSales();
+  } catch (e) {
+    console.error('[dashboard] renderSales failed', e);
+  }
+  try {
+    renderPurchases();
+  } catch (e) {
+    console.error('[dashboard] renderPurchases failed', e);
+  }
+  try {
+    if (typeof window.monthlySummary === 'function') window.monthlySummary();
+  } catch (e) {
+    console.error('[dashboard] monthlySummary failed', e);
+  }
 }
 function monthlySummary() {
   const map = {};
@@ -220,5 +263,11 @@ window.addEventListener('load', () => {
 });
 
 window.refreshTop = refreshTop;
-window.refreshAll = refreshAll;
-window.monthlySummary = monthlySummary;
+window.refreshAll = function () {
+  console.log('[dashboard] refreshAll click');
+  refreshAll();
+};
+window.monthlySummary = function () {
+  console.log('[dashboard] monthlySummary click');
+  monthlySummary();
+};
