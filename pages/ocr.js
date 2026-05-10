@@ -308,6 +308,37 @@ function ver500ApplyCandidate() {
   } catch (e) {}
   ver500Set('ver500Status', '登録OK');
 }
+function ver500Config() {
+  try {
+    return JSON.parse(localStorage.getItem('ribre_supabase_config_v121') || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+function ver500Session() {
+  try {
+    return JSON.parse(localStorage.getItem('ribre_auth_session140') || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+function ver500Email() {
+  const s = ver500Session();
+  return s.email || (s.user && s.user.email) || localStorage.getItem('ribre_current_user140') || '';
+}
+function ver500Headers(extra = {}) {
+  const c = ver500Config(),
+    s = ver500Session();
+  return Object.assign(
+    {
+      apikey: c.key,
+      Authorization: 'Bearer ' + (s.access_token || c.key),
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation'
+    },
+    extra
+  );
+}
 async function ver500SaveToProduction() {
   const c = ver500CurrentCandidate();
   const cfg = ver500Config();
@@ -417,6 +448,10 @@ window.ver500OpenAiAnalyze = ver500OpenAiAnalyze;
 window.ver500AnalyzeEvidence = ver500AnalyzeEvidence;
 window.ver500CurrentCandidate = ver500CurrentCandidate;
 window.ver500ApplyCandidate = ver500ApplyCandidate;
+window.ver500Config = ver500Config;
+window.ver500Session = ver500Session;
+window.ver500Email = ver500Email;
+window.ver500Headers = ver500Headers;
 window.ver500SaveToProduction = ver500SaveToProduction;
 window.ver500ExportCandidates = ver500ExportCandidates;
 window.ver500Guide = ver500Guide;

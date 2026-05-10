@@ -1,5 +1,4 @@
 /* RIBRE — Dashboard pages 移行（Phase3: dashboard 関連の最終定義を pages 側へ集約） */
-const __dashboardRefreshAllRef = window.refreshAll;
 
 function monthlySummary() {
   const map = {};
@@ -583,10 +582,7 @@ function ver510Export() {
   csvDownload(rows, 'analytics_Ver51_0.csv');
 }
 
-window.monthlySummary = function () {
-  console.log('[dashboard] monthlySummary click');
-  monthlySummary();
-};
+window.monthlySummary = monthlySummary;
 window.ver420Render = ver420Render;
 window.ver420Set = ver420Set;
 window.ver420Num = ver420Num;
@@ -618,6 +614,3 @@ window.ver510Monthly = ver510Monthly;
 window.ver510Account = ver510Account;
 window.ver510AiOcr = ver510AiOcr;
 window.ver510Export = ver510Export;
-if (typeof window.refreshAll !== 'function' && typeof __dashboardRefreshAllRef === 'function') {
-  window.refreshAll = __dashboardRefreshAllRef;
-}
