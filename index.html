@@ -1128,7 +1128,7 @@
 <script src="services/supabase-rest.js"></script>
 <script src="services/supabase-auth.js"></script>
 <script src="services/openai-ocr.js"></script>
-<script src="services/app-main.js?v=20260511a"></script>
+<script src="services/app-main-v2.js?v=20260511b"></script>
 
 <script id="ver230-shipping">
 function shipRows(){try{return JSON.parse(localStorage.getItem('ribre_shipping_rows230')||'[]')}catch(e){return []}}
@@ -4498,13 +4498,37 @@ function ver530PreviewRestore(){
  r.onload=()=>{
    try{
      const data=JSON.parse(r.result);
-     localStorage.setItem('ribre_restore_preview530',JSON.stringify(data));
+     const dropKeys=new Set(['dataUrl','data_url','imageDataUrl','image_data_url','base64','image','fileData','blob','raw','content']);
+     const sanitize=(v)=>{
+       if(Array.isArray(v)) return v.map(sanitize).slice(0,20);
+       if(v && typeof v==='object'){
+         const out={};
+         Object.keys(v).forEach(k=>{
+           if(dropKeys.has(k)) return;
+           out[k]=sanitize(v[k]);
+         });
+         return out;
+       }
+       return v;
+     };
+     const preview=sanitize(data);
+     try{
+       localStorage.setItem('ribre_restore_preview530',JSON.stringify(preview));
+     }catch(e){
+       if(e && e.name==='QuotaExceededError'){
+         localStorage.setItem('ribre_restore_preview530','[]');
+         ver530Set('ver530Status','容量調整');
+         ver530Render([{type:'容量',level:'warn',msg:'プレビュー容量を超えたため軽量化しました'}]);
+         return;
+       }
+       throw e;
+     }
      ver530Render([
-       {type:'復元候補',msg:'version '+(data.version||'不明')},
-       {type:'売上',msg:(data.sales||[]).length+'件'},
-       {type:'仕入',msg:(data.purchases||[]).length+'件'},
-       {type:'スタッフ',msg:(data.staffs||[]).length+'件'},
-       {type:'Storage',msg:(data.storage||[]).length+'件'}
+       {type:'復元候補',msg:'version '+(preview.version||'不明')},
+       {type:'売上',msg:(preview.sales||[]).length+'件'},
+       {type:'仕入',msg:(preview.purchases||[]).length+'件'},
+       {type:'スタッフ',msg:(preview.staffs||[]).length+'件'},
+       {type:'Storage',msg:(preview.storage||[]).length+'件'}
      ]);
      ver530Set('ver530Status','プレビューOK');
    }catch(e){
@@ -4555,6 +4579,11 @@ function ver530MapPurchasesToLocal(rows){
 }
 function ver530RestoreToLocal(){
  let data={}; try{data=JSON.parse(localStorage.getItem('ribre_restore_preview530')||'{}')}catch(e){}
+ if(Array.isArray(data) && !data.length){
+   ver530Set('ver530Status','容量調整');
+   ver530Render([{type:'容量',level:'warn',msg:'プレビュー容量を超えたため軽量化しました'}]);
+   return;
+ }
  if(!data.version){alert('先に復元プレビューを押してください');return}
  if(!confirm('バックアップをこの端末のローカルデータへ復元しますか？'))return;
  localStorage.setItem('ribre_yahoo_sales240',JSON.stringify(ver530MapSalesToLocal(data.sales||[])));
@@ -5656,6 +5685,7 @@ function ver600ExportPlan(){
 <script src="pages/dashboard.js?v=20260511a"></script>
 <script src="pages/settings.js"></script>
 <script src="pages/ocr.js"></script>
+<script src="pages/storage-cloud.js"></script>
 
 </body>
 </html>
