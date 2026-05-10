@@ -1,0 +1,24 @@
+RIBRE 売上管理システム Ver56.0 引き継ぎメモ
+
+現在の状態:
+- 本番DB、Storage、AI自動登録、自動同期、操作ログまで実装済み
+- Ver56では整理・引き継ぎ画面を追加
+- index.html が巨大化しているため、次はCodex等で安全に分割推奨
+
+Supabase:
+- sales
+- purchases
+- staffs
+- sync_logs
+- audit_logs
+
+Storage:
+- evidence
+- ocr
+- csv
+
+次の推奨:
+Ver57 初心者モード
+Ver58 スマホ最適化
+Ver59 安定化・エラー対策
+Ver60 商品化準備
