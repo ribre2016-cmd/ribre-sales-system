@@ -2167,126 +2167,6 @@ window.addEventListener('load',()=>{
 </script>
 
 
-<script id="ver320-auto-sync">
-function ver320Logs(){try{return JSON.parse(localStorage.getItem('ribre_sync_logs320')||'[]')}catch(e){return []}}
-function ver320SaveLogs(arr){localStorage.setItem('ribre_sync_logs320',JSON.stringify(arr.slice(0,300)))}
-function ver320Render(rows){
-  const box=document.getElementById('autosyncList'); if(!box)return;
-  box.innerHTML=(rows||[]).map(r=>'<div class="row '+(r.level||'ok')+'"><span>'+r.msg+'</span><span class="badge">'+r.type+'</span></div>').join('');
-}
-function ver320Set(id,v){const el=document.getElementById(id);if(el)el.textContent=v}
-function ver320Log(type,msg,level='ok'){
-  const arr=ver320Logs();
-  arr.unshift({at:new Date().toLocaleString('ja-JP'),type,msg,level,user:typeof email==='function'?email():''});
-  ver320SaveLogs(arr);
-}
-function ver320Hash(){
-  try{
-    const payload={
-      sales: typeof sales==='function'?sales():[],
-      purchases: typeof purchases==='function'?purchases():[],
-      yahoo: JSON.parse(localStorage.getItem('ribre_yahoo_sales240')||'[]')
-    };
-    return JSON.stringify(payload).length + ':' + JSON.stringify(payload).slice(0,200);
-  }catch(e){return String(Date.now())}
-}
-function ver320MarkDirty(reason){
-  localStorage.setItem('ribre_dirty320','1');
-  localStorage.setItem('ribre_dirty_reason320',reason||'変更あり');
-  ver320Refresh();
-}
-function ver320ClearDirty(){
-  localStorage.setItem('ribre_dirty320','0');
-  localStorage.setItem('ribre_last_hash320',ver320Hash());
-}
-function ver320Refresh(){
-  const auto=localStorage.getItem('ribre_auto_sync320')==='1';
-  const dirty=localStorage.getItem('ribre_dirty320')==='1';
-  ver320Set('ver320AutoStatus',auto?'ON':'OFF');
-  ver320Set('ver320DirtyStatus',dirty?'あり':'なし');
-  ver320Set('ver320LastSync',localStorage.getItem('ribre_last_sync320')||'なし');
-}
-function ver320ToggleAutoSync(){
-  const now=localStorage.getItem('ribre_auto_sync320')==='1';
-  localStorage.setItem('ribre_auto_sync320',now?'0':'1');
-  ver320Refresh();
-  ver320Render([{type:'設定',msg:'自動同期を '+(now?'OFF':'ON')+' にしました'}]);
-}
-function ver320CheckDirty(){
-  const last=localStorage.getItem('ribre_last_hash320')||'';
-  const now=ver320Hash();
-  const dirty=localStorage.getItem('ribre_dirty320')==='1' || last!==now;
-  localStorage.setItem('ribre_dirty320',dirty?'1':'0');
-  ver320Refresh();
-  ver320Render([{type:dirty?'変更あり':'OK',level:dirty?'warn':'ok',msg:dirty?'未同期の変更があります':'未同期変更はありません'}]);
-}
-async function ver320SyncNow(){
-  if(typeof email==='function' && !email()){alert('先にログインしてください');return}
-  if(typeof cloudCheck==='function'){
-    ver320Set('ver320SyncStatus','接続確認中');
-    try{await cloudCheck()}catch(e){}
-  }
-  ver320Set('ver320SyncStatus','同期中');
-  const rows=[];
-  try{
-    if(typeof uploadSales==='function'){
-      await uploadSales();
-      rows.push({type:'売上',msg:'売上をクラウド同期しました'});
-    }
-    if(typeof uploadPurchases==='function'){
-      await uploadPurchases();
-      rows.push({type:'仕入',msg:'仕入をクラウド同期しました'});
-    }
-    const at=new Date().toLocaleString('ja-JP');
-    localStorage.setItem('ribre_last_sync320',at);
-    ver320ClearDirty();
-    ver320Set('ver320SyncStatus','同期OK');
-    ver320Log('同期','クラウド同期完了');
-    ver320Refresh();
-    ver320Render(rows.concat([{type:'OK',msg:'同期完了：'+at}]));
-  }catch(e){
-    ver320Set('ver320SyncStatus','エラー');
-    ver320Log('ERROR',e.message,'danger');
-    ver320Render([{type:'ERROR',level:'danger',msg:e.message}]);
-  }
-}
-function ver320ShowSyncLogs(){
-  const logs=ver320Logs();
-  if(!logs.length){ver320Render([{type:'INFO',level:'warn',msg:'同期履歴はありません'}]);return}
-  ver320Render(logs.slice(0,120).map(x=>({type:x.type,level:x.level,msg:x.at+' / '+x.user+' / '+x.msg})));
-}
-function ver320ExportSyncLogs(){
-  const rows=[['日時','ユーザー','区分','内容','状態']];
-  ver320Logs().forEach(x=>rows.push([x.at,x.user,x.type,x.msg,x.level]));
-  csvDownload(rows,'sync_logs_Ver32_0.csv');
-}
-function ver320WrapChangeFunctions(){
-  const names=['addSale','addPurchase','ocrToSale','ocrToPurchase','ocrAutoRegister','importYahooSalesCsv','autoMatchShippingFromYahoo','ver250ImproveUnmatched'];
-  names.forEach(name=>{
-    if(typeof window[name]==='function' && !window['__ver320_'+name]){
-      const old=window[name];
-      window[name]=function(){
-        const result=old.apply(this,arguments);
-        ver320MarkDirty(name);
-        if(localStorage.getItem('ribre_auto_sync320')==='1'){
-          setTimeout(()=>{try{ver320SyncNow()}catch(e){}},1200);
-        }
-        return result;
-      };
-      window['__ver320_'+name]=true;
-    }
-  });
-}
-window.addEventListener('load',()=>{
-  setTimeout(()=>{
-    ver320Refresh();
-    ver320WrapChangeFunctions();
-    ver320Render([{type:'案内',msg:'自動同期をONにすると、登録後にクラウド保存を実行します'}]);
-  },1600);
-});
-</script>
-
-
 <script id="ver330-search-filter">
 function ver330Num(v){
   const n=Number(String(v??'').replace(/[¥,円,\s]/g,''));
@@ -4621,9 +4501,10 @@ function ver540Email(){
 }
 function ver540Headers(extra={}){
  const c=ver540Config(),s=ver540Session();
+ const token=s.access_token||(s.session&&s.session.access_token)||'';
  return Object.assign({
    apikey:c.key,
-   Authorization:'Bearer '+(s.access_token||c.key),
+   Authorization:'Bearer '+(token||c.key),
    'Content-Type':'application/json',
    Prefer:'return=representation'
  },extra);
@@ -4631,6 +4512,11 @@ function ver540Headers(extra={}){
 async function ver540Rest(table,query,method='GET',body=null){
  const c=ver540Config();
  if(!c.url||!c.key)return {error:{message:'Supabase設定なし'}};
+ const s=ver540Session();
+ const token=s.access_token||(s.session&&s.session.access_token)||'';
+ if((table==='sync_logs'||table==='audit_logs')&&!token){
+   return {error:{message:'再ログインしてください'},authRequired:true,status:401};
+ }
  try{
    const res=await fetch(c.url.replace(/\/$/,'')+'/rest/v1/'+table+query,{
      method,
@@ -4640,11 +4526,23 @@ async function ver540Rest(table,query,method='GET',body=null){
    const text=await res.text();
    let data=null;
    try{data=text?JSON.parse(text):null}catch(e){data=text}
-   if(!res.ok)return {error:{message:(data&&data.message)||text||('HTTP '+res.status)}};
+   if(!res.ok){
+     if(res.status===401){
+       return {error:{message:'再ログインしてください'},authRequired:true,status:401};
+     }
+     return {error:{message:(data&&data.message)||text||('HTTP '+res.status)}};
+   }
    return {data};
  }catch(e){
    return {error:{message:e.message}}
  }
+}
+function ver540HandleAuthRequired(){
+  if(ver540Timer||localStorage.getItem('ribre_sync_enabled540')==='1'){
+    ver540StopSync();
+  }
+  ver540Set('ver540Status','再ログイン必要');
+  ver540Render([{type:'認証',level:'warn',msg:'再ログインしてください'}]);
 }
 function ver540Device(){
  let d=document.getElementById('ver540DeviceName').value.trim();
@@ -4675,7 +4573,10 @@ function ver540HistoryAdd(type,msg){
 }
 async function ver540Push(){
  const email=ver540Email();
- if(!email){alert('ログインしてください');return}
+ if(!email){
+  ver540HandleAuthRequired();
+  return {authRequired:true};
+ }
  const sales=ver540Sales();
  const purchases=ver540Purchases();
 
@@ -4699,9 +4600,13 @@ async function ver540Push(){
  );
 
  if(r.error){
+   if(r.authRequired||String(r.error.message||'').includes('再ログインしてください')){
+     ver540HandleAuthRequired();
+     return {authRequired:true};
+   }
    ver540Set('ver540Status','エラー');
    ver540Render([{type:'ERROR',level:'danger',msg:r.error.message}]);
-   return;
+   return {authRequired:false};
  }
 
  localStorage.setItem('ribre_last_push540',JSON.stringify(payload));
@@ -4715,10 +4620,14 @@ async function ver540Push(){
  ]);
 
  ver540Set('ver540Status','送信OK');
+ return {authRequired:false};
 }
 async function ver540Pull(){
  const email=ver540Email();
- if(!email){alert('ログインしてください');return}
+ if(!email){
+  ver540HandleAuthRequired();
+  return {authRequired:true};
+ }
 
  const r=await ver540Rest(
    'sync_logs',
@@ -4726,9 +4635,13 @@ async function ver540Pull(){
  );
 
  if(r.error){
+   if(r.authRequired||String(r.error.message||'').includes('再ログインしてください')){
+     ver540HandleAuthRequired();
+     return {authRequired:true};
+   }
    ver540Set('ver540Status','エラー');
    ver540Render([{type:'ERROR',level:'danger',msg:r.error.message}]);
-   return;
+   return {authRequired:false};
  }
 
  const row=(r.data||[])[0];
@@ -4757,16 +4670,24 @@ async function ver540Pull(){
  ]);
 
  ver540Set('ver540Status','受信OK');
+ return {authRequired:false};
 }
 async function ver540ManualSync(){
  ver540Set('ver540Status','同期中');
+ let authRequired=false;
 
  if(document.getElementById('ver540AutoPush').checked){
-   await ver540Push();
+   const r=await ver540Push();
+   authRequired=authRequired||(r&&r.authRequired);
  }
 
- if(document.getElementById('ver540AutoPull').checked){
-   await ver540Pull();
+ if(!authRequired&&document.getElementById('ver540AutoPull').checked){
+   const r=await ver540Pull();
+   authRequired=authRequired||(r&&r.authRequired);
+ }
+
+ if(authRequired){
+   return;
  }
 
  const now=new Date().toLocaleString('ja-JP');
@@ -4851,9 +4772,10 @@ function ver550Device(){
 }
 function ver550Headers(extra={}){
  const c=ver550Config(),s=ver550Session();
+ const token=s.access_token||(s.session&&s.session.access_token)||'';
  return Object.assign({
    apikey:c.key,
-   Authorization:'Bearer '+(s.access_token||c.key),
+   Authorization:'Bearer '+(token||c.key),
    'Content-Type':'application/json',
    Prefer:'return=representation'
  },extra);
@@ -4861,6 +4783,11 @@ function ver550Headers(extra={}){
 async function ver550Rest(table,query='',method='GET',body=null){
  const c=ver550Config();
  if(!c.url||!c.key)return {error:{message:'Supabase設定なし'}};
+ const s=ver550Session();
+ const token=s.access_token||(s.session&&s.session.access_token)||'';
+ if((table==='sync_logs'||table==='audit_logs')&&!token){
+  return {error:{message:'再ログインしてください'},authRequired:true,status:401};
+ }
  try{
    const res=await fetch(c.url.replace(/\/$/,'')+'/rest/v1/'+table+query,{
      method,
@@ -4869,7 +4796,12 @@ async function ver550Rest(table,query='',method='GET',body=null){
    });
    const text=await res.text();
    let data=null; try{data=text?JSON.parse(text):null}catch(e){data=text}
-   if(!res.ok)return {error:{message:(data&&data.message)||text||('HTTP '+res.status)}};
+   if(!res.ok){
+    if(res.status===401){
+      return {error:{message:'再ログインしてください'},authRequired:true,status:401};
+    }
+    return {error:{message:(data&&data.message)||text||('HTTP '+res.status)}};
+   }
    return {data};
  }catch(e){return {error:{message:e.message}}}
 }
@@ -4945,6 +4877,11 @@ async function ver550CreateLog(action,detail,targetTable='',targetId='',beforeOb
  if(email){
    const r=await ver550Rest('audit_logs','', 'POST', [log]);
    if(r.error){
+     if(r.authRequired||String(r.error.message||'').includes('再ログインしてください')){
+       ver550Set('ver550Status','再ログイン必要');
+       ver550Render([{type:'認証',level:'warn',msg:'再ログインしてください'}]);
+       return;
+     }
      ver550Set('ver550Status','端末保存のみ');
      ver550Render([{type:'注意',level:'warn',msg:'端末ログには保存しました。本番ログ保存エラー: '+r.error.message}]);
      return;
@@ -4958,6 +4895,11 @@ async function ver550LoadLogs(){
  if(!email){alert('先にログインしてください');return}
  const r=await ver550Rest('audit_logs','?select=*&user_email=eq.'+encodeURIComponent(email)+'&order=created_at.desc&limit=1000');
  if(r.error){
+   if(r.authRequired||String(r.error.message||'').includes('再ログインしてください')){
+     ver550Set('ver550Status','再ログイン必要');
+     ver550Render([{type:'認証',level:'warn',msg:'再ログインしてください'}]);
+     return;
+   }
    ver550Set('ver550Status','エラー');
    ver550Render([{type:'ERROR',level:'danger',msg:r.error.message},{type:'確認',level:'warn',msg:'先にログSQLをSupabase SQL Editorで実行してください'}]);
    return;

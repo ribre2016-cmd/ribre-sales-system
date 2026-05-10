@@ -87,7 +87,61 @@ window.ver290RestoreBackup = ver290RestoreBackup;
 window.ver290ShowHistory = ver290ShowHistory;
 window.ver290ClearOldHistory = ver290ClearOldHistory;
 
-/* RIBRE — Storage/Cloud pages 移行（Phase2: ver320 の最終定義を pages 側へ集約） */
+/* RIBRE — Storage/Cloud pages 移行（Phase2/3: ver320 の最終定義を pages 側へ集約） */
+function ver320Logs() {
+  try {
+    return JSON.parse(localStorage.getItem('ribre_sync_logs320') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+function ver320SaveLogs(arr) {
+  localStorage.setItem('ribre_sync_logs320', JSON.stringify((arr || []).slice(0, 300)));
+}
+function ver320Render(rows) {
+  const box = document.getElementById('autosyncList');
+  if (!box) return;
+  box.innerHTML = (rows || [])
+    .map((r) => '<div class="row ' + (r.level || 'ok') + '"><span>' + r.msg + '</span><span class="badge">' + r.type + '</span></div>')
+    .join('');
+}
+function ver320Set(id, v) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = v;
+}
+function ver320Log(type, msg, level = 'ok') {
+  const arr = ver320Logs();
+  arr.unshift({ at: new Date().toLocaleString('ja-JP'), type: type, msg: msg, level: level, user: typeof email === 'function' ? email() : '' });
+  ver320SaveLogs(arr);
+}
+function ver320Hash() {
+  try {
+    const payload = {
+      sales: typeof sales === 'function' ? sales() : [],
+      purchases: typeof purchases === 'function' ? purchases() : [],
+      yahoo: JSON.parse(localStorage.getItem('ribre_yahoo_sales240') || '[]')
+    };
+    return JSON.stringify(payload).length + ':' + JSON.stringify(payload).slice(0, 200);
+  } catch (e) {
+    return String(Date.now());
+  }
+}
+function ver320MarkDirty(reason) {
+  localStorage.setItem('ribre_dirty320', '1');
+  localStorage.setItem('ribre_dirty_reason320', reason || '変更あり');
+  ver320Refresh();
+}
+function ver320ClearDirty() {
+  localStorage.setItem('ribre_dirty320', '0');
+  localStorage.setItem('ribre_last_hash320', ver320Hash());
+}
+function ver320Refresh() {
+  const auto = localStorage.getItem('ribre_auto_sync320') === '1';
+  const dirty = localStorage.getItem('ribre_dirty320') === '1';
+  ver320Set('ver320AutoStatus', auto ? 'ON' : 'OFF');
+  ver320Set('ver320DirtyStatus', dirty ? 'あり' : 'なし');
+  ver320Set('ver320LastSync', localStorage.getItem('ribre_last_sync320') || 'なし');
+}
 function ver320ToggleAutoSync() {
   const now = localStorage.getItem('ribre_auto_sync320') === '1';
   localStorage.setItem('ribre_auto_sync320', now ? '0' : '1');
@@ -100,13 +154,7 @@ function ver320CheckDirty() {
   const dirty = localStorage.getItem('ribre_dirty320') === '1' || last !== now;
   localStorage.setItem('ribre_dirty320', dirty ? '1' : '0');
   ver320Refresh();
-  ver320Render([
-    {
-      type: dirty ? '変更あり' : 'OK',
-      level: dirty ? 'warn' : 'ok',
-      msg: dirty ? '未同期の変更があります' : '未同期変更はありません'
-    }
-  ]);
+  ver320Render([{ type: dirty ? '変更あり' : 'OK', level: dirty ? 'warn' : 'ok', msg: dirty ? '未同期の変更があります' : '未同期変更はありません' }]);
 }
 async function ver320SyncNow() {
   if (typeof email === 'function' && !email()) {
@@ -156,9 +204,38 @@ function ver320ExportSyncLogs() {
   ver320Logs().forEach((x) => rows.push([x.at, x.user, x.type, x.msg, x.level]));
   csvDownload(rows, 'sync_logs_Ver32_0.csv');
 }
+function ver320WrapChangeFunctions() {
+  const names = ['addSale', 'addPurchase', 'ocrToSale', 'ocrToPurchase', 'ocrAutoRegister', 'importYahooSalesCsv', 'autoMatchShippingFromYahoo', 'ver250ImproveUnmatched'];
+  names.forEach((name) => {
+    if (typeof window[name] === 'function' && !window['__ver320_' + name]) {
+      const old = window[name];
+      window[name] = function () {
+        const result = old.apply(this, arguments);
+        ver320MarkDirty(name);
+        if (localStorage.getItem('ribre_auto_sync320') === '1') {
+          setTimeout(() => {
+            try {
+              ver320SyncNow();
+            } catch (e) {}
+          }, 1200);
+        }
+        return result;
+      };
+      window['__ver320_' + name] = true;
+    }
+  });
+}
 
 window.ver320ToggleAutoSync = ver320ToggleAutoSync;
 window.ver320SyncNow = ver320SyncNow;
 window.ver320CheckDirty = ver320CheckDirty;
 window.ver320ShowSyncLogs = ver320ShowSyncLogs;
 window.ver320ExportSyncLogs = ver320ExportSyncLogs;
+
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    ver320Refresh();
+    ver320WrapChangeFunctions();
+    ver320Render([{ type: '案内', msg: '自動同期をONにすると、登録後にクラウド保存を実行します' }]);
+  }, 1600);
+});
