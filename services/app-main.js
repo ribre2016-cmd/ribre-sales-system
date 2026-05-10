@@ -24,6 +24,7 @@ function refreshAll() {
   document.getElementById('dashProfit').textContent = yen(st - pt);
   renderSales();
   renderPurchases();
+  if (typeof window.monthlySummary === 'function') window.monthlySummary();
 }
 function monthlySummary() {
   const map = {};
@@ -217,3 +218,7 @@ window.addEventListener('load', () => {
   refreshAll();
   monthlySummary();
 });
+
+window.refreshTop = refreshTop;
+window.refreshAll = refreshAll;
+window.monthlySummary = monthlySummary;

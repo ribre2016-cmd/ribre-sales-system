@@ -1,4 +1,6 @@
 /* RIBRE — Dashboard pages 移行（Phase3: dashboard 関連の最終定義を pages 側へ集約） */
+const __dashboardRefreshAllRef = window.refreshAll;
+
 function monthlySummary() {
   const map = {};
   sales().forEach((x) => {
@@ -613,3 +615,6 @@ window.ver510Monthly = ver510Monthly;
 window.ver510Account = ver510Account;
 window.ver510AiOcr = ver510AiOcr;
 window.ver510Export = ver510Export;
+if (typeof window.refreshAll !== 'function' && typeof __dashboardRefreshAllRef === 'function') {
+  window.refreshAll = __dashboardRefreshAllRef;
+}
