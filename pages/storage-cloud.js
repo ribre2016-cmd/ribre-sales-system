@@ -86,3 +86,79 @@ window.ver290DownloadBackup = ver290DownloadBackup;
 window.ver290RestoreBackup = ver290RestoreBackup;
 window.ver290ShowHistory = ver290ShowHistory;
 window.ver290ClearOldHistory = ver290ClearOldHistory;
+
+/* RIBRE — Storage/Cloud pages 移行（Phase2: ver320 の最終定義を pages 側へ集約） */
+function ver320ToggleAutoSync() {
+  const now = localStorage.getItem('ribre_auto_sync320') === '1';
+  localStorage.setItem('ribre_auto_sync320', now ? '0' : '1');
+  ver320Refresh();
+  ver320Render([{ type: '設定', msg: '自動同期を ' + (now ? 'OFF' : 'ON') + ' にしました' }]);
+}
+function ver320CheckDirty() {
+  const last = localStorage.getItem('ribre_last_hash320') || '';
+  const now = ver320Hash();
+  const dirty = localStorage.getItem('ribre_dirty320') === '1' || last !== now;
+  localStorage.setItem('ribre_dirty320', dirty ? '1' : '0');
+  ver320Refresh();
+  ver320Render([
+    {
+      type: dirty ? '変更あり' : 'OK',
+      level: dirty ? 'warn' : 'ok',
+      msg: dirty ? '未同期の変更があります' : '未同期変更はありません'
+    }
+  ]);
+}
+async function ver320SyncNow() {
+  if (typeof email === 'function' && !email()) {
+    alert('先にログインしてください');
+    return;
+  }
+  if (typeof cloudCheck === 'function') {
+    ver320Set('ver320SyncStatus', '接続確認中');
+    try {
+      await cloudCheck();
+    } catch (e) {}
+  }
+  ver320Set('ver320SyncStatus', '同期中');
+  const rows = [];
+  try {
+    if (typeof uploadSales === 'function') {
+      await uploadSales();
+      rows.push({ type: '売上', msg: '売上をクラウド同期しました' });
+    }
+    if (typeof uploadPurchases === 'function') {
+      await uploadPurchases();
+      rows.push({ type: '仕入', msg: '仕入をクラウド同期しました' });
+    }
+    const at = new Date().toLocaleString('ja-JP');
+    localStorage.setItem('ribre_last_sync320', at);
+    ver320ClearDirty();
+    ver320Set('ver320SyncStatus', '同期OK');
+    ver320Log('同期', 'クラウド同期完了');
+    ver320Refresh();
+    ver320Render(rows.concat([{ type: 'OK', msg: '同期完了：' + at }]));
+  } catch (e) {
+    ver320Set('ver320SyncStatus', 'エラー');
+    ver320Log('ERROR', e.message, 'danger');
+    ver320Render([{ type: 'ERROR', level: 'danger', msg: e.message }]);
+  }
+}
+function ver320ShowSyncLogs() {
+  const logs = ver320Logs();
+  if (!logs.length) {
+    ver320Render([{ type: 'INFO', level: 'warn', msg: '同期履歴はありません' }]);
+    return;
+  }
+  ver320Render(logs.slice(0, 120).map((x) => ({ type: x.type, level: x.level, msg: x.at + ' / ' + x.user + ' / ' + x.msg })));
+}
+function ver320ExportSyncLogs() {
+  const rows = [['日時', 'ユーザー', '区分', '内容', '状態']];
+  ver320Logs().forEach((x) => rows.push([x.at, x.user, x.type, x.msg, x.level]));
+  csvDownload(rows, 'sync_logs_Ver32_0.csv');
+}
+
+window.ver320ToggleAutoSync = ver320ToggleAutoSync;
+window.ver320SyncNow = ver320SyncNow;
+window.ver320CheckDirty = ver320CheckDirty;
+window.ver320ShowSyncLogs = ver320ShowSyncLogs;
+window.ver320ExportSyncLogs = ver320ExportSyncLogs;
