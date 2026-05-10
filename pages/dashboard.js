@@ -1,6 +1,6 @@
 /* RIBRE — Dashboard pages 移行（Phase3: dashboard 関連の最終定義を pages 側へ集約） */
 
-function monthlySummary() {
+function monthlySummary(mode) {
   const map = {};
   sales().forEach((x) => {
     const m = x.month || String(x.date || '').slice(0, 7) || '未設定';
@@ -19,9 +19,15 @@ function monthlySummary() {
       type: m,
       msg: '売上 ' + yen(map[m].s) + ' / 仕入 ' + yen(map[m].p) + ' / 利益 ' + yen(map[m].s - map[m].p)
     }));
+  const actionMsg =
+    mode === 'refresh'
+      ? { type: '再集計', msg: '再集計しました' }
+      : { type: '月別集計', msg: '月別集計しました' };
+  const dashList = document.getElementById('dashList');
+  if (dashList) dashList.innerHTML = '';
   renderList(
     'dashList',
-    rows.length ? rows : [{ type: 'INFO', level: 'warn', msg: 'データがありません' }]
+    [actionMsg].concat(rows.length ? rows : [{ type: 'INFO', level: 'warn', msg: 'データがありません' }])
   );
 }
 
