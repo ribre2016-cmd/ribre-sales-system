@@ -871,3 +871,20 @@ window.ver540StopSync = ver540StopSync;
 window.ver540ShowHistory = ver540ShowHistory;
 window.ver540Log = ver540Log;
 window.ver540SaveHistory = ver540SaveHistory;
+
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    try {
+      if (window.__ver540InitDone) return;
+      window.__ver540InitDone = true;
+      const d = localStorage.getItem('ribre_device_name540');
+      const input = document.getElementById('ver540DeviceName');
+      if (d && input) input.value = d;
+      ver540Set('ver540SyncCount', (localStorage.getItem('ribre_sync_count540') || '0') + '回');
+      ver540Set('ver540CurrentDevice', d || '未設定');
+      if (localStorage.getItem('ribre_sync_enabled540') === '1') {
+        ver540StartSync();
+      }
+    } catch (e) {}
+  }, 1200);
+});
