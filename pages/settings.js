@@ -289,6 +289,12 @@ function ver300ApplyOperationGuards() {
     window.__ver300OcrPurchaseWrapped = true;
   }
 }
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    ver300Refresh();
+    ver300ApplyOperationGuards();
+  }, 1200);
+});
 
 function ver470Staff() {
   try {
