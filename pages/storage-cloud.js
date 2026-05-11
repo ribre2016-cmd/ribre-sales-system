@@ -1216,3 +1216,123 @@ window.addEventListener('load', () => {
     } catch (e) {}
   }, 1500);
 });
+
+/* RIBRE — Storage/Cloud pages 移行（Phase7: ver560 の最終定義を pages 側へ集約） */
+function ver560Render(rows) {
+  const box = document.getElementById('organize56List');
+  if (!box) return;
+  box.innerHTML = (rows || [])
+    .slice(0, 800)
+    .map((r) => '<div class="row ' + (r.level || 'ok') + '"><span>' + r.msg + '</span><span class="badge">' + r.type + '</span></div>')
+    .join('');
+}
+function ver560Set(id, v) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = v;
+}
+function ver560ShowOverview() {
+  ver560Set('ver560Status', '表示OK');
+  ver560Render([
+    { type: '概要', msg: 'RIBRE 売上管理システムは、売上CSV・配送照合・OCR/AI登録・Supabase本番DB・Storage・同期・分析・バックアップ・操作ログまで対応しています。' },
+    { type: 'DB', msg: 'Supabase: sales / purchases / staffs / sync_logs / audit_logs を使用' },
+    { type: 'Storage', msg: 'Storage: evidence / ocr / csv bucket に画像・PDF・CSVを保存' },
+    { type: 'AI', msg: 'AI自動登録: Storage証憑または画像から売上/仕入/送料/経費候補を作成' },
+    { type: '同期', msg: '自動同期: sync_logs に端末データを保存し、複数端末で読み込み' },
+    { type: '監査', msg: '操作ログ: audit_logs に主要操作を記録' },
+    { type: '注意', level: 'warn', msg: '現在は index.html に多くの機能が入っています。次フェーズで安全に分割していきます。' }
+  ]);
+}
+function ver560ShowCodexGuide() {
+  ver560Set('ver560Status', 'Codex用');
+  ver560Render([
+    { type: '1', msg: 'GitHubの ribre-sales-system リポジトリをCodex/Cursorで開く' },
+    { type: '2', msg: '最初の依頼は「この巨大なindex.htmlを機能ごとに安全に分割してください」がおすすめ' },
+    { type: '3', msg: '分割候補: services/supabase.js, services/storage.js, services/ai.js, services/sync.js, services/audit.js' },
+    { type: '4', msg: '画面候補: pages/dashboard.js, pages/sales.js, pages/ocr.js, pages/settings.js, pages/reports.js' },
+    { type: '5', msg: 'CSS候補: styles/base.css, styles/mobile.css' },
+    { type: '注意', level: 'warn', msg: '一度に全部React化せず、まずはファイル分割→動作確認→UI整理の順が安全です。' }
+  ]);
+}
+function ver560ShowRefactorPlan() {
+  ver560Set('ver560Status', '分割計画');
+  ver560Render([
+    { type: 'Step1', msg: '現状維持版を main-backup.html として残す' },
+    { type: 'Step2', msg: 'Supabase設定・ログイン処理を services/supabase.js へ分離' },
+    { type: 'Step3', msg: 'CSV読込・出力処理を services/csv.js へ分離' },
+    { type: 'Step4', msg: 'Storage保存処理を services/storage.js へ分離' },
+    { type: 'Step5', msg: 'AI OCR/AI分類を services/ai.js へ分離' },
+    { type: 'Step6', msg: '自動同期・監査ログを services/sync.js / services/audit.js へ分離' },
+    { type: 'Step7', msg: '画面ごとに pages/ へ分離' },
+    { type: 'Step8', msg: '初心者モードをトップページ化して、詳細機能は管理者メニューへ格納' }
+  ]);
+}
+function ver560ShowBeginnerFlow() {
+  ver560Set('ver560Status', '初心者用');
+  ver560Render([
+    { type: '今日やること', msg: '1. ログイン → 2. CSV取込またはAI自動登録 → 3. 配送照合 → 4. データ確認 → 5. 日次レポート' },
+    { type: '売上CSV', msg: 'ヤフオクCSVを取り込む場合は「ヤフオクCSV」画面を使います。' },
+    { type: '証憑', msg: '画像やPDFは「Storage保存」→「AI自動登録」の順で登録します。' },
+    { type: '配送', msg: 'ヤマト/佐川CSVは「配送照合」で読み込みます。' },
+    { type: '確認', msg: '月締め前に「データ確認」と「修正タスク」を確認します。' },
+    { type: '保存', msg: '重要作業後は「本番バックアップ」でJSON保存します。' },
+    { type: '迷ったら', level: 'warn', msg: 'スタッフは「日次レポート」「AI自動登録」「配送照合」だけ覚えればOKです。管理者は本番DB・Storage・操作ログも確認します。' }
+  ]);
+}
+function ver560DocsText() {
+  return `RIBRE 売上管理システム Ver60.0 引き継ぎメモ
+
+主要機能:
+- ヤフオク売上CSV取込
+- 配送CSV照合
+- 未一致診断
+- AI OCR自動登録
+- Supabase本番DB保存
+- Supabase Storage保存
+- 自動同期
+- スタッフ共有
+- 本番バックアップ
+- 操作ログ
+- 日次/週次レポート
+- 経営分析
+
+Supabaseテーブル:
+- sales
+- purchases
+- staffs
+- sync_logs
+- audit_logs
+
+Storage bucket:
+- evidence
+- ocr
+- csv
+
+次の開発方針:
+1. index.htmlを安全に機能分割
+2. 初心者モード追加
+3. スマホ最適化
+4. 安定化・エラー対策
+5. 商品化準備
+
+Codexに最初に依頼する文:
+「このプロジェクトのindex.htmlが巨大化しているので、動作を壊さずに services / pages / styles に分割してください。まずはSupabase、Storage、AI、同期、監査ログを分離し、READMEに構成を書いてください。」
+`;
+}
+function ver560ExportDocs() {
+  const blob = new Blob([ver560DocsText()], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'RIBRE_handoff_Ver56_0.txt';
+  a.click();
+  ver560Set('ver560Status', '保存OK');
+  ver560Render([{ type: '保存', msg: '引き継ぎメモを保存しました' }]);
+}
+
+window.ver560Render = ver560Render;
+window.ver560Set = ver560Set;
+window.ver560ShowOverview = ver560ShowOverview;
+window.ver560ShowCodexGuide = ver560ShowCodexGuide;
+window.ver560ShowRefactorPlan = ver560ShowRefactorPlan;
+window.ver560ShowBeginnerFlow = ver560ShowBeginnerFlow;
+window.ver560DocsText = ver560DocsText;
+window.ver560ExportDocs = ver560ExportDocs;
