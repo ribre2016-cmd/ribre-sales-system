@@ -43,6 +43,7 @@ python -m http.server 8765
 | 文書 | 内容 |
 |------|------|
 | [docs/ARCHITECTURE_SPLIT_PLAN_Ver60.md](docs/ARCHITECTURE_SPLIT_PLAN_Ver60.md) | `services` / `pages` / `styles` / `components` への分割方針・フェーズ（**動作維持最優先**） |
+| [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md) | Vercel反映後の本番確認用チェック表（smoke test） |
 | [docs/REFACTOR_PLAN_Ver56_0.md](docs/REFACTOR_PLAN_Ver56_0.md) | 当初のターゲットディレクトリと安全な順序（参考） |
 | [docs/HANDOFF_Ver56_0.txt](docs/HANDOFF_Ver56_0.txt) | 引き継ぎメモ |
 
