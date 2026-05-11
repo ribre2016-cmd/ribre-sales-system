@@ -7,7 +7,10 @@ Last updated: 2026-05-11
 - `pages/dashboard.js`
 - `pages/settings.js`
 - `pages/ocr.js`
-- `pages/storage-cloud.js`
+- `pages/storage-backup.js`
+- `pages/storage-sync.js`
+- `pages/storage-audit.js`
+- `pages/storage-guide.js`
 - `pages/app-search.js`
 - `pages/app-templates.js`
 - `pages/app-analysis.js`
@@ -35,19 +38,22 @@ Last updated: 2026-05-11
 1. `pages/dashboard.js?v=20260511a`
 2. `pages/settings.js`
 3. `pages/ocr.js`
-4. `pages/storage-cloud.js`
-5. `pages/app-search.js`
-6. `pages/app-templates.js`
-7. `pages/app-analysis.js`
-8. `pages/app-accounting.js`
-9. `pages/app-shipping.js`
-10. `pages/app-analytics.js`
-11. `pages/app-schema.js`
-12. `pages/app-migration.js`
-13. `pages/app-upsert.js`
-14. `pages/app-sync.js`
-15. `pages/app-mobile.js`
-16. `pages/app-report.js`
+4. `pages/storage-backup.js`
+5. `pages/storage-sync.js`
+6. `pages/storage-audit.js`
+7. `pages/storage-guide.js`
+8. `pages/app-search.js`
+9. `pages/app-templates.js`
+10. `pages/app-analysis.js`
+11. `pages/app-accounting.js`
+12. `pages/app-shipping.js`
+13. `pages/app-analytics.js`
+14. `pages/app-schema.js`
+15. `pages/app-migration.js`
+16. `pages/app-upsert.js`
+17. `pages/app-sync.js`
+18. `pages/app-mobile.js`
+19. `pages/app-report.js`
 
 ## 3) Dependency order notes (important)
 
@@ -64,7 +70,10 @@ Last updated: 2026-05-11
 - `dashboard.js`: Dashboard summary and analytics (`ver420`, `ver510`, `monthlySummary`).
 - `settings.js`: Supabase/OpenAI/auth settings + permissions/staff cloud (`saveSupabase`, `signIn`, `ver300`, `ver470`, `ver480`).
 - `ocr.js`: AI/OCR candidate flow and production save (`ver500`).
-- `storage-cloud.js`: Backup/sync/audit/organize/beginner/mobile/stability/productization (`ver290`, `ver320`, `ver530`, `ver540`, `ver550`, `ver560`, `ver570`, `ver580`, `ver590`, `ver600`).
+- `storage-backup.js`: Backup (`ver290`, `ver530`).
+- `storage-sync.js`: Sync (`ver320`, `ver540`).
+- `storage-audit.js`: Audit logs (`ver550`).
+- `storage-guide.js`: Guide/productization (`ver560`, `ver570`, `ver580`, `ver590`, `ver600`).
 - `app-search.js`: Search/filter/export (`ver330`).
 - `app-templates.js`: Template CRUD/apply (`ver340`).
 - `app-analysis.js`: AI classify/data-check/fix tasks (`ver350`, `ver360`, `ver370`).
@@ -125,5 +134,5 @@ These are candidates only; keep behavior unchanged for now.
 
 1. Document exact `window` API contract (onclick-targeted vs internal helper).
 2. Mark/remove dead script candidates (`services/app-main.js`, legacy snapshot HTML) in a separate cleanup PR.
-3. Optional: split `storage-cloud.js` by domain (`backup`, `sync`, `audit`, `guide`) for maintainability only.
+3. `storage-cloud.js` split is completed (`storage-backup.js` / `storage-sync.js` / `storage-audit.js` / `storage-guide.js`).
 4. Add a lightweight smoke-test checklist to `README.md` for deploy validation.
