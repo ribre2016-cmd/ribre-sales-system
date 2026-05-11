@@ -1,4 +1,8 @@
 /* RIBRE — OpenAI 証憑 OCR・候補・自動登録（index.html から分離。ロジックは同一） */
+function ocrEvidenceCache() {
+  if (!window.__ribreEvidenceDataUrlCache) window.__ribreEvidenceDataUrlCache = {};
+  return window.__ribreEvidenceDataUrlCache;
+}
 function registerEvidence() {
   const f = document.getElementById('ocrFile').files[0];
   if (!f) {
@@ -16,9 +20,11 @@ function registerEvidence() {
       dataUrl: rd.result,
       at: new Date().toLocaleString('ja-JP')
     };
+    ocrEvidenceCache()[it.id] = it.dataUrl;
     a.unshift(it);
     setLS(LS.ev, a);
-    localStorage.setItem('ribre_evidences180', JSON.stringify(a));
+    const saved = evidences();
+    setLS('ribre_evidences180', saved);
     preview(it);
     renderList('ocrList', [{ type: '登録', msg: '証憑を登録しました：' + f.name }]);
   };
@@ -38,7 +44,9 @@ function preview(it) {
       '" style="max-width:100%;max-height:520px;border-radius:14px;border:1px solid #cbd5e1;">';
 }
 async function uploadOpenAIFile(key, ev) {
-  const blob = await (await fetch(ev.dataUrl)).blob();
+  const srcUrl = ev.dataUrl || ev.evidence_url || (ev.id && ocrEvidenceCache()[ev.id]) || '';
+  if (!srcUrl) throw new Error('証憑データが見つかりません。再登録してください');
+  const blob = await (await fetch(srcUrl)).blob();
   const fd = new FormData();
   fd.append('purpose', 'user_data');
   fd.append('file', blob, ev.fileName);
@@ -84,6 +92,8 @@ async function runOcr() {
   const prompt =
     '日本の会計OCRです。JSONのみ返してください。{ "date":"YYYY-MM-DD", "vendor":"相手先", "itemName":"内容", "amount":税込金額数値, "tax":税額数値, "type":"purchase|sale|shipping|expense", "invoiceNo":"番号", "memo":"補足" }';
   try {
+    const imageUrl = ev.dataUrl || ev.evidence_url || (ev.id && ocrEvidenceCache()[ev.id]) || '';
+    if (!imageUrl) throw new Error('証憑データが見つかりません。再登録してください');
     let body;
     if (String(ev.mime).startsWith('image/'))
       body = {
@@ -93,7 +103,7 @@ async function runOcr() {
             role: 'user',
             content: [
               { type: 'input_text', text: prompt },
-              { type: 'input_image', image_url: ev.dataUrl }
+              { type: 'input_image', image_url: imageUrl }
             ]
           }
         ],

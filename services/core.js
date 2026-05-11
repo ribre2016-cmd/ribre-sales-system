@@ -21,7 +21,66 @@ function get(k, d) {
     return d;
   }
 }
-function setLS(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+const EVIDENCE_HEAVY_FIELDS = new Set([
+  'dataUrl',
+  'data_url',
+  'imageDataUrl',
+  'image_data_url',
+  'base64',
+  'image',
+  'fileData',
+  'blob',
+  'raw',
+  'content'
+]);
+function isEvidenceKey(k) {
+  return k === LS.ev || k === 'ribre_evidences180' || k === 'ribre_full_evidences221';
+}
+function sanitizeEvidenceRecord(x) {
+  const src = x && typeof x === 'object' ? x : {};
+  const out = {
+    id: src.id || '',
+    fileName: src.fileName || '',
+    mime: src.mime || '',
+    kind: src.kind || '',
+    at: src.at || ''
+  };
+  const url = typeof src.evidence_url === 'string' ? src.evidence_url : '';
+  if (url && !/^data:/i.test(url)) out.evidence_url = url;
+  return out;
+}
+function sanitizeEvidenceList(v) {
+  const rows = Array.isArray(v) ? v : [];
+  return rows.map(sanitizeEvidenceRecord).slice(0, 100);
+}
+function setLS(k, v) {
+  const isEv = isEvidenceKey(k);
+  const payload = isEv ? sanitizeEvidenceList(v) : v;
+  const text = JSON.stringify(payload);
+  try {
+    localStorage.setItem(k, text);
+    return;
+  } catch (e) {
+    const isQuota = !!(e && (e.name === 'QuotaExceededError' || e.code === 22 || String(e.message || '').includes('quota')));
+    if (!isEv || !isQuota) throw e;
+  }
+  const rows = sanitizeEvidenceList(v);
+  const attempts = [100, 80, 60, 40, 20, 0];
+  for (let i = 0; i < attempts.length; i++) {
+    const n = attempts[i];
+    try {
+      localStorage.setItem(k, JSON.stringify(n === 0 ? [] : rows.slice(0, n)));
+      return;
+    } catch (e) {}
+  }
+  try {
+    localStorage.removeItem('ribre_evidences180');
+    localStorage.removeItem('ribre_full_evidences221');
+  } catch (e) {}
+  try {
+    localStorage.setItem(k, '[]');
+  } catch (e) {}
+}
 function sales() { return get(LS.sales, []); }
 function purchases() { return get(LS.purchases, []); }
 function evidences() { return get(LS.ev, []); }
