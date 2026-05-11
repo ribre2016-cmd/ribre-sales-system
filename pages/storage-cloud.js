@@ -1,4 +1,86 @@
 /* RIBRE — Storage/Cloud pages 移行（Phase1: ver290 の最終定義を pages 側へ集約） */
+function ver290Histories() {
+  try {
+    return JSON.parse(localStorage.getItem('ribre_backup_histories290') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+function ver290SaveHistories(arr) {
+  localStorage.setItem('ribre_backup_histories290', JSON.stringify(arr.slice(0, 20)));
+}
+function ver290Render(rows) {
+  const box = document.getElementById('backupList');
+  if (!box) return;
+  box.innerHTML = (rows || [])
+    .map((r) => '<div class="row ' + (r.level || 'ok') + '"><span>' + r.msg + '</span><span class="badge">' + r.type + '</span></div>')
+    .join('');
+}
+function ver290Set(id, v) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = v;
+}
+function ver290Snapshot() {
+  return {
+    version: 'Ver60.0',
+    exportedAt: new Date().toISOString(),
+    exportedAtJp: new Date().toLocaleString('ja-JP'),
+    user: typeof email === 'function' ? email() : '',
+    sales: typeof sales === 'function' ? sales() : [],
+    purchases: typeof purchases === 'function' ? purchases() : [],
+    yahooSales: (() => {
+      try {
+        return JSON.parse(localStorage.getItem('ribre_yahoo_sales240') || '[]');
+      } catch (e) {
+        return [];
+      }
+    })(),
+    shippingRows: (() => {
+      try {
+        return JSON.parse(localStorage.getItem('ribre_shipping_rows230') || '[]');
+      } catch (e) {
+        return [];
+      }
+    })(),
+    shippingResults: (() => {
+      try {
+        return JSON.parse(localStorage.getItem('ribre_shipping_results230') || '[]');
+      } catch (e) {
+        return [];
+      }
+    })(),
+    ocrCandidates: (() => {
+      try {
+        return JSON.parse(localStorage.getItem('ribre_ocr_candidates200') || '[]');
+      } catch (e) {
+        return [];
+      }
+    })(),
+    evidences: (() => {
+      try {
+        return JSON.parse(localStorage.getItem('ribre_full_evidences221') || '[]');
+      } catch (e) {
+        return [];
+      }
+    })(),
+    settings: {
+      supabase: (() => {
+        try {
+          return JSON.parse(localStorage.getItem('ribre_supabase_config_v121') || '{}');
+        } catch (e) {
+          return {};
+        }
+      })()
+    }
+  };
+}
+function ver290Refresh() {
+  const h = ver290Histories();
+  const snap = ver290Snapshot();
+  ver290Set('ver290HistoryCount', h.length + '件');
+  ver290Set('ver290SalesCount', (snap.sales.length || snap.yahooSales.length || 0) + '件');
+  ver290Set('ver290PurchaseCount', snap.purchases.length + '件');
+}
 function ver290CreateBackup() {
   const snap = ver290Snapshot();
   const h = ver290Histories();
@@ -86,6 +168,13 @@ window.ver290DownloadBackup = ver290DownloadBackup;
 window.ver290RestoreBackup = ver290RestoreBackup;
 window.ver290ShowHistory = ver290ShowHistory;
 window.ver290ClearOldHistory = ver290ClearOldHistory;
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    try {
+      ver290Refresh();
+    } catch (e) {}
+  }, 1300);
+});
 
 /* RIBRE — Storage/Cloud pages 移行（Phase2/3: ver320 の最終定義を pages 側へ集約） */
 function ver320Logs() {
