@@ -1133,23 +1133,6 @@
 <button class="ver310-fixed-action" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑ 上へ</button>
 
 
-<script id="ver310-mobile-script">
-window.addEventListener('load',()=>{
-  setTimeout(()=>{
-    try{
-      const isMobile=window.innerWidth<=760;
-      if(isMobile){
-        const box=document.getElementById('dashList');
-        if(box){
-          box.innerHTML='<div class="row ok"><span>スマホ表示を最適化しました。上部メニューは横スクロールできます。</span><span class="badge">Ver60.0</span></div>'+box.innerHTML;
-        }
-      }
-    }catch(e){}
-  },1500);
-});
-</script>
-
-
 <script src="services/storage.js"></script>
 
 
@@ -1316,6 +1299,7 @@ window.addEventListener('load',()=>{setTimeout(()=>{try{document.getElementById(
 <script src="pages/app-migration.js"></script>
 <script src="pages/app-upsert.js"></script>
 <script src="pages/app-sync.js"></script>
+<script src="pages/app-mobile.js"></script>
 
 </body>
 </html>
