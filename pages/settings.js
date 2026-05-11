@@ -441,6 +441,13 @@ function ver470ExportStaffCsv() {
   ver470Staff().forEach((x) => rows.push([x.email, x.role, x.status, x.addedAt, x.addedBy]));
   csvDownload(rows, 'staff_list_Ver47_0.csv');
 }
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    try {
+      ver470Refresh();
+    } catch (e) {}
+  }, 1500);
+});
 
 function ver480Render(rows) {
   const box = document.getElementById('staffCloud48List');
