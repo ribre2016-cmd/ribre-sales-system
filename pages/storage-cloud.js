@@ -1602,3 +1602,303 @@ window.addEventListener('load', () => {
     } catch (e) {}
   }, 1000);
 });
+
+/* RIBRE — Storage/Cloud pages 移行（Phase10: ver590 の最終定義を pages 側へ集約） */
+function ver590Render(rows) {
+  const box = document.getElementById('stable59List');
+  if (!box) return;
+  box.innerHTML = (rows || []).map((r) => '<div class="row ' + (r.level || 'ok') + '"><span>' + r.msg + '</span><span class="badge">' + r.type + '</span></div>').join('');
+}
+function ver590Set(id, v) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = v;
+}
+function ver590Config() {
+  try {
+    return JSON.parse(localStorage.getItem('ribre_supabase_config_v121') || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+function ver590Session() {
+  try {
+    return JSON.parse(localStorage.getItem('ribre_auth_session140') || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+function ver590GetTimer() {
+  return window.__ver590TimerPages || null;
+}
+function ver590SetTimer(timerId) {
+  window.__ver590TimerPages = timerId || null;
+}
+async function ver590HealthCheck() {
+  const config = ver590Config();
+  const session = ver590Session();
+
+  const rows = [];
+
+  if (config.url && config.key) {
+    rows.push({ type: 'DB', msg: 'Supabase設定OK' });
+    ver590Set('ver590Db', 'OK');
+  } else {
+    rows.push({ type: 'DB', level: 'danger', msg: 'Supabase設定不足' });
+    ver590Set('ver590Db', 'NG');
+  }
+
+  if (session.access_token) {
+    rows.push({ type: 'LOGIN', msg: 'ログイン状態OK' });
+  } else {
+    rows.push({ type: 'LOGIN', level: 'warn', msg: 'ログイン未確認' });
+  }
+
+  try {
+    const sales = JSON.parse(localStorage.getItem('ribre_full_sales221') || '[]');
+    rows.push({ type: 'DATA', msg: '売上データ ' + sales.length + '件' });
+  } catch (e) {
+    rows.push({ type: 'DATA', level: 'danger', msg: '売上データ破損の可能性' });
+  }
+
+  try {
+    const storage = JSON.parse(localStorage.getItem('ribre_storage_files490') || '[]');
+    rows.push({ type: 'Storage', msg: 'Storage情報 ' + storage.length + '件' });
+    ver590Set('ver590Storage', 'OK');
+  } catch (e) {
+    rows.push({ type: 'Storage', level: 'warn', msg: 'Storage情報なし' });
+    ver590Set('ver590Storage', '未確認');
+  }
+
+  ver590Set('ver590Status', '診断完了');
+  ver590Render(rows);
+}
+function ver590EnableAutoSave() {
+  const running = ver590GetTimer();
+  if (running) clearInterval(running);
+
+  const timerId = setInterval(() => {
+    try {
+      const backup = {
+        sales: localStorage.getItem('ribre_full_sales221') || '[]',
+        purchases: localStorage.getItem('ribre_full_purchases221') || '[]',
+        savedAt: new Date().toISOString()
+      };
+      localStorage.setItem('ribre_autosave590', JSON.stringify(backup));
+    } catch (e) {}
+  }, 30000);
+  ver590SetTimer(timerId);
+
+  localStorage.setItem('ribre_autosave_enabled590', '1');
+
+  ver590Set('ver590Autosave', 'ON');
+  ver590Set('ver590Status', '自動保存中');
+  ver590Render([
+    { type: '自動保存', msg: '30秒ごとに自動保存します' },
+    { type: '保護', msg: 'ブラウザクラッシュ対策ON' }
+  ]);
+}
+function ver590EmergencyBackup() {
+  const backup = {
+    exportedAt: new Date().toISOString(),
+    sales: localStorage.getItem('ribre_full_sales221') || '[]',
+    purchases: localStorage.getItem('ribre_full_purchases221') || '[]',
+    storage: localStorage.getItem('ribre_storage_files490') || '[]',
+    sync: localStorage.getItem('ribre_sync_history540') || '[]'
+  };
+
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'emergency_backup_Ver59_0.json';
+  a.click();
+
+  ver590Set('ver590Status', 'バックアップ保存');
+  ver590Render([{ type: '緊急保存', msg: '緊急バックアップを保存しました' }]);
+}
+async function ver590ConnectionCheck() {
+  const config = ver590Config();
+
+  if (!config.url) {
+    ver590Render([{ type: '接続', level: 'danger', msg: 'Supabase URL未設定' }]);
+    return;
+  }
+
+  try {
+    const r = await fetch(config.url + '/rest/v1/', {
+      headers: {
+        apikey: config.key
+      }
+    });
+
+    if (r.ok) {
+      ver590Set('ver590Db', '接続OK');
+      ver590Render([
+        { type: '接続', msg: 'Supabase接続OK' },
+        { type: '状態', msg: 'ネットワーク正常' }
+      ]);
+    } else {
+      ver590Render([{ type: '接続', level: 'warn', msg: 'Supabase応答エラー' }]);
+    }
+  } catch (e) {
+    ver590Render([{ type: '接続', level: 'danger', msg: '接続失敗: ' + e.message }]);
+  }
+}
+function ver590RecoveryMode() {
+  try {
+    const auto = JSON.parse(localStorage.getItem('ribre_autosave590') || '{}');
+
+    if (auto.sales) {
+      localStorage.setItem('ribre_full_sales221', auto.sales);
+    }
+
+    if (auto.purchases) {
+      localStorage.setItem('ribre_full_purchases221', auto.purchases);
+    }
+
+    ver590Set('ver590Status', '復旧完了');
+    ver590Render([
+      { type: '復旧', msg: '自動保存データから復旧しました' },
+      { type: '注意', level: 'warn', msg: '必要なら本番DBへ再保存してください' }
+    ]);
+  } catch (e) {
+    ver590Render([{ type: '復旧', level: 'danger', msg: '復旧失敗: ' + e.message }]);
+  }
+}
+function ver590ErrorGuide() {
+  ver590Render([
+    { type: 'JWT expired', msg: '再ログインしてください' },
+    { type: '同期エラー', msg: 'sync_logs のRLS policy確認' },
+    { type: 'Storage失敗', msg: 'bucket名とpolicy確認' },
+    { type: '読込失敗', msg: '本番DB接続確認' },
+    { type: '白画面', msg: '最新バックアップから復旧' },
+    { type: '推奨', level: 'warn', msg: '重要作業前はJSONバックアップ推奨' }
+  ]);
+}
+
+window.ver590Render = ver590Render;
+window.ver590Set = ver590Set;
+window.ver590Config = ver590Config;
+window.ver590Session = ver590Session;
+window.ver590HealthCheck = ver590HealthCheck;
+window.ver590EnableAutoSave = ver590EnableAutoSave;
+window.ver590EmergencyBackup = ver590EmergencyBackup;
+window.ver590ConnectionCheck = ver590ConnectionCheck;
+window.ver590RecoveryMode = ver590RecoveryMode;
+window.ver590ErrorGuide = ver590ErrorGuide;
+
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    try {
+      if (window.__ver590InitDone) return;
+      window.__ver590InitDone = true;
+      if (localStorage.getItem('ribre_autosave_enabled590') === '1') {
+        try {
+          ver590EnableAutoSave();
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }, 1200);
+});
+
+/* RIBRE — Storage/Cloud pages 移行（Phase11: ver600 の最終定義を pages 側へ集約） */
+function ver600Render(rows) {
+  const box = document.getElementById('product60List');
+  if (!box) return;
+  box.innerHTML = (rows || []).map((r) => '<div class="row ' + (r.level || 'ok') + '"><span>' + r.msg + '</span><span class="badge">' + r.type + '</span></div>').join('');
+}
+function ver600Set(id, v) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = v;
+}
+function ver600ShowPlan() {
+  ver600Set('ver600Status', '表示中');
+  ver600Render([
+    { type: 'Phase1', msg: '自社運用を安定化' },
+    { type: 'Phase2', msg: 'スタッフ共有運用' },
+    { type: 'Phase3', msg: '外部ユーザーテスト' },
+    { type: 'Phase4', msg: 'SaaS版公開' },
+    { type: 'Phase5', msg: '課金・契約管理追加' },
+    { type: '重要', level: 'warn', msg: 'まずは自社で毎日使い、実運用で改善を繰り返すのがおすすめです' }
+  ]);
+}
+function ver600ShowPricing() {
+  ver600Render([
+    { type: 'ライト', msg: '月額 4,980円 / 小規模向け' },
+    { type: 'スタンダード', msg: '月額 9,800円 / OCR・同期対応' },
+    { type: 'プロ', msg: '月額 29,800円 / 複数店舗・分析強化' },
+    { type: 'オプション', msg: 'AI OCR追加従量課金' },
+    { type: '推奨', level: 'warn', msg: '最初は紹介制・少人数運用がおすすめ' }
+  ]);
+}
+function ver600ShowFeatures() {
+  ver600Render([
+    { type: '対応', msg: 'ヤフオクCSV' },
+    { type: '対応', msg: '配送照合' },
+    { type: '対応', msg: 'AI OCR登録' },
+    { type: '対応', msg: 'Storage証憑管理' },
+    { type: '対応', msg: '自動同期' },
+    { type: '対応', msg: '監査ログ' },
+    { type: '対応', msg: '経営分析' },
+    { type: '次', level: 'warn', msg: '次は請求管理・契約管理・店舗別管理が必要' }
+  ]);
+}
+function ver600ShowLicense() {
+  ver600Render([
+    { type: '方式', msg: '店舗ごとにアカウント発行' },
+    { type: '権限', msg: '管理者 / スタッフ を分離' },
+    { type: '制限', msg: '利用店舗数・Storage容量制御' },
+    { type: '契約', msg: '月額更新制' },
+    { type: '推奨', level: 'warn', msg: 'Stripeなどで課金管理するのがおすすめ' }
+  ]);
+}
+function ver600ShowDemo() {
+  ver600Render([
+    { type: 'デモ', msg: 'サンプル売上データを用意' },
+    { type: 'デモ', msg: '初心者モード中心で案内' },
+    { type: 'デモ', msg: 'OCR→配送照合→日次レポートまで体験' },
+    { type: '営業', msg: '中古EC業者へ提案可能' },
+    { type: '推奨', level: 'warn', msg: 'まずは知り合い店舗で試験運用がおすすめ' }
+  ]);
+}
+function ver600ExportPlan() {
+  const text = `RIBRE 売上管理システム Ver60.0 商品化メモ
+
+現在実装:
+- CSV取込
+- AI OCR
+- Storage
+- 本番DB
+- 自動同期
+- 操作ログ
+- 分析
+- バックアップ
+
+次に必要:
+- 店舗別管理
+- 契約管理
+- Stripe課金
+- SaaS化
+- API制限
+- 利用量管理
+
+推奨:
+まずは自社運用を安定化し、少人数へ試験導入する。
+`;
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'RIBRE_product_plan_Ver60_0.txt';
+  a.click();
+
+  ver600Set('ver600Status', '保存OK');
+  ver600Render([{ type: '保存', msg: '商品化メモを保存しました' }]);
+}
+
+window.ver600Render = ver600Render;
+window.ver600Set = ver600Set;
+window.ver600ShowPlan = ver600ShowPlan;
+window.ver600ShowPricing = ver600ShowPricing;
+window.ver600ShowFeatures = ver600ShowFeatures;
+window.ver600ShowLicense = ver600ShowLicense;
+window.ver600ShowDemo = ver600ShowDemo;
+window.ver600ExportPlan = ver600ExportPlan;
