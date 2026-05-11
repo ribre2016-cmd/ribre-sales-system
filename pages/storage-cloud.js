@@ -6,8 +6,44 @@ function ver290Histories() {
     return [];
   }
 }
+function ver290SlimHistoryRecord(x) {
+  const src = x && typeof x === 'object' ? x : {};
+  const n = (v) => {
+    const num = Number(v);
+    return Number.isFinite(num) ? num : 0;
+  };
+  return {
+    id: src.id || 'backup_' + Date.now(),
+    createdAt: src.createdAt || src.at || new Date().toLocaleString('ja-JP'),
+    salesCount: n(src.salesCount),
+    purchasesCount: n(src.purchasesCount != null ? src.purchasesCount : src.purchaseCount),
+    staffCount: n(src.staffCount),
+    note: String(src.note || ''),
+    status: String(src.status || '')
+  };
+}
 function ver290SaveHistories(arr) {
-  localStorage.setItem('ribre_backup_histories290', JSON.stringify(arr.slice(0, 20)));
+  const rows = (arr || []).map((x) => ver290SlimHistoryRecord(x)).slice(0, 5);
+  const saveDirect = (n) => {
+    const payload = n === 0 ? [] : rows.slice(0, n);
+    localStorage.removeItem('ribre_backup_histories290');
+    localStorage.setItem('ribre_backup_histories290', JSON.stringify(payload));
+  };
+  try {
+    saveDirect(5);
+    return;
+  } catch (e) {}
+  try {
+    saveDirect(3);
+    return;
+  } catch (e) {}
+  try {
+    saveDirect(1);
+    return;
+  } catch (e) {}
+  try {
+    saveDirect(0);
+  } catch (e) {}
 }
 function ver290Render(rows) {
   const box = document.getElementById('backupList');
@@ -84,12 +120,18 @@ function ver290Refresh() {
 function ver290CreateBackup() {
   const snap = ver290Snapshot();
   const h = ver290Histories();
+  let staffs = [];
+  try {
+    staffs = JSON.parse(localStorage.getItem('ribre_staffs470') || '[]');
+  } catch (e) {}
   h.unshift({
     id: 'backup_' + Date.now(),
-    at: snap.exportedAtJp,
+    createdAt: snap.exportedAtJp,
     salesCount: snap.sales.length || snap.yahooSales.length || 0,
-    purchaseCount: snap.purchases.length,
-    data: snap
+    purchasesCount: snap.purchases.length,
+    staffCount: staffs.length,
+    note: 'ver290 backup',
+    status: 'created'
   });
   ver290SaveHistories(h);
   ver290Refresh();
@@ -152,7 +194,13 @@ function ver290ShowHistory() {
   ver290Render(
     h.map((x) => ({
       type: '履歴',
-      msg: x.at + ' / 売上 ' + x.salesCount + '件 / 仕入 ' + x.purchaseCount + '件'
+      msg:
+        (x.createdAt || x.at || '') +
+        ' / 売上 ' +
+        (x.salesCount || 0) +
+        '件 / 仕入 ' +
+        (x.purchasesCount != null ? x.purchasesCount : x.purchaseCount || 0) +
+        '件'
     }))
   );
 }
