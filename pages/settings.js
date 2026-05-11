@@ -512,6 +512,9 @@ function ver480Url(table, query = '') {
 async function ver480Rest(table, opt = {}) {
   const url = ver480Url(table, opt.query || '');
   if (!url) return { error: { message: 'Supabase設定なし' } };
+  const sessionValue = ver480Session();
+  const token = sessionValue.access_token || (sessionValue.session && sessionValue.session.access_token) || '';
+  if (!token) return { error: { message: '再ログインしてください', authRequired: true, status: 401 } };
   try {
     const res = await fetch(url, {
       method: opt.method || 'GET',
@@ -525,6 +528,7 @@ async function ver480Rest(table, opt = {}) {
     } catch (e) {
       data = text;
     }
+    if (res.status === 401) return { error: { message: '再ログインしてください', authRequired: true, status: 401 } };
     if (!res.ok) return { error: { message: (data && data.message) || text || 'HTTP ' + res.status } };
     return { data };
   } catch (e) {
@@ -577,6 +581,12 @@ function ver480ExportSql() {
 }
 async function ver480CheckTable() {
   const res = await ver480Rest('staffs', { query: '?select=id&limit=1' });
+  if (res.error && res.error.authRequired) {
+    ver480Set('ver480Table', 'エラー');
+    ver480Set('ver480Status', '再ログインしてください');
+    ver480Render([{ type: 'AUTH', level: 'warn', msg: '再ログインしてください' }]);
+    return;
+  }
   ver480Set('ver480Table', res.error ? 'エラー' : 'OK');
   ver480Set('ver480Status', res.error ? 'エラー' : '確認OK');
   ver480Render([{ type: 'staffs', level: res.error ? 'danger' : 'ok', msg: res.error ? res.error.message : 'staffsテーブルOK' }]);
@@ -614,6 +624,11 @@ async function ver480UploadStaff() {
     body: rows
   });
   if (res.error) {
+    if (res.error.authRequired) {
+      ver480Set('ver480Status', '再ログインしてください');
+      ver480Render([{ type: 'AUTH', level: 'warn', msg: '再ログインしてください' }]);
+      return;
+    }
     ver480Render([
       { type: 'ERROR', level: 'danger', msg: res.error.message },
       { type: '確認', level: 'warn', msg: '先にスタッフSQLをSupabase SQL Editorで実行してください' }
@@ -633,6 +648,11 @@ async function ver480LoadStaff() {
     query: '?select=*&or=(owner_email.eq.' + encodeURIComponent(emailValue) + ',staff_email.eq.' + encodeURIComponent(emailValue) + ')&limit=1000'
   });
   if (res.error) {
+    if (res.error.authRequired) {
+      ver480Set('ver480Status', '再ログインしてください');
+      ver480Render([{ type: 'AUTH', level: 'warn', msg: '再ログインしてください' }]);
+      return;
+    }
     ver480Render([{ type: 'ERROR', level: 'danger', msg: res.error.message }]);
     return;
   }
@@ -675,6 +695,13 @@ function ver480ApplyCloudRole() {
   ver480Set('ver480Status', '権限適用OK');
   ver480Render([{ type: '権限', msg: emailValue + ' に ' + hit.role + ' を適用しました' }]);
 }
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    try {
+      ver480Refresh();
+    } catch (e) {}
+  }, 1400);
+});
 
 window.saveSupabase = saveSupabase;
 window.checkSupabase = checkSupabase;
