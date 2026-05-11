@@ -4302,8 +4302,42 @@ async function ver550Rest(table,query='',method='GET',body=null){
 function ver550Local(){
  try{return JSON.parse(localStorage.getItem('ribre_audit_logs550')||'[]')}catch(e){return []}
 }
+function ver550SlimLog(x){
+ const src=x&&typeof x==='object'?x:{};
+ const out={
+  user_email:src.user_email||'',
+  device_name:src.device_name||'',
+  action_type:src.action_type||'',
+  action_detail:src.action_detail||'',
+  target_table:src.target_table||'',
+  target_id:src.target_id||'',
+  created_at:src.created_at||new Date().toISOString()
+ };
+ if('before_json' in src) out.before_json=null;
+ if('after_json' in src) out.after_json=null;
+ return out;
+}
 function ver550SaveLocal(arr){
- localStorage.setItem('ribre_audit_logs550',JSON.stringify(arr.slice(0,2000)));
+ const isQuota=(e)=>!!(e&&(e.name==='QuotaExceededError'||e.code===22||String(e.message||'').includes('quota')));
+ const rows=(arr||[]).map(ver550SlimLog).slice(0,200);
+ const save=(n)=>localStorage.setItem('ribre_audit_logs550',JSON.stringify(n===0?[]:rows.slice(0,n)));
+ try{
+  save(200);
+ }catch(e){
+  if(!isQuota(e)) return;
+  try{
+   save(100);
+  }catch(e2){
+   if(!isQuota(e2)) return;
+   try{
+    save(50);
+   }catch(e3){
+    save(0);
+   }
+  }
+  ver550Set('ver550Status','容量調整');
+  ver550Render([{type:'容量',level:'warn',msg:'保存容量がいっぱいです。古いログを削除しました'}]);
+ }
 }
 function ver550Sql(){
 return `create table if not exists audit_logs (
@@ -4358,14 +4392,14 @@ async function ver550CreateLog(action,detail,targetTable='',targetId='',beforeOb
    action_detail:detail,
    target_table:targetTable,
    target_id:targetId,
-   before_json:beforeObj,
-   after_json:afterObj,
+  before_json:null,
+  after_json:null,
    created_at:new Date().toISOString()
  };
  const local=ver550Local();
  local.unshift(log);
  ver550SaveLocal(local);
- ver550Set('ver550LocalCount',local.length+'件');
+ ver550Set('ver550LocalCount',ver550Local().length+'件');
  ver550Set('ver550User',email||'未ログイン');
 
  if(email){
@@ -4451,7 +4485,7 @@ function ver550WrapFunctions(){
      const old=window[name];
      window[name]=async function(){
        const result=await old.apply(this,arguments);
-       try{ver550CreateLog(type,detail)}catch(e){}
+      Promise.resolve(ver550CreateLog(type,detail)).catch(()=>{});
        return result;
      };
      window['__ver550_'+name]=true;
