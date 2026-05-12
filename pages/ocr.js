@@ -194,6 +194,7 @@ function ver500LearnFromCandidate(candidate, meta = {}) {
   const storeName = String(src.storeName || '').trim();
   const itemTitle = String(src.itemTitle || '').trim();
   const category = String(src.category || '').trim();
+  const documentType = ver500NormalizeDocumentType(src.documentType || '');
   const supplierName = String(src.supplierName || '').trim();
   const salesChannel = String(src.salesChannel || '').trim();
   const genre = String(src.genre || '').trim();
@@ -240,6 +241,20 @@ function ver500LearnFromCandidate(candidate, meta = {}) {
       rules.genreKeywords.push({ keyword: itemTitle, value: genre });
       changed = true;
       pushLog('genreKeywords', itemTitle, genre, 'added');
+    }
+  }
+  if (documentType !== 'unknown') {
+    const docKeyword = storeName || itemTitle || category;
+    if (ver500IsLearnableKeyword(docKeyword)) {
+      const duplicate = rules.documentTypeByKeyword.some(
+        (x) => String(x.keyword || '') === docKeyword && ver500NormalizeDocumentType(x.value || '') === documentType
+      );
+      if (duplicate) pushLog('documentType', docKeyword, documentType, 'duplicate_skip');
+      else {
+        rules.documentTypeByKeyword.push({ keyword: docKeyword, value: documentType });
+        changed = true;
+        pushLog('documentType', docKeyword, documentType, 'added');
+      }
     }
   }
 
@@ -295,6 +310,7 @@ function ver500BuildLearningCandidate(input) {
     kind: String(src.kind || fallback.kind || 'unknown'),
     sourceType: String(src.sourceType || (src.kind === 'sale' ? 'sale' : src.kind === 'purchase' || src.kind === 'expense' ? 'purchase' : '') || 'unknown'),
     category: String(src.category || 'unknown'),
+    documentType: ver500NormalizeDocumentType(src.documentType || fallback.documentType || ''),
     supplierName: String(src.supplierName || fallback.supplierName || ''),
     salesChannel: String(src.salesChannel || fallback.salesChannel || ''),
     genre: String(src.genre || fallback.genre || ''),
@@ -331,6 +347,62 @@ function ver500RouteLabel(sourceType) {
   if (t === 'receipt') return '証憑';
   return '未分類';
 }
+function ver500AllowedDocumentTypes() {
+  return [
+    'minna_market',
+    'auction_shiki',
+    'surugaya',
+    'bookoff',
+    'yamato',
+    'sagawa',
+    'mercari',
+    'yahoo',
+    'receipt',
+    'invoice',
+    'unknown'
+  ];
+}
+function ver500NormalizeDocumentType(v) {
+  const s = String(v || '').trim().toLowerCase();
+  return ver500AllowedDocumentTypes().includes(s) ? s : 'unknown';
+}
+function ver500DocumentTypeKeywordRules() {
+  return [
+    { keyword: 'みんなの市場', value: 'minna_market' },
+    { keyword: 'オークション志木', value: 'auction_shiki' },
+    { keyword: 'ヤマト', value: 'yamato' },
+    { keyword: '発払い', value: 'yamato' },
+    { keyword: '送り状', value: 'yamato' },
+    { keyword: '佐川', value: 'sagawa' },
+    { keyword: '飛脚', value: 'sagawa' },
+    { keyword: 'bookoff', value: 'bookoff' },
+    { keyword: 'ブックオフ', value: 'bookoff' },
+    { keyword: '駿河屋', value: 'surugaya' },
+    { keyword: 'メルカリ', value: 'mercari' },
+    { keyword: 'ヤフオク', value: 'yahoo' },
+    { keyword: '領収', value: 'receipt' },
+    { keyword: 'レシート', value: 'receipt' },
+    { keyword: '請求', value: 'invoice' },
+    { keyword: 'invoice', value: 'invoice' }
+  ];
+}
+function ver500DocumentTypeDefaults(documentType) {
+  const t = ver500NormalizeDocumentType(documentType);
+  const map = {
+    minna_market: { supplierName: 'みんなの市場', sourceType: 'purchase', category: 'surugaya_purchase' },
+    auction_shiki: { supplierName: 'オークション志木', sourceType: 'purchase', category: 'bookoff_purchase' },
+    surugaya: { sourceType: 'purchase', category: 'surugaya_purchase' },
+    bookoff: { sourceType: 'purchase', category: 'bookoff_purchase' },
+    yamato: { sourceType: 'shipping', category: 'yamato_shipping', shippingCarrier: 'ヤマト' },
+    sagawa: { sourceType: 'shipping', category: 'sagawa_shipping', shippingCarrier: '佐川' },
+    mercari: { sourceType: 'sale', category: 'mercari_sale' },
+    yahoo: { sourceType: 'sale', category: 'yahoo_sale' },
+    receipt: { sourceType: 'receipt', category: 'receipt' },
+    invoice: { sourceType: 'purchase', category: 'invoice' },
+    unknown: {}
+  };
+  return map[t] || {};
+}
 function ver500DefaultOcrMappingRules() {
   return {
     supplierByStore: [
@@ -358,7 +430,8 @@ function ver500DefaultOcrMappingRules() {
       { keyword: '文庫', value: '本' },
       { keyword: '書籍', value: '本' },
       { keyword: '本', value: '本' }
-    ]
+    ],
+    documentTypeByKeyword: []
   };
 }
 function ver500StoredOcrMappingRules() {
@@ -378,7 +451,8 @@ function ver500BuildLearningMappingRules() {
     supplierByStore: [],
     salesChannelByCategory: {},
     shippingCarrierByCategory: {},
-    genreKeywords: []
+    genreKeywords: [],
+    documentTypeByKeyword: []
   };
   rows.forEach((r) => {
     const target = String((r && r.target) || '');
@@ -393,6 +467,7 @@ function ver500BuildLearningMappingRules() {
     else if (target === 'genreKeywords') out.genreKeywords.push({ keyword, value });
     else if (target === 'salesChannelByCategory') out.salesChannelByCategory[keyword] = value;
     else if (target === 'shippingCarrierByCategory') out.shippingCarrierByCategory[keyword] = value;
+    else if (target === 'documentType') out.documentTypeByKeyword.push({ keyword, value: ver500NormalizeDocumentType(value) });
   });
   return out;
 }
@@ -456,17 +531,25 @@ function ver500NormalizeOcrMappingRules(raw) {
         .map((x) => ({ keyword: String((x && x.keyword) || ''), value: String((x && x.value) || '') }))
         .filter((x) => x.keyword && x.value)
     : base.genreKeywords;
+  const documentTypeByKeyword = Array.isArray(src.documentTypeByKeyword)
+    ? src.documentTypeByKeyword
+        .map((x) => ({ keyword: String((x && x.keyword) || ''), value: ver500NormalizeDocumentType((x && x.value) || '') }))
+        .filter((x) => x.keyword && x.value && x.value !== 'unknown')
+    : base.documentTypeByKeyword;
   return {
     supplierByStore: supplierByStore.length ? supplierByStore : base.supplierByStore,
     salesChannelByCategory: Object.keys(salesChannelByCategory).length ? salesChannelByCategory : base.salesChannelByCategory,
     shippingCarrierByCategory: Object.keys(shippingCarrierByCategory).length ? shippingCarrierByCategory : base.shippingCarrierByCategory,
-    genreKeywords: genreKeywords.length ? genreKeywords : base.genreKeywords
+    genreKeywords: genreKeywords.length ? genreKeywords : base.genreKeywords,
+    documentTypeByKeyword: documentTypeByKeyword.length ? documentTypeByKeyword : base.documentTypeByKeyword
   };
 }
 function ver500OcrMappingRules() {
   const base = ver500NormalizeOcrMappingRules(ver500DefaultOcrMappingRules());
   const manualRaw = ver500StoredOcrMappingRules();
-  const manual = manualRaw ? ver500NormalizeOcrMappingRules(manualRaw) : { supplierByStore: [], salesChannelByCategory: {}, shippingCarrierByCategory: {}, genreKeywords: [] };
+  const manual = manualRaw
+    ? ver500NormalizeOcrMappingRules(manualRaw)
+    : { supplierByStore: [], salesChannelByCategory: {}, shippingCarrierByCategory: {}, genreKeywords: [], documentTypeByKeyword: [] };
   const learning = ver500NormalizeOcrMappingRules(ver500BuildLearningMappingRules());
   return {
     supplierByStore: ver500MergePairRules(manual.supplierByStore, learning.supplierByStore, base.supplierByStore),
@@ -476,7 +559,8 @@ function ver500OcrMappingRules() {
       learning.shippingCarrierByCategory,
       manual.shippingCarrierByCategory
     ),
-    genreKeywords: ver500MergePairRules(manual.genreKeywords, learning.genreKeywords, base.genreKeywords)
+    genreKeywords: ver500MergePairRules(manual.genreKeywords, learning.genreKeywords, base.genreKeywords),
+    documentTypeByKeyword: ver500MergePairRules(manual.documentTypeByKeyword, learning.documentTypeByKeyword, base.documentTypeByKeyword)
   };
 }
 function ver500RenderOcrMappingRulesEditor() {
@@ -606,6 +690,44 @@ function ver500DetectGenre(itemTitle) {
   const detail = ver500DetectGenreDetail(itemTitle);
   return detail.genre;
 }
+function ver500DetectDocumentTypeDetail(src, rulesOpt) {
+  const x = src && typeof src === 'object' ? src : {};
+  const rules = rulesOpt || ver500OcrMappingRules();
+  const pool = [x.storeName, x.partner, x.vendor, x.itemTitle, x.item, x.note, x.memo]
+    .map((v) => String(v || ''))
+    .join(' ')
+    .toLowerCase();
+  const category = String(x.category || '').trim().toLowerCase();
+  const aiType = ver500NormalizeDocumentType(x.documentType || x.aiDocumentType || '');
+
+  const learningMap = ver500BuildLearningMappingRules();
+  const learningRules = Array.isArray(learningMap.documentTypeByKeyword) ? learningMap.documentTypeByKeyword : [];
+  for (let i = 0; i < learningRules.length; i++) {
+    const k = String((learningRules[i] && learningRules[i].keyword) || '').toLowerCase();
+    const v = ver500NormalizeDocumentType((learningRules[i] && learningRules[i].value) || '');
+    if (!k || v === 'unknown') continue;
+    if (pool.includes(k) || category === k) return { documentType: v, documentMatchedBy: 'learning' };
+  }
+
+  const manualDocRules = Array.isArray(rules.documentTypeByKeyword) ? rules.documentTypeByKeyword : [];
+  for (let i = 0; i < manualDocRules.length; i++) {
+    const k = String((manualDocRules[i] && manualDocRules[i].keyword) || '').toLowerCase();
+    const v = ver500NormalizeDocumentType((manualDocRules[i] && manualDocRules[i].value) || '');
+    if (!k || v === 'unknown') continue;
+    if (pool.includes(k) || category === k) return { documentType: v, documentMatchedBy: 'keyword' };
+  }
+
+  const keywordRules = ver500DocumentTypeKeywordRules();
+  for (let i = 0; i < keywordRules.length; i++) {
+    const k = String(keywordRules[i].keyword || '').toLowerCase();
+    const v = ver500NormalizeDocumentType(keywordRules[i].value || '');
+    if (!k || v === 'unknown') continue;
+    if (pool.includes(k) || category === k) return { documentType: v, documentMatchedBy: 'keyword' };
+  }
+
+  if (aiType !== 'unknown') return { documentType: aiType, documentMatchedBy: 'ai' };
+  return { documentType: 'unknown', documentMatchedBy: 'unknown' };
+}
 function ver500LearningRuleLookups() {
   const learning = ver500BuildLearningMappingRules();
   const supplierPairs = new Set((learning.supplierByStore || []).map((x) => String(x.keyword || '').trim() + '\t' + String(x.value || '').trim()));
@@ -635,10 +757,12 @@ function ver500ApplyAutoMapping(src) {
   const rules = ver500OcrMappingRules();
   const lookups = ver500LearningRuleLookups();
   const storeName = String(x.storeName || x.partner || '');
-  const category = String(x.category || 'unknown');
-  const sourceType = String(x.sourceType || 'unknown');
+  const doc = ver500DetectDocumentTypeDetail(x, rules);
+  const defaults = ver500DocumentTypeDefaults(doc.documentType);
+  const category = String(defaults.category || x.category || 'unknown');
+  const sourceType = String(defaults.sourceType || x.sourceType || 'unknown');
   const itemTitle = String(x.itemTitle || x.item || '');
-  let supplierName = '';
+  let supplierName = String(defaults.supplierName || '');
   let supplierLearned = false;
   for (let i = 0; i < rules.supplierByStore.length; i++) {
     const r = rules.supplierByStore[i];
@@ -650,7 +774,7 @@ function ver500ApplyAutoMapping(src) {
   }
   const salesChannel = rules.salesChannelByCategory[category] || '';
   const salesLearned = !!(category && salesChannel && String(lookups.salesByCategory[category] || '') === salesChannel);
-  let shippingCarrier = rules.shippingCarrierByCategory[category] || '';
+  let shippingCarrier = String(defaults.shippingCarrier || rules.shippingCarrierByCategory[category] || '');
   let shippingLearned = !!(category && shippingCarrier && String(lookups.carrierByCategory[category] || '') === shippingCarrier);
   if (!shippingCarrier && /ヤマト/.test(storeName)) shippingCarrier = 'ヤマト';
   if (!shippingCarrier && /佐川/.test(storeName)) shippingCarrier = '佐川';
@@ -666,9 +790,23 @@ function ver500ApplyAutoMapping(src) {
   if (salesLearned && salesChannel) learnedFields.push('salesChannel');
   if (genreLearned && genre) learnedFields.push('genre');
   if (shippingLearned && shippingCarrier) learnedFields.push('shippingCarrier');
+  if (doc.documentMatchedBy === 'learning' && doc.documentType !== 'unknown') learnedFields.push('documentType');
   const learnedMapped = learnedFields.length > 0;
   const autoMapped = !!(supplierName || salesChannel || genre || shippingCarrier || accountType !== 'unknown');
-  return { supplierName, salesChannel, genre, shippingCarrier, accountType, autoMapped, learnedMapped, learnedFields };
+  return {
+    supplierName,
+    salesChannel,
+    genre,
+    shippingCarrier,
+    accountType,
+    autoMapped,
+    learnedMapped,
+    learnedFields,
+    documentType: doc.documentType,
+    documentMatchedBy: doc.documentMatchedBy,
+    mappedSourceType: sourceType,
+    mappedCategory: category
+  };
 }
 function ver500NormalizeRouteEntry(x) {
   const src = x && typeof x === 'object' ? x : {};
@@ -682,6 +820,8 @@ function ver500NormalizeRouteEntry(x) {
     createdAt: String(src.createdAt || new Date().toISOString()),
     sourceType: String(src.sourceType || 'unknown'),
     category: String(src.category || 'unknown'),
+    documentType: ver500NormalizeDocumentType(src.documentType || ''),
+    documentMatchedBy: String(src.documentMatchedBy || 'unknown'),
     date: String(src.date || ''),
     amount: ver500Num(src.amount),
     shipping: ver500Num(src.shipping),
@@ -730,6 +870,8 @@ function ver500CreateDraftRouteFromCandidate(candidate) {
     createdAt: new Date().toISOString(),
     sourceType,
     category: c.category || 'unknown',
+    documentType: c.documentType || 'unknown',
+    documentMatchedBy: c.documentMatchedBy || 'unknown',
     date: c.date || '',
     amount: c.amount || 0,
     shipping: c.shipping || 0,
@@ -765,6 +907,8 @@ function ver500BuildFallbackDraftFromForm() {
     kind,
     sourceType,
     category: 'unknown',
+    documentType: 'unknown',
+    documentMatchedBy: 'unknown',
     date: String((document.getElementById('ver500Date') || {}).value || ''),
     partner: String((document.getElementById('ver500Partner') || {}).value || ''),
     item: String((document.getElementById('ver500Item') || {}).value || ''),
@@ -954,6 +1098,8 @@ function ver500RenderDraftRouteList(noticeMsg) {
         esc(x.date || '') +
         ' / ' +
         esc(ver500RouteLabel(x.sourceType)) +
+        ' / ' +
+        esc(x.documentType || 'unknown') +
         ' / ' +
         esc(x.storeName || '-') +
         ' / ' +
@@ -1381,10 +1527,23 @@ function ver500NormalizeSchema(raw) {
     else if (/領収|レシート/.test(textPool)) category = 'receipt';
     else if (/請求|invoice/.test(textPool)) category = 'invoice';
   }
+  const doc = ver500DetectDocumentTypeDetail(
+    {
+      storeName: x.storeName || x.partner || x.vendor || '',
+      itemTitle: x.itemTitle || x.item || x.itemName || '',
+      note: x.note || x.memo || '',
+      category,
+      sourceType,
+      documentType: x.documentType || x.document_type || ''
+    },
+    ver500OcrMappingRules()
+  );
   return {
     kind: kindRaw === 'sale' ? 'sale' : kindRaw === 'purchase' ? 'purchase' : sourceType === 'sale' ? 'sale' : sourceType === 'purchase' ? 'purchase' : 'unknown',
     category,
     sourceType,
+    documentType: doc.documentType || 'unknown',
+    documentMatchedBy: doc.documentMatchedBy || 'unknown',
     storeName: String(x.storeName || x.partner || x.vendor || ''),
     date: ver500NormalizeDate(x.date),
     amount: ver500Num(x.amount),
@@ -1408,14 +1567,17 @@ function ver500SchemaToCandidate(schema, options = {}) {
   if (s.itemCount) memoParts.push('数量:' + s.itemCount);
   if (s.category) memoParts.push('カテゴリ:' + s.category);
   if (s.sourceType) memoParts.push('種別:' + s.sourceType);
+  if (s.documentType) memoParts.push('帳票:' + s.documentType);
   if (mapped.supplierName) memoParts.push('仕入先:' + mapped.supplierName);
   if (mapped.salesChannel) memoParts.push('販路:' + mapped.salesChannel);
   if (mapped.genre) memoParts.push('ジャンル:' + mapped.genre);
   if (mapped.shippingCarrier) memoParts.push('配送:' + mapped.shippingCarrier);
   return {
     kind: candidateKind,
-    category: s.category || 'unknown',
-    sourceType: s.sourceType || 'unknown',
+    category: mapped.mappedCategory || s.category || 'unknown',
+    sourceType: mapped.mappedSourceType || s.sourceType || 'unknown',
+    documentType: mapped.documentType || s.documentType || 'unknown',
+    documentMatchedBy: mapped.documentMatchedBy || s.documentMatchedBy || 'unknown',
     status: 'draft',
     supplierName: mapped.supplierName,
     salesChannel: mapped.salesChannel,
@@ -1506,10 +1668,22 @@ function ver500ExtractByRules(text) {
   else if (/領収|レシート/.test(t)) category = 'receipt';
   else if (/請求|invoice/i.test(t)) category = 'invoice';
   const trackingNorm = ver500NormalizeTracking(trackingRaw);
+  const doc = ver500DetectDocumentTypeDetail(
+    {
+      storeName,
+      itemTitle: 'AI読取候補',
+      note: t,
+      category,
+      sourceType
+    },
+    ver500OcrMappingRules()
+  );
   return {
     kind,
     category,
     sourceType,
+    documentType: doc.documentType || 'unknown',
+    documentMatchedBy: doc.documentMatchedBy || 'keyword',
     storeName: storeName || '',
     date: ver500NormalizeDate(dateRaw || new Date().toISOString().slice(0, 10)),
     amount: ver500Num(amountRaw),
@@ -1527,8 +1701,8 @@ async function ver500OpenAiAnalyze(inputText, imageDataUrl) {
 
   const prompt =
     'あなたは日本の売上管理OCRです。必ずJSONのみ返すこと。説明文は禁止。推測は禁止。存在しない値は null。' +
-    '日本のEC/配送/買取伝票を想定し、category/sourceTypeを推定してください。不明時は unknown。' +
-    '出力schemaは次のみ: {"kind":"sale|purchase|unknown","category":"yahoo_sale|mercari_sale|surugaya_purchase|bookoff_purchase|yamato_shipping|sagawa_shipping|receipt|invoice|unknown","sourceType":"sale|purchase|shipping|receipt|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
+    '日本のEC/配送/買取伝票を想定し、documentType/category/sourceTypeを推定してください。不明時は unknown。documentType を必ず推定してください。' +
+    '出力schemaは次のみ: {"kind":"sale|purchase|unknown","documentType":"minna_market|auction_shiki|surugaya|bookoff|yamato|sagawa|mercari|yahoo|receipt|invoice|unknown","category":"yahoo_sale|mercari_sale|surugaya_purchase|bookoff_purchase|yamato_shipping|sagawa_shipping|receipt|invoice|unknown","sourceType":"sale|purchase|shipping|receipt|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
 
   let input;
   const hasImageInput = !!(imageDataUrl && (/^data:image\//i.test(String(imageDataUrl)) || /^https?:\/\//i.test(String(imageDataUrl))));
@@ -1623,6 +1797,7 @@ async function ver500AnalyzeEvidence() {
       ];
       if (ai.category) cacheRows.push({ type: '分類', msg: 'category: ' + ai.category });
       if (ai.sourceType) cacheRows.push({ type: '分類', msg: 'sourceType: ' + ai.sourceType });
+      if (ai.documentType) cacheRows.push({ type: '分類', msg: 'documentType: ' + ai.documentType + ' (' + (ai.documentMatchedBy || 'unknown') + ')' });
       ver500Render(cacheRows);
       return;
     }
@@ -1707,6 +1882,7 @@ async function ver500AnalyzeEvidence() {
   ];
   if (ai.category) rows.push({ type: '分類', msg: 'category: ' + ai.category });
   if (ai.sourceType) rows.push({ type: '分類', msg: 'sourceType: ' + ai.sourceType });
+  if (ai.documentType) rows.push({ type: '分類', msg: 'documentType: ' + ai.documentType + ' (' + (ai.documentMatchedBy || 'unknown') + ')' });
   ver500Render(rows);
 }
 function ver500ConfirmSelectedDraft() {
@@ -1790,6 +1966,8 @@ function ver500ConfirmSelectedDraft() {
     salesChannel: row.salesChannel || '',
     genre: row.genre || '',
     shippingCarrier: row.shippingCarrier || '',
+    documentType: row.documentType || 'unknown',
+    documentMatchedBy: row.documentMatchedBy || 'unknown',
     accountType: row.accountType || (row.sourceType === 'sale' ? 'sales' : 'purchase'),
     autoMapped: !!row.autoMapped,
     sourceType: row.sourceType || 'unknown',
@@ -1851,6 +2029,10 @@ function ver500CurrentCandidate() {
     itemTitle: base.item
   });
   return Object.assign({}, base, mapped, {
+    category: mapped.mappedCategory || 'unknown',
+    sourceType: mapped.mappedSourceType || 'unknown',
+    documentType: mapped.documentType || 'unknown',
+    documentMatchedBy: mapped.documentMatchedBy || 'unknown',
     accountType: mapped.accountType,
     autoMapped: mapped.autoMapped,
     learnedMapped: mapped.learnedMapped,
@@ -1956,6 +2138,7 @@ function ver500ReadLegacyOcrCandidateFromForm() {
     kind: type === 'sale' ? 'sale' : 'purchase',
     sourceType: type === 'sale' ? 'sale' : 'purchase',
     category: 'unknown',
+    documentType: 'unknown',
     supplierName: '',
     salesChannel: '',
     genre: '',

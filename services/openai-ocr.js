@@ -241,6 +241,68 @@ function ribreNormalizeOcrDate(v) {
   if (m2) return m2[1] + '-' + m2[2] + '-' + m2[3];
   return '';
 }
+function ocrLearningRows() {
+  try {
+    const rows = JSON.parse(localStorage.getItem('ribre_ocr_learning_v1') || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    return [];
+  }
+}
+function ribreAllowedDocumentTypes() {
+  return ['minna_market', 'auction_shiki', 'surugaya', 'bookoff', 'yamato', 'sagawa', 'mercari', 'yahoo', 'receipt', 'invoice', 'unknown'];
+}
+function ribreNormalizeDocumentType(v) {
+  const s = String(v || '').trim().toLowerCase();
+  return ribreAllowedDocumentTypes().includes(s) ? s : 'unknown';
+}
+function ribreDocumentTypeKeywordRules() {
+  return [
+    { keyword: 'みんなの市場', value: 'minna_market' },
+    { keyword: 'オークション志木', value: 'auction_shiki' },
+    { keyword: 'ヤマト', value: 'yamato' },
+    { keyword: '発払い', value: 'yamato' },
+    { keyword: '送り状', value: 'yamato' },
+    { keyword: '佐川', value: 'sagawa' },
+    { keyword: '飛脚', value: 'sagawa' },
+    { keyword: 'bookoff', value: 'bookoff' },
+    { keyword: 'ブックオフ', value: 'bookoff' },
+    { keyword: '駿河屋', value: 'surugaya' },
+    { keyword: 'メルカリ', value: 'mercari' },
+    { keyword: 'ヤフオク', value: 'yahoo' },
+    { keyword: '領収', value: 'receipt' },
+    { keyword: 'レシート', value: 'receipt' },
+    { keyword: '請求', value: 'invoice' },
+    { keyword: 'invoice', value: 'invoice' }
+  ];
+}
+function ribreDetectDocumentTypeDetail(src) {
+  const x = src && typeof src === 'object' ? src : {};
+  const pool = [x.storeName, x.vendor, x.partner, x.itemTitle, x.itemName, x.item, x.note, x.memo]
+    .map((v) => String(v || ''))
+    .join(' ')
+    .toLowerCase();
+  const category = String(x.category || '').toLowerCase();
+  const aiType = ribreNormalizeDocumentType(x.documentType || x.document_type || '');
+  const learningRows = ocrLearningRows();
+  for (let i = 0; i < learningRows.length; i++) {
+    const r = learningRows[i] || {};
+    if (String(r.target || '') !== 'documentType') continue;
+    const keyword = String(r.keyword || '').toLowerCase();
+    const value = ribreNormalizeDocumentType(r.value || '');
+    if (!keyword || value === 'unknown') continue;
+    if (pool.includes(keyword) || category === keyword) return { documentType: value, documentMatchedBy: 'learning' };
+  }
+  const keywordRules = ribreDocumentTypeKeywordRules();
+  for (let i = 0; i < keywordRules.length; i++) {
+    const keyword = String(keywordRules[i].keyword || '').toLowerCase();
+    const value = ribreNormalizeDocumentType(keywordRules[i].value || '');
+    if (!keyword || value === 'unknown') continue;
+    if (pool.includes(keyword) || category === keyword) return { documentType: value, documentMatchedBy: 'keyword' };
+  }
+  if (aiType !== 'unknown') return { documentType: aiType, documentMatchedBy: 'ai' };
+  return { documentType: 'unknown', documentMatchedBy: 'unknown' };
+}
 function ribreCleanJsonText(text) {
   let t = String(text || '').trim();
   t = t.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
@@ -291,8 +353,18 @@ function ribreNormalizeOcrSchema(obj) {
   else if (rawKind === 'purchase') kind = 'purchase';
   else if (sourceType === 'sale') kind = 'sale';
   else if (sourceType === 'purchase') kind = 'purchase';
+  const doc = ribreDetectDocumentTypeDetail({
+    storeName: src.storeName || src.vendor || src.partner || '',
+    itemTitle: src.itemTitle || src.itemName || src.item || '',
+    note: src.note || src.memo || '',
+    category,
+    sourceType,
+    documentType: src.documentType || src.document_type || ''
+  });
   const result = {
     kind,
+    documentType: doc.documentType || 'unknown',
+    documentMatchedBy: doc.documentMatchedBy || 'unknown',
     category,
     sourceType,
     storeName: String(src.storeName || src.vendor || src.partner || ''),
@@ -347,8 +419,8 @@ async function runOcr() {
   renderList('ocrList', [{ type: 'OCR', level: 'warn', msg: 'AI読取中です' }]);
   const prompt =
     'あなたは日本の売上管理OCRです。必ずJSONのみ返してください。説明文は禁止。推測は禁止。存在しない値は null。' +
-    '日本のEC/配送/買取伝票を想定し、category/sourceTypeを推定してください。不明時は unknown。' +
-    '出力schemaは次のみ: {"kind":"sale|purchase|unknown","category":"yahoo_sale|mercari_sale|surugaya_purchase|bookoff_purchase|yamato_shipping|sagawa_shipping|receipt|invoice|unknown","sourceType":"sale|purchase|shipping|receipt|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
+    '日本のEC/配送/買取伝票を想定し、documentType/category/sourceTypeを推定してください。不明時は unknown。documentType を必ず推定してください。' +
+    '出力schemaは次のみ: {"kind":"sale|purchase|unknown","documentType":"minna_market|auction_shiki|surugaya|bookoff|yamato|sagawa|mercari|yahoo|receipt|invoice|unknown","category":"yahoo_sale|mercari_sale|surugaya_purchase|bookoff_purchase|yamato_shipping|sagawa_shipping|receipt|invoice|unknown","sourceType":"sale|purchase|shipping|receipt|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
   try {
     const cacheKey = ocrBuildResultCacheKey({
       fileName: ev.fileName,
@@ -367,6 +439,7 @@ async function runOcr() {
       ];
       if (cp.category) cacheRows.push({ type: '分類', msg: 'category: ' + cp.category });
       if (cp.sourceType) cacheRows.push({ type: '分類', msg: 'sourceType: ' + cp.sourceType });
+      if (cp.documentType) cacheRows.push({ type: '分類', msg: 'documentType: ' + cp.documentType + ' (' + (cp.documentMatchedBy || 'unknown') + ')' });
       renderList('ocrList', cacheRows);
       return;
     }
@@ -444,6 +517,7 @@ async function runOcr() {
     ];
     if (p.category) rows.push({ type: '分類', msg: 'category: ' + p.category });
     if (p.sourceType) rows.push({ type: '分類', msg: 'sourceType: ' + p.sourceType });
+    if (p.documentType) rows.push({ type: '分類', msg: 'documentType: ' + p.documentType + ' (' + (p.documentMatchedBy || 'unknown') + ')' });
     renderList('ocrList', rows);
   } catch (e) {
     renderList('ocrList', [{ type: 'ERROR', level: 'danger', msg: e.message }]);
@@ -464,6 +538,8 @@ function fillCandidate(p, ev) {
         kind: p.kind || 'unknown',
         category: p.category || 'unknown',
         sourceType: p.sourceType || 'unknown',
+        documentType: p.documentType || 'unknown',
+        documentMatchedBy: p.documentMatchedBy || 'unknown',
         date: p.date || '',
         partner: p.storeName || '',
         item: p.itemTitle || '',
