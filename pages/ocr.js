@@ -185,6 +185,8 @@ function ver500LearnFromCandidate(candidate, meta = {}) {
   const m = meta && typeof meta === 'object' ? meta : {};
   const source = String(m.source || src.source || '');
   const routeId = String(m.routeId || src.routeId || '');
+  const forcedNote = String(m.note || '').trim();
+  const forceLog = !!m.forceLog;
   const storeName = String(src.storeName || '').trim();
   const itemTitle = String(src.itemTitle || '').trim();
   const category = String(src.category || '').trim();
@@ -197,7 +199,7 @@ function ver500LearnFromCandidate(candidate, meta = {}) {
   let changed = false;
   let failed = false;
   const pushLog = (target, keyword, value, note) => {
-    logs.push({ source, routeId, target, keyword, value, note });
+    logs.push({ source, routeId, target, keyword, value, note: forcedNote || note });
   };
 
   if (ver500IsLearnableKeyword(storeName) && ver500IsLearnableValue(supplierName)) {
@@ -246,6 +248,13 @@ function ver500LearnFromCandidate(candidate, meta = {}) {
       logs.forEach((x) => {
         if (x.note === 'added') x.note = note;
       });
+    }
+  }
+  if (!logs.length) {
+    if (forceLog) {
+      const fallbackKeyword = storeName || itemTitle || category || 'manual';
+      const fallbackValue = supplierName || salesChannel || genre || shippingCarrier || String(src.sourceType || src.kind || 'manual');
+      pushLog('manualRegister', fallbackKeyword, fallbackValue, forcedNote || 'manual-register');
     }
   }
   logs.forEach((x) => {
@@ -1615,6 +1624,51 @@ function ver500ApplyCandidate() {
   const candidate = Object.assign({}, ver500CurrentCandidate(), { learningSource: 'ai_auto_register' });
   return ver500ApplyCandidateData(candidate);
 }
+const __ver500LegacyOcrToSale = typeof window.ocrToSale === 'function' ? window.ocrToSale : null;
+const __ver500LegacyOcrToPurchase = typeof window.ocrToPurchase === 'function' ? window.ocrToPurchase : null;
+function ver500ReadLegacyOcrCandidateFromForm() {
+  const type = String((document.getElementById('cKind') || {}).value || 'purchase');
+  const candidate = {
+    storeName: String((document.getElementById('cVendor') || {}).value || ''),
+    itemTitle: String((document.getElementById('cItem') || {}).value || ''),
+    kind: type === 'sale' ? 'sale' : 'purchase',
+    sourceType: type === 'sale' ? 'sale' : 'purchase',
+    category: 'unknown',
+    supplierName: '',
+    salesChannel: '',
+    genre: '',
+    shippingCarrier: ''
+  };
+  if (!candidate.genre) candidate.genre = ver500DetectGenre(candidate.itemTitle);
+  return candidate;
+}
+function ver500RunManualRegisterLearning(source) {
+  const learningCandidate = ver500BuildLearningCandidate(ver500ReadLegacyOcrCandidateFromForm());
+  const result = ver500LearnFromCandidate(learningCandidate, { source, note: 'manual-register', forceLog: true });
+  if (!result || !result.ok) {
+    if (typeof renderList === 'function') renderList('ocrList', [{ type: '学習', level: 'warn', msg: 'OCR学習保存に失敗しました' }]);
+    return result;
+  }
+  if (typeof renderList === 'function') renderList('ocrList', [{ type: '学習', msg: 'OCR学習を保存しました' }]);
+  return result;
+}
+function ocrToSale() {
+  try {
+    if (__ver500LegacyOcrToSale) __ver500LegacyOcrToSale();
+  } catch (e) {}
+  return ver500RunManualRegisterLearning('manual-sale-register');
+}
+function ocrToPurchase() {
+  try {
+    if (__ver500LegacyOcrToPurchase) __ver500LegacyOcrToPurchase();
+  } catch (e) {}
+  return ver500RunManualRegisterLearning('manual-purchase-register');
+}
+function ocrAutoRegister() {
+  const k = String((document.getElementById('cKind') || {}).value || 'purchase');
+  if (k === 'sale') return ocrToSale();
+  return ocrToPurchase();
+}
 function ver500Config() {
   try {
     return JSON.parse(localStorage.getItem('ribre_supabase_config_v121') || '{}');
@@ -1765,6 +1819,9 @@ window.ver500LearnFromCandidate = ver500LearnFromCandidate;
 window.ver500LearnFromCorrection = ver500LearnFromCorrection;
 window.ver500ConfirmSelectedDraft = ver500ConfirmSelectedDraft;
 window.ver500ConfirmDraftRoute = ver500ConfirmDraftRoute;
+window.ocrToSale = ocrToSale;
+window.ocrToPurchase = ocrToPurchase;
+window.ocrAutoRegister = ocrAutoRegister;
 window.ver500SaveCandidates = ver500SaveCandidates;
 window.ver500LatestStorage = ver500LatestStorage;
 window.ver500LoadLatestStorage = ver500LoadLatestStorage;
