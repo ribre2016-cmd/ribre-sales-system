@@ -283,6 +283,7 @@ async function runOcr() {
     let body;
     if (String(ev.mime).startsWith('image/')) {
       renderList('ocrList', [{ type: 'OCR', level: 'warn', msg: '画像最適化中...' }]);
+      await new Promise((r) => requestAnimationFrame(r));
       const optimized = await ribreOptimizeOcrImage(imageUrl);
       const optimizeStats = {
         originalBytes: optimized.originalBytes,

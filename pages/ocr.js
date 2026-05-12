@@ -243,6 +243,7 @@ async function ver500AnalyzeEvidence() {
   }
   if (imageInput && typeof window.ribreOptimizeOcrImage === 'function') {
     ver500Render([{ type: 'AI', level: 'warn', msg: '画像最適化中...' }]);
+    await new Promise((r) => requestAnimationFrame(r));
     try {
       const optimized = await window.ribreOptimizeOcrImage(imageInput);
       const optimizeStats = {
