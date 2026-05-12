@@ -80,8 +80,81 @@ function ver500SaveCandidates(arr) {
   }
 }
 function ver500Num(v) {
-  const n = Number(String(v ?? '').replace(/[¥,円,\s]/g, ''));
+  const base =
+    typeof window.ribreNormalizeOcrMoney === 'function'
+      ? window.ribreNormalizeOcrMoney(v)
+      : Number(String(v ?? '').replace(/[¥,円,\s]/g, ''));
+  const n = Number(base);
   return Number.isFinite(n) ? n : 0;
+}
+function ver500NormalizeTracking(v) {
+  if (typeof window.ribreNormalizeTrackingNumber === 'function') return window.ribreNormalizeTrackingNumber(v);
+  return String(v || '')
+    .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
+    .replace(/[ー－―−‐\-_\s]/g, '')
+    .trim();
+}
+function ver500NormalizeDate(v) {
+  if (typeof window.ribreNormalizeOcrDate === 'function') return window.ribreNormalizeOcrDate(v);
+  const s = String(v || '').replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0));
+  const m = s.match(/(20\d{2})[\/\-.年](\d{1,2})[\/\-.月](\d{1,2})/);
+  if (!m) return '';
+  return m[1] + '-' + String(Number(m[2])).padStart(2, '0') + '-' + String(Number(m[3])).padStart(2, '0');
+}
+function ver500CleanJsonText(text) {
+  let t = String(text || '').trim();
+  t = t.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if (start >= 0 && end > start) t = t.slice(start, end + 1);
+  return t.replace(/,\s*([}\]])/g, '$1');
+}
+function ver500ParseJsonLoose(text) {
+  if (typeof window.ribreExtractOcrJson === 'function') return window.ribreExtractOcrJson(text);
+  const t = ver500CleanJsonText(text);
+  try {
+    return JSON.parse(t);
+  } catch (e) {
+    return null;
+  }
+}
+function ver500NormalizeSchema(raw) {
+  if (typeof window.ribreNormalizeOcrSchema === 'function') return window.ribreNormalizeOcrSchema(raw);
+  const x = raw && typeof raw === 'object' ? raw : {};
+  const kindRaw = String(x.kind || '').toLowerCase();
+  return {
+    kind: kindRaw === 'sale' ? 'sale' : kindRaw === 'purchase' ? 'purchase' : 'unknown',
+    storeName: String(x.storeName || x.partner || x.vendor || ''),
+    date: ver500NormalizeDate(x.date),
+    amount: ver500Num(x.amount),
+    shipping: ver500Num(x.shipping),
+    trackingNumber: ver500NormalizeTracking(x.trackingNumber || x.slip || x.invoiceNo || ''),
+    itemTitle: String(x.itemTitle || x.item || x.itemName || ''),
+    itemCount: Number.isFinite(Number(x.itemCount)) ? Math.max(0, Number(x.itemCount)) : 0,
+    paymentMethod: String(x.paymentMethod || ''),
+    note: String(x.note || x.memo || '')
+  };
+}
+function ver500SchemaToCandidate(schema, options = {}) {
+  const s = ver500NormalizeSchema(schema);
+  const forced = String(options.forcedKind || '');
+  const candidateKind = forced && forced !== 'auto' ? forced : s.kind === 'sale' ? 'sale' : s.kind === 'purchase' ? 'purchase' : 'expense';
+  const memoParts = [];
+  if (s.note) memoParts.push(s.note);
+  if (s.paymentMethod) memoParts.push('支払:' + s.paymentMethod);
+  if (s.shipping) memoParts.push('送料:' + s.shipping);
+  if (s.itemCount) memoParts.push('数量:' + s.itemCount);
+  return {
+    kind: candidateKind,
+    date: s.date || '',
+    partner: s.storeName || '',
+    item: s.itemTitle || 'AI読取候補',
+    amount: ver500Num(s.amount),
+    slip: ver500NormalizeTracking(s.trackingNumber || ''),
+    evidence_url: String(options.evidenceUrl || ''),
+    file_name: String(options.fileName || ''),
+    memo: memoParts.join(' / ')
+  };
 }
 function ver500LatestStorage() {
   let arr = [];
@@ -124,21 +197,32 @@ function ver500BuildCacheMeta(file, evidenceUrl) {
 }
 function ver500ExtractByRules(text) {
   const t = String(text || '');
-  const date = (t.match(/20\d{2}[\/\-年]\d{1,2}[\/\-月]\d{1,2}/) || [])[0] || new Date().toISOString().slice(0, 10);
-  const amount = (t.match(/[¥￥]?\s?\d{1,3}(,\d{3})+|\d{3,}/) || [])[0] || '';
-  const slip = (t.match(/\d{3,4}[-\s]?\d{3,4}[-\s]?\d{3,5}|\d{10,14}/) || [])[0] || '';
-  let kind = 'expense';
-  if (/ヤマト|佐川|送料|運賃|日本郵便/.test(t)) kind = 'shipping';
-  if (/仕入|請求|古物|買取|駿河屋|購入/.test(t)) kind = 'purchase';
+  const dateRaw = (t.match(/20\d{2}[\/\-年]\d{1,2}[\/\-月]\d{1,2}/) || [])[0] || '';
+  const amountRaw = (t.match(/(?:合計|請求額|税込|お買上計)[^0-9¥￥]*([¥￥]?\s?[0-9,０-９]+)/) || [])[1] || (t.match(/[¥￥]?\s?[0-9,０-９]{3,}/) || [])[0] || '';
+  const shippingRaw = (t.match(/(?:送料|運賃)[^0-9¥￥]*([¥￥]?\s?[0-9,０-９]+)/) || [])[1] || '';
+  const trackingRaw =
+    (t.match(/(?:伝票|追跡|お問い合わせ|問合せ|送り状|荷物番号)[^0-9０-９A-Z\- ]*([0-9０-９\- ]{8,})/i) || [])[1] ||
+    (t.match(/[0-9０-９]{3,4}[-\s]?[0-9０-９]{3,4}[-\s]?[0-9０-９]{3,5}/) || [])[0] ||
+    '';
+  const storeName =
+    (t.match(/(?:株式会社[^\s　]+|[^\s　]+株式会社|[^\s　]+商店|ヤマト運輸|佐川急便|日本郵便|ローソン|ファミリーマート|セブン-?イレブン)/) || [])[0] ||
+    '';
+  const paymentMethod =
+    (t.match(/(?:現金|クレジット|クレカ|Visa|Master|JCB|AMEX|PayPay|楽天ペイ|d払い|交通系|電子マネー|代引き|代金引換)/i) || [])[0] || '';
+  let kind = 'unknown';
   if (/売上|落札|ヤフオク|メルカリ|入金/.test(t)) kind = 'sale';
+  else if (/仕入|請求|古物|買取|駿河屋|購入|領収/.test(t)) kind = 'purchase';
   return {
     kind,
-    date: String(date).replace(/[年月]/g, '-').replace('日', ''),
-    partner: (t.match(/株式会社[^\s　]+|[^\s　]+株式会社|[^\s　]+商店|[^\s　]+急便/) || [])[0] || '',
-    item: 'AI読取候補',
-    amount: ver500Num(amount),
-    slip: String(slip).replace(/[-\s]/g, ''),
-    memo: 'ルール抽出'
+    storeName: storeName || '',
+    date: ver500NormalizeDate(dateRaw || new Date().toISOString().slice(0, 10)),
+    amount: ver500Num(amountRaw),
+    shipping: ver500Num(shippingRaw),
+    trackingNumber: ver500NormalizeTracking(trackingRaw),
+    itemTitle: 'AI読取候補',
+    itemCount: 0,
+    paymentMethod,
+    note: 'ルール抽出'
   };
 }
 async function ver500OpenAiAnalyze(inputText, imageDataUrl) {
@@ -146,7 +230,8 @@ async function ver500OpenAiAnalyze(inputText, imageDataUrl) {
   if (!key) return null;
 
   const prompt =
-    '証憑画像/PDFまたはテキストから売上管理候補をJSONのみで返してください。形式: {"kind":"sale|purchase|shipping|expense","date":"YYYY-MM-DD","partner":"相手先","item":"内容または商品名","amount":数値,"tax":数値,"slip":"伝票番号または請求書番号","memo":"補足","market":"ヤフオク|メルカリ|その他"}';
+    'あなたは日本の売上管理OCRです。必ずJSONのみ返すこと。説明文は禁止。推測は禁止。存在しない値は null。' +
+    '出力schemaは次のみ: {"kind":"sale|purchase|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
 
   let input;
   const hasImageInput = !!(imageDataUrl && (/^data:image\//i.test(String(imageDataUrl)) || /^https?:\/\//i.test(String(imageDataUrl))));
@@ -177,9 +262,9 @@ async function ver500OpenAiAnalyze(inputText, imageDataUrl) {
       out = data.output
         .map((o) => (o.content || []).map((c) => c.text || '').join('\n'))
         .join('\n');
-    out = out.trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
-    const m = out.match(/\{[\s\S]*\}/);
-    return JSON.parse(m ? m[0] : out);
+    const parsed = ver500ParseJsonLoose(out);
+    if (!parsed) throw new Error('JSON解析失敗');
+    return ver500NormalizeSchema(parsed);
   } catch (e) {
     return { error: e.message };
   }
@@ -208,9 +293,12 @@ async function ver500AnalyzeEvidence() {
   if (cacheKey && typeof window.ribreOcrGetCachedResult === 'function') {
     const cached = window.ribreOcrGetCachedResult(cacheKey, 'ver500');
     if (cached && cached.resultJson && typeof cached.resultJson === 'object') {
-      const ai = Object.assign({}, cached.resultJson);
       const forced = document.getElementById('ver500Kind').value;
-      if (forced && forced !== 'auto') ai.kind = forced;
+      const ai = ver500SchemaToCandidate(cached.resultJson, {
+        forcedKind: forced,
+        evidenceUrl,
+        fileName: cacheMeta.fileName
+      });
       document.getElementById('ver500Kind').value = ai.kind || 'auto';
       document.getElementById('ver500Date').value = ai.date || '';
       document.getElementById('ver500Partner').value = ai.partner || '';
@@ -258,29 +346,32 @@ async function ver500AnalyzeEvidence() {
     ver500Render([{ type: 'AI', level: 'warn', msg: 'AI解析中です' }]);
   }
 
-  let ai = await ver500OpenAiAnalyze(text, imageInput);
+  let aiSchema = await ver500OpenAiAnalyze(text, imageInput);
   let fallback = ver500ExtractByRules(text);
-  if (!ai || ai.error) {
-    ai = Object.assign(fallback, { memo: ai && ai.error ? 'AI失敗: ' + ai.error + ' / ルール抽出' : fallback.memo });
+  if (!aiSchema || aiSchema.error) {
+    aiSchema = Object.assign({}, fallback, { note: aiSchema && aiSchema.error ? 'AI失敗: ' + aiSchema.error + ' / ルール抽出' : fallback.note });
   }
+  aiSchema = ver500NormalizeSchema(aiSchema);
+  if (aiSchema.kind === 'unknown' && fallback.kind !== 'unknown') aiSchema.kind = fallback.kind;
+  if (!aiSchema.date && fallback.date) aiSchema.date = fallback.date;
+  if (!aiSchema.storeName && fallback.storeName) aiSchema.storeName = fallback.storeName;
+  if (!aiSchema.itemTitle && fallback.itemTitle) aiSchema.itemTitle = fallback.itemTitle;
+  if (!aiSchema.amount && fallback.amount) aiSchema.amount = fallback.amount;
+  if (!aiSchema.trackingNumber && fallback.trackingNumber) aiSchema.trackingNumber = fallback.trackingNumber;
 
   const forced = document.getElementById('ver500Kind').value;
-  if (forced && forced !== 'auto') ai.kind = forced;
-
-  ai.date = ai.date || fallback.date;
-  ai.partner = ai.partner || fallback.partner;
-  ai.item = ai.item || fallback.item;
-  ai.amount = ver500Num(ai.amount || fallback.amount);
-  ai.slip = String(ai.slip || fallback.slip || '').replace(/[-\s]/g, '');
-  ai.evidence_url = evidenceUrl;
-  ai.file_name = file ? file.name : ver500LatestStorage()?.name || '';
+  const ai = ver500SchemaToCandidate(aiSchema, {
+    forcedKind: forced,
+    evidenceUrl,
+    fileName: file ? file.name : ver500LatestStorage()?.name || ''
+  });
   if (cacheKey && typeof window.ribreOcrSaveCachedResult === 'function') {
     window.ribreOcrSaveCachedResult({
       cacheKey,
       fileName: cacheMeta.fileName,
       size: cacheMeta.size,
       kind: 'ver500',
-      resultJson: ai
+      resultJson: aiSchema
     });
   }
 

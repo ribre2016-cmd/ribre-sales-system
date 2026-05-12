@@ -212,6 +212,64 @@ function preview(it) {
       it.dataUrl +
       '" style="max-width:100%;max-height:520px;border-radius:14px;border:1px solid #cbd5e1;">';
 }
+function ribreHalfWidthDigits(v) {
+  return String(v || '').replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0));
+}
+function ribreNormalizeTrackingNumber(v) {
+  return ribreHalfWidthDigits(String(v || ''))
+    .replace(/[ー－―−‐\-_\s]/g, '')
+    .trim();
+}
+function ribreNormalizeOcrMoney(v) {
+  const s = ribreHalfWidthDigits(String(v || ''))
+    .replace(/[¥￥,\s円]/g, '')
+    .trim();
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+function ribreNormalizeOcrDate(v) {
+  const raw = ribreHalfWidthDigits(String(v || '')).trim();
+  if (!raw) return '';
+  const m = raw.match(/(20\d{2})[\/\-.年](\d{1,2})[\/\-.月](\d{1,2})/);
+  if (m) {
+    const y = m[1];
+    const mm = String(Number(m[2])).padStart(2, '0');
+    const dd = String(Number(m[3])).padStart(2, '0');
+    return y + '-' + mm + '-' + dd;
+  }
+  const m2 = raw.match(/(20\d{2})(\d{2})(\d{2})/);
+  if (m2) return m2[1] + '-' + m2[2] + '-' + m2[3];
+  return '';
+}
+function ribreCleanJsonText(text) {
+  let t = String(text || '').trim();
+  t = t.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if (start >= 0 && end > start) t = t.slice(start, end + 1);
+  t = t.replace(/,\s*([}\]])/g, '$1');
+  return t;
+}
+function ribreNormalizeOcrSchema(obj) {
+  const src = obj && typeof obj === 'object' ? obj : {};
+  const rawKind = String(src.kind || src.type || '').toLowerCase();
+  let kind = 'unknown';
+  if (rawKind === 'sale') kind = 'sale';
+  else if (rawKind === 'purchase') kind = 'purchase';
+  const result = {
+    kind,
+    storeName: String(src.storeName || src.vendor || src.partner || ''),
+    date: ribreNormalizeOcrDate(src.date),
+    amount: ribreNormalizeOcrMoney(src.amount),
+    shipping: ribreNormalizeOcrMoney(src.shipping),
+    trackingNumber: ribreNormalizeTrackingNumber(src.trackingNumber || src.invoiceNo || src.slip || ''),
+    itemTitle: String(src.itemTitle || src.itemName || src.item || ''),
+    itemCount: Number.isFinite(Number(src.itemCount)) ? Math.max(0, Number(src.itemCount)) : 0,
+    paymentMethod: String(src.paymentMethod || ''),
+    note: String(src.note || src.memo || '')
+  };
+  return result;
+}
 async function uploadOpenAIFile(key, ev) {
   const srcUrl = ev.dataUrl || ev.evidence_url || (ev.id && ocrEvidenceCache()[ev.id]) || '';
   if (!srcUrl) throw new Error('証憑データが見つかりません。再登録してください');
@@ -229,21 +287,13 @@ async function uploadOpenAIFile(key, ev) {
   return d.id;
 }
 function extractJson(text) {
-  let t = String(text || '')
-    .trim()
-    .replace(/^```json/i, '')
-    .replace(/^```/, '')
-    .replace(/```$/, '')
-    .trim();
+  let t = ribreCleanJsonText(text);
   try {
     return JSON.parse(t);
   } catch (e) {}
-  const m = t.match(/\{[\s\S]*\}/);
-  if (m) {
-    try {
-      return JSON.parse(m[0]);
-    } catch (e) {}
-  }
+  try {
+    return JSON.parse(t.replace(/,\s*([}\]])/g, '$1'));
+  } catch (e) {}
   return null;
 }
 async function runOcr() {
@@ -259,7 +309,8 @@ async function runOcr() {
   }
   renderList('ocrList', [{ type: 'OCR', level: 'warn', msg: 'AI読取中です' }]);
   const prompt =
-    '日本の会計OCRです。JSONのみ返してください。{ "date":"YYYY-MM-DD", "vendor":"相手先", "itemName":"内容", "amount":税込金額数値, "tax":税額数値, "type":"purchase|sale|shipping|expense", "invoiceNo":"番号", "memo":"補足" }';
+    'あなたは日本の売上管理OCRです。必ずJSONのみ返してください。説明文は禁止。推測は禁止。存在しない値は null。' +
+    '出力schemaは次のみ: {"kind":"sale|purchase|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
   try {
     const cacheKey = ocrBuildResultCacheKey({
       fileName: ev.fileName,
@@ -270,7 +321,7 @@ async function runOcr() {
     });
     const cached = ocrGetCachedResult(cacheKey, 'runOcr');
     if (cached && cached.resultJson) {
-      const cp = ocrSanitizeResultJson(cached.resultJson);
+      const cp = ribreNormalizeOcrSchema(ocrSanitizeResultJson(cached.resultJson));
       fillCandidate(cp, ev);
       renderList('ocrList', [
         { type: 'OCR', msg: 'キャッシュ結果を使用しました' },
@@ -335,8 +386,9 @@ async function runOcr() {
       text = d.output
         .map((o) => (o.content || []).map((c) => c.text || '').join('\n'))
         .join('\n');
-    const p = extractJson(text);
-    if (!p) throw new Error('JSON解析失敗');
+    const parsed = extractJson(text);
+    if (!parsed) throw new Error('JSON解析失敗');
+    const p = ribreNormalizeOcrSchema(parsed);
     ocrSaveCachedResult({
       cacheKey,
       fileName: ev.fileName,
@@ -354,14 +406,14 @@ async function runOcr() {
   }
 }
 function fillCandidate(p, ev) {
-  document.getElementById('cKind').value = p.type || 'purchase';
+  document.getElementById('cKind').value = p.kind === 'sale' ? 'sale' : 'purchase';
   document.getElementById('cDate').value = p.date || today();
-  document.getElementById('cVendor').value = p.vendor || '';
-  document.getElementById('cItem').value = p.itemName || '';
+  document.getElementById('cVendor').value = p.storeName || '';
+  document.getElementById('cItem').value = p.itemTitle || '';
   document.getElementById('cAmount').value = p.amount || '';
-  document.getElementById('cTax').value = p.tax || '';
-  document.getElementById('cNo').value = p.invoiceNo || '';
-  document.getElementById('cMemo').value = p.memo || '';
+  document.getElementById('cTax').value = p.shipping || '';
+  document.getElementById('cNo').value = p.trackingNumber || '';
+  document.getElementById('cMemo').value = p.note || '';
   const a = candidates();
   a.unshift(readCandidate(ev));
   setLS(LS.cand, a);
@@ -431,3 +483,8 @@ window.ribreOcrBuildCacheKey = ocrBuildResultCacheKey;
 window.ribreOcrGetCachedResult = ocrGetCachedResult;
 window.ribreOcrSaveCachedResult = ocrSaveCachedResult;
 window.ribreOptimizeOcrImage = ribreOptimizeOcrImage;
+window.ribreExtractOcrJson = extractJson;
+window.ribreNormalizeOcrSchema = ribreNormalizeOcrSchema;
+window.ribreNormalizeTrackingNumber = ribreNormalizeTrackingNumber;
+window.ribreNormalizeOcrMoney = ribreNormalizeOcrMoney;
+window.ribreNormalizeOcrDate = ribreNormalizeOcrDate;
