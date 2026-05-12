@@ -268,9 +268,47 @@ function ver500LearnFromCandidate(candidate, meta = {}) {
 function ver500LearnFromCorrection(input) {
   return ver500LearnFromCandidate(input, input);
 }
-function ver500HandleLearningResult(result) {
-  if (!result || result.ok) return;
+function ver500BuildLearningCandidate(input) {
+  const src = input && typeof input === 'object' ? input : {};
+  let fallback = {};
+  try {
+    fallback = ver500CurrentCandidate();
+  } catch (e) {
+    fallback = {};
+  }
+  return {
+    storeName: String(src.storeName || src.partner || fallback.partner || ''),
+    itemTitle: String(src.itemTitle || src.item || fallback.item || ''),
+    kind: String(src.kind || fallback.kind || 'unknown'),
+    sourceType: String(src.sourceType || (src.kind === 'sale' ? 'sale' : src.kind === 'purchase' || src.kind === 'expense' ? 'purchase' : '') || 'unknown'),
+    category: String(src.category || 'unknown'),
+    supplierName: String(src.supplierName || fallback.supplierName || ''),
+    salesChannel: String(src.salesChannel || fallback.salesChannel || ''),
+    genre: String(src.genre || fallback.genre || ''),
+    shippingCarrier: String(src.shippingCarrier || fallback.shippingCarrier || '')
+  };
+}
+function ver500HandleLearningResult(result, options = {}) {
+  if (!result) {
+    ver500Render([{ type: '学習', level: 'warn', msg: 'OCR学習保存に失敗しました' }]);
+    return;
+  }
+  if (result.ok) {
+    if (options && options.showSuccess) ver500Set('ver500Status', 'OCR学習を保存しました');
+    return;
+  }
   ver500Render([{ type: '学習', level: 'warn', msg: 'OCR学習保存に失敗しました' }]);
+}
+function ver500LearnAfterSuccess(candidate, meta = {}, options = {}) {
+  try {
+    const learningCandidate = ver500BuildLearningCandidate(candidate);
+    const result = ver500LearnFromCandidate(learningCandidate, meta);
+    ver500HandleLearningResult(result, options);
+    return result;
+  } catch (e) {
+    ver500HandleLearningResult({ ok: false }, options);
+    return { ok: false, logsAdded: 0 };
+  }
 }
 function ver500RouteLabel(sourceType) {
   const t = String(sourceType || 'unknown');
@@ -1362,6 +1400,9 @@ function ver500ConfirmSelectedDraft() {
   const rows = ver500DraftRoutes();
   const row = rows.find((x) => String(x.id || '') === targetId) || rows.find((x) => x.status === 'draft');
   if (!row) {
+    const fallbackCandidate = ver500BuildLearningCandidate(null);
+    const fallbackLearn = ver500LearnFromCandidate(fallbackCandidate, { source: 'draft_confirm', routeId: '' });
+    ver500HandleLearningResult(fallbackLearn, { showSuccess: true });
     logBase(null, 'none', '確定できる候補がありません');
     ver500Render([{ type: '仮登録', level: 'warn', msg: '確定できる候補がありません' }]);
     return;
@@ -1379,22 +1420,9 @@ function ver500ConfirmSelectedDraft() {
   if (row.sourceType === 'receipt') {
     const updated = Object.assign({}, row, { status: 'confirmed' });
     ver500UpsertDraftRoute(updated);
-    ver500HandleLearningResult(
-      ver500LearnFromCandidate(
-        {
-          storeName: row.storeName || '',
-          itemTitle: row.itemTitle || '',
-          kind: row.sourceType === 'sale' ? 'sale' : row.sourceType === 'purchase' ? 'purchase' : 'unknown',
-          sourceType: row.sourceType || 'unknown',
-          category: row.category || 'unknown',
-          supplierName: row.supplierName || '',
-          salesChannel: row.salesChannel || '',
-          genre: row.genre || '',
-          shippingCarrier: row.shippingCarrier || ''
-        },
-        { source: 'draft_confirm', routeId: row.id || '' }
-      )
-    );
+    const learningCandidate = ver500BuildLearningCandidate(row);
+    const learningResult = ver500LearnFromCandidate(learningCandidate, { source: 'draft_confirm', routeId: row.id || '' });
+    ver500HandleLearningResult(learningResult, { showSuccess: true });
     logBase(row, 'receipt', '証憑候補として確定しました');
     ver500RenderDraftRouteList('証憑候補として確定しました');
     return;
@@ -1403,22 +1431,9 @@ function ver500ConfirmSelectedDraft() {
     const linked = ver500LinkOcrToShippingCandidate(row, true);
     const updated = Object.assign({}, row, { status: 'confirmed' });
     ver500UpsertDraftRoute(updated);
-    ver500HandleLearningResult(
-      ver500LearnFromCandidate(
-        {
-          storeName: row.storeName || '',
-          itemTitle: row.itemTitle || '',
-          kind: row.sourceType === 'sale' ? 'sale' : row.sourceType === 'purchase' ? 'purchase' : 'unknown',
-          sourceType: row.sourceType || 'unknown',
-          category: row.category || 'unknown',
-          supplierName: row.supplierName || '',
-          salesChannel: row.salesChannel || '',
-          genre: row.genre || '',
-          shippingCarrier: row.shippingCarrier || ''
-        },
-        { source: 'draft_confirm', routeId: row.id || '' }
-      )
-    );
+    const learningCandidate = ver500BuildLearningCandidate(row);
+    const learningResult = ver500LearnFromCandidate(learningCandidate, { source: 'draft_confirm', routeId: row.id || '' });
+    ver500HandleLearningResult(learningResult, { showSuccess: true });
     if (linked.added) {
       logBase(row, 'shipping', '配送候補へ連携しました');
       ver500RenderDraftRouteList('配送候補へ連携しました');
@@ -1456,22 +1471,6 @@ function ver500ConfirmSelectedDraft() {
   const linked = ver500LinkOcrToShippingCandidate(row, false);
   const updated = Object.assign({}, row, { status: 'confirmed' });
   ver500UpsertDraftRoute(updated);
-  ver500HandleLearningResult(
-    ver500LearnFromCandidate(
-      {
-        storeName: row.storeName || '',
-        itemTitle: row.itemTitle || '',
-        kind: row.sourceType === 'sale' ? 'sale' : row.sourceType === 'purchase' ? 'purchase' : 'unknown',
-        sourceType: row.sourceType || 'unknown',
-        category: row.category || 'unknown',
-        supplierName: row.supplierName || '',
-        salesChannel: row.salesChannel || '',
-        genre: row.genre || '',
-        shippingCarrier: row.shippingCarrier || ''
-      },
-      { source: 'draft_confirm', routeId: row.id || '' }
-    )
-  );
   if (row.sourceType === 'sale') {
     if (linked.added) {
       logBase(row, 'sales+shipping', '売上へ登録しました / 配送候補へ連携しました');
@@ -1529,6 +1528,7 @@ function ver500CurrentCandidate() {
 }
 function ver500ApplyCandidateData(candidate) {
   const c = Object.assign({}, candidate || {});
+  let learningResult = null;
   if (!c.date || !c.amount) {
     alert('日付と金額を確認してください');
     return;
@@ -1566,6 +1566,12 @@ function ver500ApplyCandidateData(candidate) {
     });
     localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(s));
     localStorage.setItem('ribre_full_sales221', JSON.stringify(s));
+    const learningCandidate = ver500BuildLearningCandidate(c);
+    learningResult = ver500LearnFromCandidate(learningCandidate, {
+      source: c.learningSource || 'sale_register',
+      routeId: c.learningRouteId || ''
+    });
+    ver500HandleLearningResult(learningResult, { showSuccess: true });
     ver500Render([{ type: '登録', msg: '売上候補を登録しました' }]);
   } else {
     let p = [];
@@ -1592,33 +1598,18 @@ function ver500ApplyCandidateData(candidate) {
       autoMapped: !!c.autoMapped
     });
     localStorage.setItem('ribre_full_purchases221', JSON.stringify(p));
+    const learningCandidate = ver500BuildLearningCandidate(c);
+    learningResult = ver500LearnFromCandidate(learningCandidate, {
+      source: c.learningSource || 'purchase_register',
+      routeId: c.learningRouteId || ''
+    });
+    ver500HandleLearningResult(learningResult, { showSuccess: true });
     ver500Render([{ type: '登録', msg: '仕入/経費候補を登録しました' }]);
   }
-  ver500HandleLearningResult(
-    ver500LearnFromCandidate(
-      {
-        storeName: c.partner || c.storeName || '',
-        itemTitle: c.item || c.itemTitle || '',
-        kind: c.kind || 'unknown',
-        sourceType: c.sourceType || (c.kind === 'sale' ? 'sale' : c.kind === 'purchase' || c.kind === 'expense' ? 'purchase' : 'unknown'),
-        category: c.category || 'unknown',
-        supplierName: c.supplierName || '',
-        salesChannel: c.salesChannel || '',
-        genre: c.genre || '',
-        shippingCarrier: c.shippingCarrier || ''
-      },
-      {
-        source:
-          c.learningSource ||
-          (c.kind === 'sale' ? 'sale_register' : c.kind === 'purchase' || c.kind === 'expense' ? 'purchase_register' : 'register'),
-        routeId: c.learningRouteId || ''
-      }
-    )
-  );
   try {
     refreshAll();
   } catch (e) {}
-  ver500Set('ver500Status', '登録OK');
+  ver500Set('ver500Status', learningResult && learningResult.ok ? 'OCR学習を保存しました' : '登録OK');
 }
 function ver500ApplyCandidate() {
   const candidate = Object.assign({}, ver500CurrentCandidate(), { learningSource: 'ai_auto_register' });
