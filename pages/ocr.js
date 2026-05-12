@@ -111,6 +111,10 @@ function ver500LearningLogs() {
     return [];
   }
 }
+function ver500OcrLearningRows() {
+  const rows = ver500LearningLogs();
+  return Array.isArray(rows) ? rows : [];
+}
 function ver500SaveLearningLogs(arr) {
   const rows = Array.isArray(arr) ? arr.slice(0, 100) : [];
   const save = (n) => localStorage.setItem('ribre_ocr_learning_v1', JSON.stringify(n === 0 ? [] : rows.slice(0, n)));
@@ -357,6 +361,70 @@ function ver500DefaultOcrMappingRules() {
     ]
   };
 }
+function ver500StoredOcrMappingRules() {
+  try {
+    const raw = localStorage.getItem('ribre_ocr_mapping_rules_v1');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+function ver500BuildLearningMappingRules() {
+  const rows = ver500OcrLearningRows();
+  const out = {
+    supplierByStore: [],
+    salesChannelByCategory: {},
+    shippingCarrierByCategory: {},
+    genreKeywords: []
+  };
+  rows.forEach((r) => {
+    const target = String((r && r.target) || '');
+    const keyword = String((r && r.keyword) || '').trim();
+    const value = String((r && r.value) || '').trim();
+    const note = String((r && r.note) || '').trim();
+    if (!keyword || !value) return;
+    if (keyword.length < 2) return;
+    if (keyword.toLowerCase() === 'unknown' || value.toLowerCase() === 'unknown') return;
+    if (note === 'conflict_skip') return;
+    if (target === 'supplierByStore') out.supplierByStore.push({ keyword, value });
+    else if (target === 'genreKeywords') out.genreKeywords.push({ keyword, value });
+    else if (target === 'salesChannelByCategory') out.salesChannelByCategory[keyword] = value;
+    else if (target === 'shippingCarrierByCategory') out.shippingCarrierByCategory[keyword] = value;
+  });
+  return out;
+}
+function ver500MergePairRules(primary, secondary, tertiary) {
+  const out = [];
+  const seen = new Set();
+  [primary, secondary, tertiary].forEach((arr) => {
+    (Array.isArray(arr) ? arr : []).forEach((x) => {
+      const keyword = String((x && x.keyword) || '').trim();
+      const value = String((x && x.value) || '').trim();
+      if (!keyword || !value) return;
+      const key = keyword + '\t' + value;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ keyword, value });
+    });
+  });
+  return out;
+}
+function ver500MergeMapRules(base, learning, manual) {
+  const out = {};
+  [base, learning, manual].forEach((obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    Object.keys(obj).forEach((k) => {
+      const key = String(k || '').trim();
+      const val = String(obj[k] || '').trim();
+      if (!key || !val) return;
+      out[key] = val;
+    });
+  });
+  return out;
+}
 function ver500NormalizeOcrMappingRules(raw) {
   const base = ver500DefaultOcrMappingRules();
   const src = raw && typeof raw === 'object' ? raw : {};
@@ -396,14 +464,20 @@ function ver500NormalizeOcrMappingRules(raw) {
   };
 }
 function ver500OcrMappingRules() {
-  try {
-    const raw = localStorage.getItem('ribre_ocr_mapping_rules_v1');
-    if (!raw) return ver500DefaultOcrMappingRules();
-    const parsed = JSON.parse(raw);
-    return ver500NormalizeOcrMappingRules(parsed);
-  } catch (e) {
-    return ver500DefaultOcrMappingRules();
-  }
+  const base = ver500NormalizeOcrMappingRules(ver500DefaultOcrMappingRules());
+  const manualRaw = ver500StoredOcrMappingRules();
+  const manual = manualRaw ? ver500NormalizeOcrMappingRules(manualRaw) : { supplierByStore: [], salesChannelByCategory: {}, shippingCarrierByCategory: {}, genreKeywords: [] };
+  const learning = ver500NormalizeOcrMappingRules(ver500BuildLearningMappingRules());
+  return {
+    supplierByStore: ver500MergePairRules(manual.supplierByStore, learning.supplierByStore, base.supplierByStore),
+    salesChannelByCategory: ver500MergeMapRules(base.salesChannelByCategory, learning.salesChannelByCategory, manual.salesChannelByCategory),
+    shippingCarrierByCategory: ver500MergeMapRules(
+      base.shippingCarrierByCategory,
+      learning.shippingCarrierByCategory,
+      manual.shippingCarrierByCategory
+    ),
+    genreKeywords: ver500MergePairRules(manual.genreKeywords, learning.genreKeywords, base.genreKeywords)
+  };
 }
 function ver500RenderOcrMappingRulesEditor() {
   const rules = ver500OcrMappingRules();
@@ -529,42 +603,72 @@ function ver500SaveOcrMappingRulesFromEditor() {
   }
 }
 function ver500DetectGenre(itemTitle) {
+  const detail = ver500DetectGenreDetail(itemTitle);
+  return detail.genre;
+}
+function ver500LearningRuleLookups() {
+  const learning = ver500BuildLearningMappingRules();
+  const supplierPairs = new Set((learning.supplierByStore || []).map((x) => String(x.keyword || '').trim() + '\t' + String(x.value || '').trim()));
+  const genrePairs = new Set((learning.genreKeywords || []).map((x) => String(x.keyword || '').trim() + '\t' + String(x.value || '').trim()));
+  const salesByCategory = learning.salesChannelByCategory || {};
+  const carrierByCategory = learning.shippingCarrierByCategory || {};
+  return { supplierPairs, genrePairs, salesByCategory, carrierByCategory };
+}
+function ver500DetectGenreDetail(itemTitle, rulesOpt, lookupsOpt) {
   const t = String(itemTitle || '').toLowerCase();
-  const rules = ver500OcrMappingRules();
+  const rules = rulesOpt || ver500OcrMappingRules();
+  const lookups = lookupsOpt || ver500LearningRuleLookups();
   const list = Array.isArray(rules.genreKeywords) ? rules.genreKeywords : [];
   for (let i = 0; i < list.length; i++) {
-    const keyword = String((list[i] && list[i].keyword) || '').toLowerCase();
+    const keywordRaw = String((list[i] && list[i].keyword) || '');
+    const keyword = keywordRaw.toLowerCase();
     const value = String((list[i] && list[i].value) || '');
-    if (keyword && value && t.includes(keyword)) return value;
+    if (keyword && value && t.includes(keyword)) {
+      const learned = lookups.genrePairs.has(keywordRaw.trim() + '\t' + value.trim());
+      return { genre: value, learned };
+    }
   }
-  return '';
+  return { genre: '', learned: false };
 }
 function ver500ApplyAutoMapping(src) {
   const x = src && typeof src === 'object' ? src : {};
   const rules = ver500OcrMappingRules();
+  const lookups = ver500LearningRuleLookups();
   const storeName = String(x.storeName || x.partner || '');
   const category = String(x.category || 'unknown');
   const sourceType = String(x.sourceType || 'unknown');
   const itemTitle = String(x.itemTitle || x.item || '');
   let supplierName = '';
+  let supplierLearned = false;
   for (let i = 0; i < rules.supplierByStore.length; i++) {
     const r = rules.supplierByStore[i];
     if (storeName.includes(r.keyword)) {
       supplierName = r.value;
+      supplierLearned = lookups.supplierPairs.has(String(r.keyword || '').trim() + '\t' + String(r.value || '').trim());
       break;
     }
   }
   const salesChannel = rules.salesChannelByCategory[category] || '';
+  const salesLearned = !!(category && salesChannel && String(lookups.salesByCategory[category] || '') === salesChannel);
   let shippingCarrier = rules.shippingCarrierByCategory[category] || '';
+  let shippingLearned = !!(category && shippingCarrier && String(lookups.carrierByCategory[category] || '') === shippingCarrier);
   if (!shippingCarrier && /ヤマト/.test(storeName)) shippingCarrier = 'ヤマト';
   if (!shippingCarrier && /佐川/.test(storeName)) shippingCarrier = '佐川';
-  const genre = ver500DetectGenre(itemTitle);
+  const genreDetail = ver500DetectGenreDetail(itemTitle, rules, lookups);
+  const genre = genreDetail.genre;
+  const genreLearned = !!genreDetail.learned;
   let accountType = 'unknown';
   if (sourceType === 'sale') accountType = 'sales';
   else if (sourceType === 'purchase') accountType = 'purchase';
   else if (sourceType === 'shipping') accountType = 'shipping';
+  const learnedFields = [];
+  if (supplierLearned && supplierName) learnedFields.push('supplierName');
+  if (salesLearned && salesChannel) learnedFields.push('salesChannel');
+  if (genreLearned && genre) learnedFields.push('genre');
+  if (shippingLearned && shippingCarrier) learnedFields.push('shippingCarrier');
+  const learnedMapped = learnedFields.length > 0;
   const autoMapped = !!(supplierName || salesChannel || genre || shippingCarrier || accountType !== 'unknown');
-  return { supplierName, salesChannel, genre, shippingCarrier, accountType, autoMapped };
+  return { supplierName, salesChannel, genre, shippingCarrier, accountType, autoMapped, learnedMapped, learnedFields };
 }
 function ver500NormalizeRouteEntry(x) {
   const src = x && typeof x === 'object' ? x : {};
@@ -590,6 +694,8 @@ function ver500NormalizeRouteEntry(x) {
     shippingCarrier: String(src.shippingCarrier || ''),
     accountType: String(src.accountType || 'unknown'),
     autoMapped: !!src.autoMapped,
+    learnedMapped: !!src.learnedMapped,
+    learnedFields: Array.isArray(src.learnedFields) ? src.learnedFields.map((v) => String(v || '')).filter(Boolean).slice(0, 8) : [],
     status: normStatus(src.status),
     evidence_url: String(src.evidence_url || ''),
     note: String(src.note || '')
@@ -636,6 +742,8 @@ function ver500CreateDraftRouteFromCandidate(candidate) {
     shippingCarrier: c.shippingCarrier || '',
     accountType: c.accountType || 'unknown',
     autoMapped: !!c.autoMapped,
+    learnedMapped: !!c.learnedMapped,
+    learnedFields: Array.isArray(c.learnedFields) ? c.learnedFields : [],
     status: 'draft',
     evidence_url: c.evidence_url || '',
     note: c.memo || ''
@@ -668,6 +776,8 @@ function ver500BuildFallbackDraftFromForm() {
     shippingCarrier: '',
     accountType: sourceType === 'sale' ? 'sales' : sourceType === 'purchase' ? 'purchase' : 'unknown',
     autoMapped: false,
+    learnedMapped: false,
+    learnedFields: [],
     evidence_url: String((document.getElementById('ver500EvidenceUrl') || {}).value || ''),
     memo: 'fallback draft route'
   };
@@ -727,6 +837,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
       + (x.genre ? ' / genre:' + x.genre : '')
       + (x.salesChannel ? ' / channel:' + x.salesChannel : '')
       + (x.shippingCarrier ? ' / carrier:' + x.shippingCarrier : '')
+      + ' / 学習適用:' + (x.learnedMapped ? 'あり' : 'なし')
   }));
   if (noticeMsg) listRows.unshift({ type: '仮登録', msg: noticeMsg });
   ver500Render(listRows);
@@ -1105,6 +1216,8 @@ function ver500SchemaToCandidate(schema, options = {}) {
     shippingCarrier: mapped.shippingCarrier,
     accountType: mapped.accountType,
     autoMapped: mapped.autoMapped,
+    learnedMapped: mapped.learnedMapped,
+    learnedFields: mapped.learnedFields,
     date: s.date || '',
     partner: s.storeName || '',
     item: s.itemTitle || 'AI読取候補',
@@ -1532,7 +1645,9 @@ function ver500CurrentCandidate() {
   });
   return Object.assign({}, base, mapped, {
     accountType: mapped.accountType,
-    autoMapped: mapped.autoMapped
+    autoMapped: mapped.autoMapped,
+    learnedMapped: mapped.learnedMapped,
+    learnedFields: mapped.learnedFields
   });
 }
 function ver500ApplyCandidateData(candidate) {
@@ -1814,6 +1929,7 @@ window.ver500AddMappingRuleFromForm = ver500AddMappingRuleFromForm;
 window.ver500ConfirmLogs = ver500ConfirmLogs;
 window.ver500RenderConfirmLogs = ver500RenderConfirmLogs;
 window.ver500LearningLogs = ver500LearningLogs;
+window.ver500OcrLearningRows = ver500OcrLearningRows;
 window.ver500RenderLearningLogs = ver500RenderLearningLogs;
 window.ver500LearnFromCandidate = ver500LearnFromCandidate;
 window.ver500LearnFromCorrection = ver500LearnFromCorrection;
