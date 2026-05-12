@@ -149,7 +149,8 @@ async function ver500OpenAiAnalyze(inputText, imageDataUrl) {
     '証憑画像/PDFまたはテキストから売上管理候補をJSONのみで返してください。形式: {"kind":"sale|purchase|shipping|expense","date":"YYYY-MM-DD","partner":"相手先","item":"内容または商品名","amount":数値,"tax":数値,"slip":"伝票番号または請求書番号","memo":"補足","market":"ヤフオク|メルカリ|その他"}';
 
   let input;
-  if (imageDataUrl && String(imageDataUrl).startsWith('data:image/')) {
+  const hasImageInput = !!(imageDataUrl && (/^data:image\//i.test(String(imageDataUrl)) || /^https?:\/\//i.test(String(imageDataUrl))));
+  if (hasImageInput) {
     input = [
       {
         role: 'user',
@@ -236,7 +237,27 @@ async function ver500AnalyzeEvidence() {
     }
   }
 
-  let ai = await ver500OpenAiAnalyze(text, dataUrl);
+  let imageInput = dataUrl;
+  if (!imageInput && evidenceUrl && (/^data:image\//i.test(evidenceUrl) || /\.(png|jpe?g|webp|gif|bmp|svg)(\?|#|$)/i.test(evidenceUrl))) {
+    imageInput = evidenceUrl;
+  }
+  if (imageInput && typeof window.ribreOptimizeOcrImage === 'function') {
+    ver500Render([{ type: 'AI', level: 'warn', msg: '画像最適化中...' }]);
+    try {
+      const optimized = await window.ribreOptimizeOcrImage(imageInput);
+      const optimizeStats = {
+        originalBytes: optimized.originalBytes,
+        optimizedBytes: optimized.optimizedBytes
+      };
+      if (!optimizeStats.originalBytes && !optimizeStats.optimizedBytes) {
+        // keep silent and continue with original image input
+      }
+      if (optimized && optimized.imageUrl) imageInput = optimized.imageUrl;
+    } catch (e) {}
+    ver500Render([{ type: 'AI', level: 'warn', msg: 'AI解析中です' }]);
+  }
+
+  let ai = await ver500OpenAiAnalyze(text, imageInput);
   let fallback = ver500ExtractByRules(text);
   if (!ai || ai.error) {
     ai = Object.assign(fallback, { memo: ai && ai.error ? 'AI失敗: ' + ai.error + ' / ルール抽出' : fallback.memo });

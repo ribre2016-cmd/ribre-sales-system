@@ -82,6 +82,90 @@ function ocrSaveCachedResult(entry) {
     saveRows(0);
   } catch (e) {}
 }
+async function ribreOptimizeOcrImage(fileOrDataUrl) {
+  const maxEdge = 1600;
+  const jpegQuality = 0.7;
+  const toResult = (imageUrl, originalBytes, optimizedBytes) => ({
+    imageUrl: imageUrl || '',
+    originalBytes: Number(originalBytes || 0),
+    optimizedBytes: Number(optimizedBytes || 0)
+  });
+  try {
+    if (!fileOrDataUrl) return toResult('', 0, 0);
+    let src = '';
+    let originalBytes = 0;
+    let sourceMime = '';
+    let revokeUrl = '';
+    if (typeof fileOrDataUrl === 'string') {
+      src = fileOrDataUrl;
+      if (/^data:/i.test(src)) {
+        const comma = src.indexOf(',');
+        if (comma > 0) {
+          const meta = src.slice(0, comma);
+          const payload = src.slice(comma + 1);
+          sourceMime = (meta.match(/^data:([^;]+)/i) || [])[1] || '';
+          if (/;base64/i.test(meta)) {
+            originalBytes = Math.floor((payload.length * 3) / 4);
+          } else {
+            originalBytes = decodeURIComponent(payload).length;
+          }
+        }
+      } else {
+        try {
+          const res = await fetch(src);
+          const blob = await res.blob();
+          originalBytes = Number(blob.size || 0);
+          sourceMime = blob.type || '';
+          const objectUrl = URL.createObjectURL(blob);
+          src = objectUrl;
+          revokeUrl = objectUrl;
+        } catch (e) {
+          return toResult(fileOrDataUrl, 0, 0);
+        }
+      }
+    } else if (fileOrDataUrl instanceof Blob) {
+      originalBytes = Number(fileOrDataUrl.size || 0);
+      sourceMime = fileOrDataUrl.type || '';
+      const objectUrl = URL.createObjectURL(fileOrDataUrl);
+      src = objectUrl;
+      revokeUrl = objectUrl;
+    } else {
+      return toResult('', 0, 0);
+    }
+    if (!src) return toResult('', 0, 0);
+    const img = new Image();
+    const loaded = await new Promise((resolve) => {
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(false);
+      img.src = src;
+    });
+    if (!loaded || !img.width || !img.height) {
+      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+      return toResult(typeof fileOrDataUrl === 'string' ? fileOrDataUrl : '', originalBytes, originalBytes);
+    }
+    const longest = Math.max(img.width, img.height);
+    const isSmall = longest <= maxEdge;
+    if (isSmall) {
+      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+      return toResult(typeof fileOrDataUrl === 'string' ? fileOrDataUrl : src, originalBytes, originalBytes);
+    }
+    const scale = maxEdge / longest;
+    const targetW = Math.max(1, Math.round(img.width * scale));
+    const targetH = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return toResult(typeof fileOrDataUrl === 'string' ? fileOrDataUrl : src, originalBytes, originalBytes);
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+    const optimizedDataUrl = canvas.toDataURL('image/jpeg', jpegQuality);
+    const optimizedBytes = Math.floor(((optimizedDataUrl.split(',')[1] || '').length * 3) / 4);
+    if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+    return toResult(optimizedDataUrl, originalBytes, optimizedBytes);
+  } catch (e) {
+    return toResult(typeof fileOrDataUrl === 'string' ? fileOrDataUrl : '', 0, 0);
+  }
+}
 function ocrEvidenceCache() {
   if (!window.__ribreEvidenceDataUrlCache) window.__ribreEvidenceDataUrlCache = {};
   return window.__ribreEvidenceDataUrlCache;
@@ -197,7 +281,18 @@ async function runOcr() {
     const imageUrl = ev.dataUrl || ev.evidence_url || (ev.id && ocrEvidenceCache()[ev.id]) || '';
     if (!imageUrl) throw new Error('証憑データが見つかりません。再登録してください');
     let body;
-    if (String(ev.mime).startsWith('image/'))
+    if (String(ev.mime).startsWith('image/')) {
+      renderList('ocrList', [{ type: 'OCR', level: 'warn', msg: '画像最適化中...' }]);
+      const optimized = await ribreOptimizeOcrImage(imageUrl);
+      const optimizeStats = {
+        originalBytes: optimized.originalBytes,
+        optimizedBytes: optimized.optimizedBytes
+      };
+      const optimizedImageUrl = optimized.imageUrl || imageUrl;
+      if (!optimizeStats.originalBytes && !optimizeStats.optimizedBytes) {
+        // keep silent; fallback to original behavior
+      }
+      renderList('ocrList', [{ type: 'OCR', level: 'warn', msg: 'AI読取中です' }]);
       body = {
         model: 'gpt-4.1-mini',
         input: [
@@ -205,13 +300,13 @@ async function runOcr() {
             role: 'user',
             content: [
               { type: 'input_text', text: prompt },
-              { type: 'input_image', image_url: imageUrl }
+              { type: 'input_image', image_url: optimizedImageUrl }
             ]
           }
         ],
         temperature: 0
       };
-    else {
+    } else {
       const fileId = await uploadOpenAIFile(key, ev);
       body = {
         model: 'gpt-4.1-mini',
@@ -334,3 +429,4 @@ function ocrAutoRegister() {
 window.ribreOcrBuildCacheKey = ocrBuildResultCacheKey;
 window.ribreOcrGetCachedResult = ocrGetCachedResult;
 window.ribreOcrSaveCachedResult = ocrSaveCachedResult;
+window.ribreOptimizeOcrImage = ribreOptimizeOcrImage;
