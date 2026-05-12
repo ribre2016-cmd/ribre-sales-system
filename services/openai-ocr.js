@@ -458,6 +458,29 @@ function fillCandidate(p, ev) {
   document.getElementById('cTax').value = p.shipping || '';
   document.getElementById('cNo').value = p.trackingNumber || '';
   document.getElementById('cMemo').value = p.note || '';
+  try {
+    if (typeof window.ver500SaveDraftRoute === 'function') {
+      const routeSource = {
+        kind: p.kind || 'unknown',
+        category: p.category || 'unknown',
+        sourceType: p.sourceType || 'unknown',
+        date: p.date || '',
+        partner: p.storeName || '',
+        item: p.itemTitle || '',
+        amount: p.amount || 0,
+        shipping: p.shipping || 0,
+        slip: p.trackingNumber || '',
+        evidence_url: (ev && ev.evidence_url) || '',
+        memo: p.note || ''
+      };
+      const saved = window.ver500SaveDraftRoute(routeSource);
+      if (!saved) {
+        renderList('ocrList', [{ type: '仮登録', level: 'warn', msg: '仮登録保存に失敗しました' }]);
+      }
+    }
+  } catch (e) {
+    renderList('ocrList', [{ type: '仮登録', level: 'warn', msg: '仮登録保存に失敗しました' }]);
+  }
   const a = candidates();
   a.unshift(readCandidate(ev));
   setLS(LS.cand, a);

@@ -113,6 +113,34 @@ function ver500UpsertDraftRoute(route) {
   ver500SaveDraftRoutes(rows);
   return row;
 }
+function ver500BuildFallbackDraftFromForm() {
+  const kind = String((document.getElementById('ver500Kind') || {}).value || 'auto');
+  let sourceType = 'unknown';
+  if (kind === 'sale') sourceType = 'sale';
+  else if (kind === 'purchase' || kind === 'expense') sourceType = 'purchase';
+  return {
+    kind,
+    sourceType,
+    category: 'unknown',
+    date: String((document.getElementById('ver500Date') || {}).value || ''),
+    partner: String((document.getElementById('ver500Partner') || {}).value || ''),
+    item: String((document.getElementById('ver500Item') || {}).value || ''),
+    amount: ver500Num((document.getElementById('ver500Amount') || {}).value || 0),
+    slip: ver500NormalizeTracking((document.getElementById('ver500Slip') || {}).value || ''),
+    evidence_url: String((document.getElementById('ver500EvidenceUrl') || {}).value || ''),
+    memo: 'fallback draft route'
+  };
+}
+function ver500SaveDraftRoute(result) {
+  try {
+    const source = result && typeof result === 'object' ? result : ver500BuildFallbackDraftFromForm();
+    const route = ver500CreateDraftRouteFromCandidate(source);
+    return ver500UpsertDraftRoute(route);
+  } catch (e) {
+    ver500Render([{ type: '仮登録', level: 'warn', msg: '仮登録保存に失敗しました' }]);
+    return null;
+  }
+}
 function ver500RenderDraftRouteList() {
   const rows = ver500DraftRoutes();
   const draftRows = rows.filter((x) => x.status === 'draft');
@@ -135,7 +163,7 @@ function ver500RenderDraftRouteList() {
     });
   }
   if (!draftRows.length) {
-    ver500Render([{ type: '仮登録', level: 'warn', msg: 'draft候補はありません' }]);
+    ver500Render([{ type: '仮登録', level: 'warn', msg: '仮登録はありません' }]);
     return;
   }
   const listRows = draftRows.slice(0, 50).map((x) => ({
@@ -513,7 +541,7 @@ async function ver500AnalyzeEvidence() {
         evidenceUrl,
         fileName: cacheMeta.fileName
       });
-      const route = ver500UpsertDraftRoute(ver500CreateDraftRouteFromCandidate(ai));
+      const route = ver500SaveDraftRoute(ai);
       document.getElementById('ver500Kind').value = ai.kind || 'auto';
       document.getElementById('ver500Date').value = ai.date || '';
       document.getElementById('ver500Partner').value = ai.partner || '';
@@ -530,8 +558,8 @@ async function ver500AnalyzeEvidence() {
       const cacheRows = [
         { type: 'AI', msg: 'キャッシュ結果を使用しました' },
         { type: '分類', msg: 'AI判定：' + (ai.kind || '不明') },
-        { type: '仮登録', msg: '登録先: ' + ver500RouteLabel(route.sourceType) },
-        { type: '仮登録', msg: '状態: ' + route.status },
+        { type: '仮登録', msg: '登録先: ' + ver500RouteLabel((route && route.sourceType) || 'unknown') },
+        { type: '仮登録', msg: '状態: ' + ((route && route.status) || 'draft') },
         { type: '日付', msg: ai.date || '' },
         { type: '相手先', msg: ai.partner || '' },
         { type: '内容', msg: ai.item || '' },
@@ -585,7 +613,7 @@ async function ver500AnalyzeEvidence() {
     evidenceUrl,
     fileName: file ? file.name : ver500LatestStorage()?.name || ''
   });
-  const route = ver500UpsertDraftRoute(ver500CreateDraftRouteFromCandidate(ai));
+  const route = ver500SaveDraftRoute(ai);
   if (cacheKey && typeof window.ribreOcrSaveCachedResult === 'function') {
     window.ribreOcrSaveCachedResult({
       cacheKey,
@@ -614,8 +642,8 @@ async function ver500AnalyzeEvidence() {
 
   const rows = [
     { type: '分類', msg: 'AI判定：' + ai.kind },
-    { type: '仮登録', msg: '登録先: ' + ver500RouteLabel(route.sourceType) },
-    { type: '仮登録', msg: '状態: ' + route.status },
+    { type: '仮登録', msg: '登録先: ' + ver500RouteLabel((route && route.sourceType) || 'unknown') },
+    { type: '仮登録', msg: '状態: ' + ((route && route.status) || 'draft') },
     { type: '日付', msg: ai.date || '' },
     { type: '相手先', msg: ai.partner || '' },
     { type: '内容', msg: ai.item || '' },
@@ -897,6 +925,7 @@ window.ver500Num = ver500Num;
 window.ver500Candidates = ver500Candidates;
 window.ver500DraftRoutes = ver500DraftRoutes;
 window.ver500SaveDraftRoutes = ver500SaveDraftRoutes;
+window.ver500SaveDraftRoute = ver500SaveDraftRoute;
 window.ver500RenderDraftRouteList = ver500RenderDraftRouteList;
 window.ver500ShowDraftRoutes = ver500ShowDraftRoutes;
 window.ver500ConfirmSelectedDraft = ver500ConfirmSelectedDraft;
