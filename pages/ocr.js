@@ -111,7 +111,7 @@ function ver500RouteLabel(sourceType) {
   if (t === 'receipt') return '証憑';
   return '未分類';
 }
-function ver500OcrMappingRules() {
+function ver500DefaultOcrMappingRules() {
   return {
     supplierByStore: [
       { keyword: 'みんなの市場', value: 'みんなの市場' },
@@ -124,16 +124,113 @@ function ver500OcrMappingRules() {
     shippingCarrierByCategory: {
       yamato_shipping: 'ヤマト',
       sagawa_shipping: '佐川'
-    }
+    },
+    genreKeywords: [
+      { keyword: 'blu-ray', value: 'Blu-ray' },
+      { keyword: 'ブルーレイ', value: 'Blu-ray' },
+      { keyword: 'dvd', value: 'DVD' },
+      { keyword: 'cd', value: 'CD' },
+      { keyword: 'カセット', value: 'カセット' },
+      { keyword: 'cassette', value: 'カセット' },
+      { keyword: 'コミック', value: '本' },
+      { keyword: 'comic', value: '本' },
+      { keyword: '単行本', value: '本' },
+      { keyword: '文庫', value: '本' },
+      { keyword: '書籍', value: '本' },
+      { keyword: '本', value: '本' }
+    ]
   };
+}
+function ver500NormalizeOcrMappingRules(raw) {
+  const base = ver500DefaultOcrMappingRules();
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const supplierByStore = Array.isArray(src.supplierByStore)
+    ? src.supplierByStore
+        .map((x) => ({ keyword: String((x && x.keyword) || ''), value: String((x && x.value) || '') }))
+        .filter((x) => x.keyword && x.value)
+    : base.supplierByStore;
+  const salesChannelByCategory =
+    src.salesChannelByCategory && typeof src.salesChannelByCategory === 'object'
+      ? Object.keys(src.salesChannelByCategory).reduce((acc, k) => {
+          const key = String(k || '').trim();
+          const val = String(src.salesChannelByCategory[k] || '').trim();
+          if (key && val) acc[key] = val;
+          return acc;
+        }, {})
+      : base.salesChannelByCategory;
+  const shippingCarrierByCategory =
+    src.shippingCarrierByCategory && typeof src.shippingCarrierByCategory === 'object'
+      ? Object.keys(src.shippingCarrierByCategory).reduce((acc, k) => {
+          const key = String(k || '').trim();
+          const val = String(src.shippingCarrierByCategory[k] || '').trim();
+          if (key && val) acc[key] = val;
+          return acc;
+        }, {})
+      : base.shippingCarrierByCategory;
+  const genreKeywords = Array.isArray(src.genreKeywords)
+    ? src.genreKeywords
+        .map((x) => ({ keyword: String((x && x.keyword) || ''), value: String((x && x.value) || '') }))
+        .filter((x) => x.keyword && x.value)
+    : base.genreKeywords;
+  return {
+    supplierByStore: supplierByStore.length ? supplierByStore : base.supplierByStore,
+    salesChannelByCategory: Object.keys(salesChannelByCategory).length ? salesChannelByCategory : base.salesChannelByCategory,
+    shippingCarrierByCategory: Object.keys(shippingCarrierByCategory).length ? shippingCarrierByCategory : base.shippingCarrierByCategory,
+    genreKeywords: genreKeywords.length ? genreKeywords : base.genreKeywords
+  };
+}
+function ver500OcrMappingRules() {
+  try {
+    const raw = localStorage.getItem('ribre_ocr_mapping_rules_v1');
+    if (!raw) return ver500DefaultOcrMappingRules();
+    const parsed = JSON.parse(raw);
+    return ver500NormalizeOcrMappingRules(parsed);
+  } catch (e) {
+    return ver500DefaultOcrMappingRules();
+  }
+}
+function ver500RenderOcrMappingRulesEditor() {
+  const area = document.getElementById('ver500MappingRulesJson');
+  if (!area) return;
+  try {
+    area.value = JSON.stringify(ver500OcrMappingRules(), null, 2);
+  } catch (e) {
+    area.value = JSON.stringify(ver500DefaultOcrMappingRules(), null, 2);
+  }
+}
+function ver500SaveOcrMappingRulesFromEditor() {
+  const area = document.getElementById('ver500MappingRulesJson');
+  if (!area) return;
+  const text = String(area.value || '').trim();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text || '{}');
+  } catch (e) {
+    ver500Render([{ type: 'ルール', level: 'warn', msg: 'JSON形式が正しくありません' }]);
+    return;
+  }
+  const normalized = ver500NormalizeOcrMappingRules(parsed);
+  try {
+    localStorage.setItem('ribre_ocr_mapping_rules_v1', JSON.stringify(normalized));
+    area.value = JSON.stringify(normalized, null, 2);
+    ver500Render([{ type: 'ルール', msg: '保存しました' }]);
+  } catch (e) {
+    if (e && e.name === 'QuotaExceededError') {
+      ver500Render([{ type: 'ルール', level: 'warn', msg: '保存容量不足のため保存できませんでした' }]);
+      return;
+    }
+    ver500Render([{ type: 'ルール', level: 'warn', msg: '保存に失敗しました' }]);
+  }
 }
 function ver500DetectGenre(itemTitle) {
   const t = String(itemTitle || '').toLowerCase();
-  if (/blu[\s-]?ray|ブルーレイ/.test(t)) return 'Blu-ray';
-  if (/dvd/.test(t)) return 'DVD';
-  if (/cd/.test(t)) return 'CD';
-  if (/カセット|cassette/.test(t)) return 'カセット';
-  if (/コミック|comic|単行本|文庫|書籍|本/.test(t)) return '本';
+  const rules = ver500OcrMappingRules();
+  const list = Array.isArray(rules.genreKeywords) ? rules.genreKeywords : [];
+  for (let i = 0; i < list.length; i++) {
+    const keyword = String((list[i] && list[i].keyword) || '').toLowerCase();
+    const value = String((list[i] && list[i].value) || '');
+    if (keyword && value && t.includes(keyword)) return value;
+  }
   return '';
 }
 function ver500ApplyAutoMapping(src) {
@@ -332,15 +429,51 @@ function ver500ShowDraftRoutes() {
   return ver500RenderDraftRouteList();
 }
 function ver500EnsureDraftButtons() {
-  if (document.getElementById('ver500DraftRoutesBtn') && document.getElementById('ver500ConfirmLogsBtn')) return;
-  if (document.getElementById('ver500DraftRoutesBtn') && !document.getElementById('ver500ConfirmLogsBtn')) {
+  if (
+    document.getElementById('ver500DraftRoutesBtn') &&
+    document.getElementById('ver500ConfirmLogsBtn') &&
+    document.getElementById('ver500MappingRulesBtn') &&
+    document.getElementById('ver500MappingRulesSaveBtn') &&
+    document.getElementById('ver500MappingRulesJson')
+  ) {
+    return;
+  }
+  if (document.getElementById('ver500DraftRoutesBtn')) {
     const existingDraftBtn = document.getElementById('ver500DraftRoutesBtn');
-    const historyBtn = document.createElement('button');
-    historyBtn.id = 'ver500ConfirmLogsBtn';
-    historyBtn.textContent = 'OCR確定履歴';
-    historyBtn.onclick = () => ver500RenderConfirmLogs();
     if (existingDraftBtn && existingDraftBtn.parentElement) {
-      existingDraftBtn.parentElement.insertBefore(historyBtn, existingDraftBtn.nextSibling);
+      const controls = existingDraftBtn.parentElement;
+      if (!document.getElementById('ver500MappingRulesBtn')) {
+        const mappingBtn = document.createElement('button');
+        mappingBtn.id = 'ver500MappingRulesBtn';
+        mappingBtn.textContent = 'OCRマッピングルール';
+        mappingBtn.onclick = () => ver500RenderOcrMappingRulesEditor();
+        controls.insertBefore(mappingBtn, existingDraftBtn.nextSibling);
+      }
+      if (!document.getElementById('ver500MappingRulesSaveBtn')) {
+        const mappingSaveBtn = document.createElement('button');
+        mappingSaveBtn.id = 'ver500MappingRulesSaveBtn';
+        mappingSaveBtn.textContent = 'ルール保存';
+        mappingSaveBtn.onclick = () => ver500SaveOcrMappingRulesFromEditor();
+        controls.appendChild(mappingSaveBtn);
+      }
+      if (!document.getElementById('ver500ConfirmLogsBtn')) {
+        const historyBtn = document.createElement('button');
+        historyBtn.id = 'ver500ConfirmLogsBtn';
+        historyBtn.textContent = 'OCR確定履歴';
+        historyBtn.onclick = () => ver500RenderConfirmLogs();
+        controls.appendChild(historyBtn);
+      }
+      if (!document.getElementById('ver500MappingRulesJson')) {
+        const mappingArea = document.createElement('textarea');
+        mappingArea.id = 'ver500MappingRulesJson';
+        mappingArea.rows = 10;
+        mappingArea.placeholder = 'OCRマッピングルール(JSON)';
+        mappingArea.style.width = '100%';
+        mappingArea.style.marginTop = '8px';
+        mappingArea.style.display = 'block';
+        mappingArea.value = JSON.stringify(ver500OcrMappingRules(), null, 2);
+        controls.appendChild(mappingArea);
+      }
       return;
     }
   }
@@ -357,6 +490,14 @@ function ver500EnsureDraftButtons() {
   showBtn.id = 'ver500DraftRoutesBtn';
   showBtn.textContent = 'OCR仮登録一覧';
   showBtn.onclick = () => ver500ShowDraftRoutes();
+  const mappingBtn = document.createElement('button');
+  mappingBtn.id = 'ver500MappingRulesBtn';
+  mappingBtn.textContent = 'OCRマッピングルール';
+  mappingBtn.onclick = () => ver500RenderOcrMappingRulesEditor();
+  const mappingSaveBtn = document.createElement('button');
+  mappingSaveBtn.id = 'ver500MappingRulesSaveBtn';
+  mappingSaveBtn.textContent = 'ルール保存';
+  mappingSaveBtn.onclick = () => ver500SaveOcrMappingRulesFromEditor();
   const historyBtn = document.createElement('button');
   historyBtn.id = 'ver500ConfirmLogsBtn';
   historyBtn.textContent = 'OCR確定履歴';
@@ -368,19 +509,33 @@ function ver500EnsureDraftButtons() {
   confirmBtn.onclick = () => ver500ConfirmDraftRoute();
   const select = document.createElement('select');
   select.id = 'ver500DraftSelect';
+  const mappingArea = document.createElement('textarea');
+  mappingArea.id = 'ver500MappingRulesJson';
+  mappingArea.rows = 10;
+  mappingArea.placeholder = 'OCRマッピングルール(JSON)';
+  mappingArea.style.width = '100%';
+  mappingArea.style.marginTop = '8px';
+  mappingArea.style.display = 'block';
+  mappingArea.value = JSON.stringify(ver500OcrMappingRules(), null, 2);
   if (controls) {
     controls.appendChild(showBtn);
+    controls.appendChild(mappingBtn);
+    controls.appendChild(mappingSaveBtn);
     controls.appendChild(historyBtn);
     controls.appendChild(confirmBtn);
     controls.appendChild(select);
+    controls.appendChild(mappingArea);
     return;
   }
   const fallback = document.createElement('div');
   fallback.className = 'controls';
   fallback.appendChild(showBtn);
+  fallback.appendChild(mappingBtn);
+  fallback.appendChild(mappingSaveBtn);
   fallback.appendChild(historyBtn);
   fallback.appendChild(confirmBtn);
   fallback.appendChild(select);
+  fallback.appendChild(mappingArea);
   sec.appendChild(fallback);
 }
 function ver500SaveCandidates(arr) {
@@ -1245,6 +1400,11 @@ window.ver500SaveDraftRoutes = ver500SaveDraftRoutes;
 window.ver500SaveDraftRoute = ver500SaveDraftRoute;
 window.ver500RenderDraftRouteList = ver500RenderDraftRouteList;
 window.ver500ShowDraftRoutes = ver500ShowDraftRoutes;
+window.ver500DefaultOcrMappingRules = ver500DefaultOcrMappingRules;
+window.ver500NormalizeOcrMappingRules = ver500NormalizeOcrMappingRules;
+window.ver500OcrMappingRules = ver500OcrMappingRules;
+window.ver500RenderOcrMappingRulesEditor = ver500RenderOcrMappingRulesEditor;
+window.ver500SaveOcrMappingRulesFromEditor = ver500SaveOcrMappingRulesFromEditor;
 window.ver500ConfirmLogs = ver500ConfirmLogs;
 window.ver500RenderConfirmLogs = ver500RenderConfirmLogs;
 window.ver500ConfirmSelectedDraft = ver500ConfirmSelectedDraft;
