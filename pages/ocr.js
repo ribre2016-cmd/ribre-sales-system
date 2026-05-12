@@ -809,9 +809,9 @@ function ver500DraftFilterValue() {
   const el = document.getElementById('ver500DraftFilter');
   return String((el && el.value) || 'draft');
 }
-function ver500FilteredDraftRoutes(rows) {
+function ver500FilteredDraftRoutes(rows, filterOverride) {
   const all = Array.isArray(rows) ? rows : [];
-  const filter = ver500DraftFilterValue();
+  const filter = String(filterOverride || ver500DraftFilterValue() || 'draft');
   const hideConfirmed = !!window.__ver500HideConfirmedDrafts;
   return all.filter((x) => {
     const status = String((x && x.status) || 'draft');
@@ -876,7 +876,8 @@ function ver500CleanupOldDraftRoutes() {
 function ver500RenderDraftRouteList(noticeMsg) {
   try {
     const rows = ver500DraftRoutes();
-    const filteredRows = ver500FilteredDraftRoutes(rows);
+    const currentFilter = ver500DraftFilterValue();
+    const filteredRows = ver500FilteredDraftRoutes(rows, currentFilter);
     const box = ver500DraftRoutesContainer();
     const esc = (v) =>
       String(v || '')
@@ -910,8 +911,37 @@ function ver500RenderDraftRouteList(noticeMsg) {
       ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
       return;
     }
+    let toolbarHtml = '';
+    try {
+      const selected = (v) => (currentFilter === v ? ' selected' : '');
+      toolbarHtml =
+        '<div class="row ok"><span>' +
+        '<label for="ver500DraftFilter">フィルタ:</label> ' +
+        '<select id="ver500DraftFilter" onchange="ver500RenderDraftRouteList()">' +
+        '<option value="all"' +
+        selected('all') +
+        '>全て</option>' +
+        '<option value="draft"' +
+        selected('draft') +
+        '>draftのみ</option>' +
+        '<option value="confirmed"' +
+        selected('confirmed') +
+        '>confirmedのみ</option>' +
+        '<option value="ignored"' +
+        selected('ignored') +
+        '>ignoredのみ</option>' +
+        '</select> ' +
+        '<button id="ver500DeleteDraftBtn" onclick="ver500DeleteSelectedDraftRoute()">選択候補を削除</button> ' +
+        '<button id="ver500HideConfirmedBtn" onclick="ver500HideConfirmedDraftRoutes()">確定済みを非表示</button> ' +
+        '<button id="ver500CleanupDraftBtn" onclick="ver500CleanupOldDraftRoutes()">古い仮登録を整理</button>' +
+        '</span><span class="badge">操作</span></div>';
+    } catch (e) {
+      ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録フィルタUIの生成に失敗しました' }]);
+      toolbarHtml = '<div class="row warn"><span>OCR仮登録フィルタUIの生成に失敗しました</span><span class="badge">error</span></div>';
+    }
     if (!filteredRows.length) {
       box.innerHTML =
+        toolbarHtml +
         '<div class="row ok"><span>OCR仮登録一覧（0件）</span><span class="badge">[draft]</span></div>' +
         '<div class="row warn"><span>仮登録はありません</span><span class="badge">0件</span></div>';
       return;
@@ -938,7 +968,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
     });
     const header =
       '<div class="row ok"><span>OCR仮登録一覧（' + filteredRows.length + '件）' + (noticeMsg ? ' / ' + esc(noticeMsg) : '') + '</span><span class="badge">一覧</span></div>';
-    box.innerHTML = header + lines.join('');
+    box.innerHTML = toolbarHtml + header + lines.join('');
   } catch (e) {
     ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
     const box = ver500DraftRoutesContainer();
@@ -958,10 +988,6 @@ function ver500EnsureDraftButtons() {
     document.getElementById('ver500MappingRulesSaveBtn') &&
     document.getElementById('ver500MappingRulesJson') &&
     document.getElementById('ver500MappingQuickForm') &&
-    document.getElementById('ver500DraftFilter') &&
-    document.getElementById('ver500DraftDeleteBtn') &&
-    document.getElementById('ver500DraftHideConfirmedBtn') &&
-    document.getElementById('ver500DraftCleanupBtn') &&
     document.getElementById('ver500DraftRoutesContainer')
   ) {
     return;
@@ -998,9 +1024,9 @@ function ver500EnsureDraftButtons() {
         learningBtn.onclick = () => ver500RenderLearningLogs();
         controls.appendChild(learningBtn);
       }
-      if (!document.getElementById('ver500DraftFilter')) {
+      if (!document.getElementById('ver500DraftFilterLegacy')) {
         const filter = document.createElement('select');
-        filter.id = 'ver500DraftFilter';
+        filter.id = 'ver500DraftFilterLegacy';
         filter.innerHTML =
           '<option value="all">全て</option>' +
           '<option value="draft" selected>draftのみ</option>' +
@@ -1009,23 +1035,23 @@ function ver500EnsureDraftButtons() {
         filter.onchange = () => ver500RenderDraftRouteList();
         controls.appendChild(filter);
       }
-      if (!document.getElementById('ver500DraftDeleteBtn')) {
+      if (!document.getElementById('ver500DraftDeleteBtnLegacy')) {
         const btn = document.createElement('button');
-        btn.id = 'ver500DraftDeleteBtn';
+        btn.id = 'ver500DraftDeleteBtnLegacy';
         btn.textContent = '選択候補を削除';
         btn.onclick = () => ver500DeleteSelectedDraftRoute();
         controls.appendChild(btn);
       }
-      if (!document.getElementById('ver500DraftHideConfirmedBtn')) {
+      if (!document.getElementById('ver500DraftHideConfirmedBtnLegacy')) {
         const btn = document.createElement('button');
-        btn.id = 'ver500DraftHideConfirmedBtn';
+        btn.id = 'ver500DraftHideConfirmedBtnLegacy';
         btn.textContent = '確定済みを非表示';
         btn.onclick = () => ver500HideConfirmedDraftRoutes();
         controls.appendChild(btn);
       }
-      if (!document.getElementById('ver500DraftCleanupBtn')) {
+      if (!document.getElementById('ver500DraftCleanupBtnLegacy')) {
         const btn = document.createElement('button');
-        btn.id = 'ver500DraftCleanupBtn';
+        btn.id = 'ver500DraftCleanupBtnLegacy';
         btn.textContent = '古い仮登録を整理';
         btn.onclick = () => ver500CleanupOldDraftRoutes();
         controls.appendChild(btn);
@@ -1091,7 +1117,7 @@ function ver500EnsureDraftButtons() {
   const select = document.createElement('select');
   select.id = 'ver500DraftSelect';
   const filter = document.createElement('select');
-  filter.id = 'ver500DraftFilter';
+  filter.id = 'ver500DraftFilterLegacy';
   filter.innerHTML =
     '<option value="all">全て</option>' +
     '<option value="draft" selected>draftのみ</option>' +
@@ -1099,15 +1125,15 @@ function ver500EnsureDraftButtons() {
     '<option value="ignored">ignoredのみ</option>';
   filter.onchange = () => ver500RenderDraftRouteList();
   const deleteBtn = document.createElement('button');
-  deleteBtn.id = 'ver500DraftDeleteBtn';
+  deleteBtn.id = 'ver500DraftDeleteBtnLegacy';
   deleteBtn.textContent = '選択候補を削除';
   deleteBtn.onclick = () => ver500DeleteSelectedDraftRoute();
   const hideConfirmedBtn = document.createElement('button');
-  hideConfirmedBtn.id = 'ver500DraftHideConfirmedBtn';
+  hideConfirmedBtn.id = 'ver500DraftHideConfirmedBtnLegacy';
   hideConfirmedBtn.textContent = '確定済みを非表示';
   hideConfirmedBtn.onclick = () => ver500HideConfirmedDraftRoutes();
   const cleanupBtn = document.createElement('button');
-  cleanupBtn.id = 'ver500DraftCleanupBtn';
+  cleanupBtn.id = 'ver500DraftCleanupBtnLegacy';
   cleanupBtn.textContent = '古い仮登録を整理';
   cleanupBtn.onclick = () => ver500CleanupOldDraftRoutes();
   const quickForm = ver500CreateMappingQuickForm();
