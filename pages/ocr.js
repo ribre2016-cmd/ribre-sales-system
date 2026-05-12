@@ -209,10 +209,11 @@ function ver500CreateMappingQuickForm() {
   const type = document.createElement('select');
   type.id = 'ver500MappingRuleType';
   [
-    { value: 'supplier', label: 'supplier' },
-    { value: 'salesChannel', label: 'salesChannel' },
-    { value: 'shippingCarrier', label: 'shippingCarrier' },
-    { value: 'genre', label: 'genre' }
+    { value: '', label: '種類を選択' },
+    { value: 'supplier', label: '仕入先' },
+    { value: 'salesChannel', label: '販売先' },
+    { value: 'shippingCarrier', label: '配送会社' },
+    { value: 'genre', label: 'ジャンル' }
   ].forEach((x) => {
     const op = document.createElement('option');
     op.value = x.value;
@@ -244,6 +245,10 @@ function ver500AddMappingRuleFromForm() {
   const type = String((typeEl && typeEl.value) || '').trim();
   const keyword = String((keywordEl && keywordEl.value) || '').trim();
   const value = String((valueEl && valueEl.value) || '').trim();
+  if (!type) {
+    ver500Render([{ type: 'ルール', level: 'warn', msg: '種類を選択してください' }]);
+    return;
+  }
   if (!keyword || !value) {
     ver500Render([{ type: 'ルール', level: 'warn', msg: '入力してください' }]);
     return;
