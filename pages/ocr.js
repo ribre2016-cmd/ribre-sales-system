@@ -805,9 +805,78 @@ function ver500DraftRoutesContainer() {
   sec.appendChild(box);
   return box;
 }
+function ver500DraftFilterValue() {
+  const el = document.getElementById('ver500DraftFilter');
+  return String((el && el.value) || 'draft');
+}
+function ver500FilteredDraftRoutes(rows) {
+  const all = Array.isArray(rows) ? rows : [];
+  const filter = ver500DraftFilterValue();
+  const hideConfirmed = !!window.__ver500HideConfirmedDrafts;
+  return all.filter((x) => {
+    const status = String((x && x.status) || 'draft');
+    if (filter === 'draft' && status !== 'draft') return false;
+    if (filter === 'confirmed' && status !== 'confirmed') return false;
+    if (filter === 'ignored' && status !== 'ignored') return false;
+    if (hideConfirmed && status === 'confirmed') return false;
+    return true;
+  });
+}
+function ver500DeleteSelectedDraftRoute() {
+  try {
+    const select = document.getElementById('ver500DraftSelect');
+    const targetId = String((select && select.value) || '');
+    if (!targetId) {
+      ver500RenderDraftRouteList('削除対象を選択してください');
+      return;
+    }
+    const rows = ver500DraftRoutes();
+    const next = rows.filter((x) => String((x && x.id) || '') !== targetId);
+    if (next.length === rows.length) {
+      ver500RenderDraftRouteList('選択候補が見つかりません');
+      return;
+    }
+    ver500SaveDraftRoutes(next);
+    ver500RenderDraftRouteList('選択候補を削除しました');
+  } catch (e) {
+    ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
+  }
+}
+function ver500HideConfirmedDraftRoutes() {
+  window.__ver500HideConfirmedDrafts = true;
+  ver500RenderDraftRouteList('確定済みを非表示にしました');
+}
+function ver500CleanupOldDraftRoutes() {
+  try {
+    const rows = ver500DraftRoutes();
+    let nonDraftCount = 0;
+    const next = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const status = String((row && row.status) || 'draft');
+      if (status === 'draft') {
+        next.push(row);
+        continue;
+      }
+      if (status === 'confirmed' || status === 'ignored') {
+        if (nonDraftCount < 50) {
+          next.push(row);
+          nonDraftCount += 1;
+        }
+        continue;
+      }
+      next.push(row);
+    }
+    ver500SaveDraftRoutes(next);
+    ver500RenderDraftRouteList('古い仮登録を整理しました');
+  } catch (e) {
+    ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
+  }
+}
 function ver500RenderDraftRouteList(noticeMsg) {
   try {
     const rows = ver500DraftRoutes();
+    const filteredRows = ver500FilteredDraftRoutes(rows);
     const box = ver500DraftRoutesContainer();
     const esc = (v) =>
       String(v || '')
@@ -819,7 +888,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
     const select = document.getElementById('ver500DraftSelect');
     if (select) {
       select.innerHTML = '';
-      rows.forEach((x) => {
+      filteredRows.forEach((x) => {
         const op = document.createElement('option');
         op.value = x.id;
         op.textContent =
@@ -841,13 +910,13 @@ function ver500RenderDraftRouteList(noticeMsg) {
       ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
       return;
     }
-    if (!rows.length) {
+    if (!filteredRows.length) {
       box.innerHTML =
         '<div class="row ok"><span>OCR仮登録一覧（0件）</span><span class="badge">[draft]</span></div>' +
         '<div class="row warn"><span>仮登録はありません</span><span class="badge">0件</span></div>';
       return;
     }
-    const lines = rows.slice(0, 100).map((x) => {
+    const lines = filteredRows.slice(0, 100).map((x) => {
       const status = esc(x.status || 'draft');
       const learned = x.learnedMapped ? '<span class="badge">[学習適用]</span>' : '';
       return (
@@ -868,7 +937,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
       );
     });
     const header =
-      '<div class="row ok"><span>OCR仮登録一覧（' + rows.length + '件）' + (noticeMsg ? ' / ' + esc(noticeMsg) : '') + '</span><span class="badge">一覧</span></div>';
+      '<div class="row ok"><span>OCR仮登録一覧（' + filteredRows.length + '件）' + (noticeMsg ? ' / ' + esc(noticeMsg) : '') + '</span><span class="badge">一覧</span></div>';
     box.innerHTML = header + lines.join('');
   } catch (e) {
     ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
@@ -889,6 +958,10 @@ function ver500EnsureDraftButtons() {
     document.getElementById('ver500MappingRulesSaveBtn') &&
     document.getElementById('ver500MappingRulesJson') &&
     document.getElementById('ver500MappingQuickForm') &&
+    document.getElementById('ver500DraftFilter') &&
+    document.getElementById('ver500DraftDeleteBtn') &&
+    document.getElementById('ver500DraftHideConfirmedBtn') &&
+    document.getElementById('ver500DraftCleanupBtn') &&
     document.getElementById('ver500DraftRoutesContainer')
   ) {
     return;
@@ -924,6 +997,38 @@ function ver500EnsureDraftButtons() {
         learningBtn.textContent = 'OCR学習履歴';
         learningBtn.onclick = () => ver500RenderLearningLogs();
         controls.appendChild(learningBtn);
+      }
+      if (!document.getElementById('ver500DraftFilter')) {
+        const filter = document.createElement('select');
+        filter.id = 'ver500DraftFilter';
+        filter.innerHTML =
+          '<option value="all">全て</option>' +
+          '<option value="draft" selected>draftのみ</option>' +
+          '<option value="confirmed">confirmedのみ</option>' +
+          '<option value="ignored">ignoredのみ</option>';
+        filter.onchange = () => ver500RenderDraftRouteList();
+        controls.appendChild(filter);
+      }
+      if (!document.getElementById('ver500DraftDeleteBtn')) {
+        const btn = document.createElement('button');
+        btn.id = 'ver500DraftDeleteBtn';
+        btn.textContent = '選択候補を削除';
+        btn.onclick = () => ver500DeleteSelectedDraftRoute();
+        controls.appendChild(btn);
+      }
+      if (!document.getElementById('ver500DraftHideConfirmedBtn')) {
+        const btn = document.createElement('button');
+        btn.id = 'ver500DraftHideConfirmedBtn';
+        btn.textContent = '確定済みを非表示';
+        btn.onclick = () => ver500HideConfirmedDraftRoutes();
+        controls.appendChild(btn);
+      }
+      if (!document.getElementById('ver500DraftCleanupBtn')) {
+        const btn = document.createElement('button');
+        btn.id = 'ver500DraftCleanupBtn';
+        btn.textContent = '古い仮登録を整理';
+        btn.onclick = () => ver500CleanupOldDraftRoutes();
+        controls.appendChild(btn);
       }
       if (!document.getElementById('ver500MappingRulesJson')) {
         const mappingArea = document.createElement('textarea');
@@ -985,6 +1090,26 @@ function ver500EnsureDraftButtons() {
   confirmBtn.onclick = () => ver500ConfirmDraftRoute();
   const select = document.createElement('select');
   select.id = 'ver500DraftSelect';
+  const filter = document.createElement('select');
+  filter.id = 'ver500DraftFilter';
+  filter.innerHTML =
+    '<option value="all">全て</option>' +
+    '<option value="draft" selected>draftのみ</option>' +
+    '<option value="confirmed">confirmedのみ</option>' +
+    '<option value="ignored">ignoredのみ</option>';
+  filter.onchange = () => ver500RenderDraftRouteList();
+  const deleteBtn = document.createElement('button');
+  deleteBtn.id = 'ver500DraftDeleteBtn';
+  deleteBtn.textContent = '選択候補を削除';
+  deleteBtn.onclick = () => ver500DeleteSelectedDraftRoute();
+  const hideConfirmedBtn = document.createElement('button');
+  hideConfirmedBtn.id = 'ver500DraftHideConfirmedBtn';
+  hideConfirmedBtn.textContent = '確定済みを非表示';
+  hideConfirmedBtn.onclick = () => ver500HideConfirmedDraftRoutes();
+  const cleanupBtn = document.createElement('button');
+  cleanupBtn.id = 'ver500DraftCleanupBtn';
+  cleanupBtn.textContent = '古い仮登録を整理';
+  cleanupBtn.onclick = () => ver500CleanupOldDraftRoutes();
   const quickForm = ver500CreateMappingQuickForm();
   const mappingArea = document.createElement('textarea');
   mappingArea.id = 'ver500MappingRulesJson';
@@ -1002,8 +1127,17 @@ function ver500EnsureDraftButtons() {
     controls.appendChild(learningBtn);
     controls.appendChild(confirmBtn);
     controls.appendChild(select);
+    controls.appendChild(filter);
+    controls.appendChild(deleteBtn);
+    controls.appendChild(hideConfirmedBtn);
+    controls.appendChild(cleanupBtn);
     controls.appendChild(quickForm);
     controls.appendChild(mappingArea);
+    if (!window.__ver500DraftFilterInitDone) {
+      window.__ver500DraftFilterInitDone = true;
+      window.__ver500HideConfirmedDrafts = false;
+      filter.value = 'draft';
+    }
     return;
   }
   const fallback = document.createElement('div');
@@ -1015,9 +1149,18 @@ function ver500EnsureDraftButtons() {
   fallback.appendChild(learningBtn);
   fallback.appendChild(confirmBtn);
   fallback.appendChild(select);
+  fallback.appendChild(filter);
+  fallback.appendChild(deleteBtn);
+  fallback.appendChild(hideConfirmedBtn);
+  fallback.appendChild(cleanupBtn);
   fallback.appendChild(quickForm);
   fallback.appendChild(mappingArea);
   sec.appendChild(fallback);
+  if (!window.__ver500DraftFilterInitDone) {
+    window.__ver500DraftFilterInitDone = true;
+    window.__ver500HideConfirmedDrafts = false;
+    filter.value = 'draft';
+  }
   ver500DraftRoutesContainer();
 }
 function ver500SaveCandidates(arr) {
