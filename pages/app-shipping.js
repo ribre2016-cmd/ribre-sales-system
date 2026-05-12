@@ -63,7 +63,13 @@ function parseCsv(text) {
     .map(parseCsvLine);
 }
 function normalizeSlip(v) {
-  return String(v || '').replace(/[-\s]/g, '').trim();
+  return String(v || '')
+    .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
+    .replace(/[-\s]/g, '')
+    .trim();
+}
+function shipSourceTag(x) {
+  return String((x && x.source) || '').toLowerCase() === 'ocr' ? ' / OCR' : '';
 }
 function extractItemId(v) {
   const s = String(v || '');
@@ -180,6 +186,7 @@ function matchShipping() {
       results.push({
         status: '一致',
         company: sh.company,
+        source: sh.source || '',
         itemId: sh.itemId,
         slip: sh.slip,
         shipping: sh.shipping,
@@ -191,6 +198,7 @@ function matchShipping() {
       results.push({
         status: '未一致',
         company: sh.company,
+        source: sh.source || '',
         itemId: sh.itemId,
         slip: sh.slip,
         shipping: sh.shipping,
@@ -208,7 +216,11 @@ function matchShipping() {
   shipRender(
     results
       .slice(0, 120)
-      .map((r) => ({ type: r.status, level: r.status === '一致' ? 'ok' : 'warn', msg: r.msg + ' / 送料:' + r.shipping + ' / ' + r.company }))
+      .map((r) => ({
+        type: r.status,
+        level: r.status === '一致' ? 'ok' : 'warn',
+        msg: r.msg + ' / 送料:' + r.shipping + ' / ' + r.company + shipSourceTag(r)
+      }))
   );
 }
 function exportShippingReport() {
@@ -423,10 +435,10 @@ function autoMatchShippingFromYahoo() {
       target.deliveryCompany = sh.company;
       target.matchStatus = '配送一致';
       matched++;
-      results.push({ status: '一致', company: sh.company, itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: target.name });
+      results.push({ status: '一致', company: sh.company, source: sh.source || '', itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: target.name });
     } else {
       unmatched++;
-      results.push({ status: '未一致', company: sh.company, itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: '' });
+      results.push({ status: '未一致', company: sh.company, source: sh.source || '', itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: '' });
     }
   });
 
@@ -440,7 +452,7 @@ function autoMatchShippingFromYahoo() {
     results.slice(0, 160).map((r) => ({
       type: r.status,
       level: r.status === '一致' ? 'ok' : 'warn',
-      msg: (r.status === '一致' ? '一致 ' : '未一致 ') + '商品ID:' + r.itemId + ' / 伝票:' + r.slip + ' / 送料:' + r.shipping + ' / ' + r.company
+      msg: (r.status === '一致' ? '一致 ' : '未一致 ') + '商品ID:' + r.itemId + ' / 伝票:' + r.slip + ' / 送料:' + r.shipping + ' / ' + r.company + shipSourceTag(r)
     }))
   );
 }
@@ -533,11 +545,11 @@ function ver250ImproveUnmatched() {
       target.unmatchedReason = '';
       matched++;
       if (!beforeMatched) improved++;
-      results.push({ status: '一致', company: target.deliveryCompany, itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: target.name });
+      results.push({ status: '一致', company: target.deliveryCompany, source: sh.source || '', itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: target.name });
     } else {
       unmatched++;
       const reason = sh.company === '佐川急便' ? '佐川急便' : '未一致';
-      results.push({ status: '未一致', company: sh.company, itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: '', reason });
+      results.push({ status: '未一致', company: sh.company, source: sh.source || '', itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: '', reason });
     }
   });
 
@@ -555,7 +567,7 @@ function ver250ImproveUnmatched() {
     results.slice(0, 180).map((r) => ({
       type: r.status,
       level: r.status === '一致' ? 'ok' : 'warn',
-      msg: (r.status === '一致' ? '一致 ' : '未一致 ') + '商品ID:' + r.itemId + ' / 伝票:' + r.slip + ' / 送料:' + r.shipping + ' / ' + r.company
+      msg: (r.status === '一致' ? '一致 ' : '未一致 ') + '商品ID:' + r.itemId + ' / 伝票:' + r.slip + ' / 送料:' + r.shipping + ' / ' + r.company + shipSourceTag(r)
     }))
   );
 }
@@ -565,7 +577,7 @@ function ver250ShowOnlyUnmatched() {
     (rows.length ? rows : []).slice(0, 300).map((r) => ({
       type: r.company || '未一致',
       level: 'warn',
-      msg: '未一致 商品ID:' + r.itemId + ' / 伝票:' + r.slip + ' / 送料:' + r.shipping + ' / ' + (r.company || '')
+      msg: '未一致 商品ID:' + r.itemId + ' / 伝票:' + r.slip + ' / 送料:' + r.shipping + ' / ' + (r.company || '') + shipSourceTag(r)
     }))
   );
   if (!rows.length) {

@@ -365,6 +365,80 @@ function ver500NormalizeTracking(v) {
     .replace(/[ー－―−‐\-_\s]/g, '')
     .trim();
 }
+function ver500ShippingRows230() {
+  try {
+    const rows = JSON.parse(localStorage.getItem('ribre_shipping_rows230') || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    return [];
+  }
+}
+function ver500SaveShippingRows230(arr, expectedId) {
+  const rows = Array.isArray(arr) ? arr.slice(0, 1000) : [];
+  const limits = [1000, 500, 200, 0];
+  for (let i = 0; i < limits.length; i++) {
+    const limit = limits[i];
+    try {
+      const payload = limit === 0 ? [] : rows.slice(0, limit);
+      localStorage.setItem('ribre_shipping_rows230', JSON.stringify(payload));
+      if (!expectedId) return limit > 0;
+      if (limit === 0) return false;
+      const saved = ver500ShippingRows230();
+      return saved.some((x) => String((x && x.id) || '') === String(expectedId));
+    } catch (e) {}
+  }
+  return false;
+}
+function ver500BuildShippingCarrier(row) {
+  const category = String((row && row.category) || '');
+  const storeName = String((row && row.storeName) || '');
+  return (
+    String((row && (row.shippingCarrier || row.carrier || row.company || row.shippingCompany)) || '') ||
+    (/ヤマト/.test(category) || /ヤマト/.test(storeName) ? 'ヤマト' : /佐川/.test(category) || /佐川/.test(storeName) ? '佐川' : '')
+  );
+}
+function ver500LinkOcrToShippingCandidate(row, forceAdd) {
+  const src = row && typeof row === 'object' ? row : {};
+  const trackingNumber = ver500NormalizeTracking(src.trackingNumber || src.slip || src.invoiceNo || '');
+  const itemId = String(src.itemId || '').trim();
+  if (!forceAdd && !trackingNumber) return { added: false, reason: 'no_tracking' };
+  const carrier = ver500BuildShippingCarrier(src);
+  const shipping = ver500Num(src.shipping || src.amount || 0);
+  const candidate = {
+    id: 'ocr_ship_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+    createdAt: new Date().toISOString(),
+    source: 'ocr',
+    itemId,
+    trackingNumber,
+    shipping,
+    carrier,
+    date: String(src.date || today()),
+    storeName: String(src.storeName || src.partner || ''),
+    itemTitle: String(src.itemTitle || src.item || ''),
+    evidence_url: String(src.evidence_url || ''),
+    matched: false,
+    note: String(src.note || src.memo || ''),
+    slip: trackingNumber,
+    company: carrier,
+    amount: shipping,
+    status: 'OCR仮登録',
+    accountType: String(src.accountType || 'shipping'),
+    autoMapped: !!src.autoMapped,
+    at: new Date().toLocaleString('ja-JP')
+  };
+  const rows = ver500ShippingRows230();
+  const duplicateTracking =
+    candidate.trackingNumber &&
+    rows.some((x) => ver500NormalizeTracking((x && (x.trackingNumber || x.slip || x.invoiceNo)) || '') === candidate.trackingNumber);
+  if (duplicateTracking) return { added: false, reason: 'duplicate_tracking' };
+  const duplicateItemId =
+    candidate.itemId &&
+    rows.some((x) => String((x && (x.itemId || x.id)) || '').trim() && String((x && (x.itemId || x.id)) || '').trim() === candidate.itemId);
+  if (duplicateItemId) return { added: false, reason: 'duplicate_item_id' };
+  rows.unshift(candidate);
+  const saved = ver500SaveShippingRows230(rows, candidate.id);
+  return { added: !!saved, reason: saved ? 'added' : 'quota', row: candidate };
+}
 function ver500NormalizeDate(v) {
   if (typeof window.ribreNormalizeOcrDate === 'function') return window.ribreNormalizeOcrDate(v);
   const s = String(v || '').replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0));
@@ -766,32 +840,18 @@ function ver500ConfirmSelectedDraft() {
     return;
   }
   if (row.sourceType === 'shipping') {
-    let shippingRows = [];
-    try {
-      shippingRows = JSON.parse(localStorage.getItem('ribre_shipping_rows230') || '[]');
-    } catch (e) {}
-    shippingRows.unshift({
-      id: row.id,
-      date: row.date || today(),
-      itemId: '',
-      slip: row.trackingNumber || '',
-      trackingNumber: row.trackingNumber || '',
-      shippingCompany:
-        row.shippingCarrier ||
-        (/ヤマト/.test(String(row.category || '')) ? 'ヤマト' : /佐川/.test(String(row.category || '')) ? '佐川' : ''),
-      shipping: ver500Num(row.shipping || row.amount || 0),
-      amount: ver500Num(row.shipping || row.amount || 0),
-      status: 'OCR仮登録',
-      accountType: row.accountType || 'shipping',
-      autoMapped: !!row.autoMapped,
-      evidence_url: row.evidence_url || '',
-      note: row.note || '',
-      at: new Date().toLocaleString('ja-JP')
-    });
-    localStorage.setItem('ribre_shipping_rows230', JSON.stringify(shippingRows.slice(0, 1000)));
+    const linked = ver500LinkOcrToShippingCandidate(row, true);
     const updated = Object.assign({}, row, { status: 'confirmed' });
     ver500UpsertDraftRoute(updated);
-    ver500RenderDraftRouteList('配送候補へ登録しました');
+    if (linked.added) {
+      ver500RenderDraftRouteList('配送候補へ連携しました');
+      return;
+    }
+    if (linked.reason === 'duplicate_tracking' || linked.reason === 'duplicate_item_id') {
+      ver500RenderDraftRouteList('配送候補は重複のため追加しませんでした');
+      return;
+    }
+    ver500RenderDraftRouteList('配送候補への連携に失敗しました');
     return;
   }
   ver500ApplyCandidateData({
@@ -810,13 +870,22 @@ function ver500ConfirmSelectedDraft() {
     accountType: row.accountType || (row.sourceType === 'sale' ? 'sales' : 'purchase'),
     autoMapped: !!row.autoMapped
   });
+  const linked = ver500LinkOcrToShippingCandidate(row, false);
   const updated = Object.assign({}, row, { status: 'confirmed' });
   ver500UpsertDraftRoute(updated);
   if (row.sourceType === 'sale') {
+    if (linked.added) {
+      ver500RenderDraftRouteList('売上へ登録しました / 配送候補へ連携しました');
+      return;
+    }
     ver500RenderDraftRouteList('売上へ登録しました');
     return;
   }
   if (row.sourceType === 'purchase') {
+    if (linked.added) {
+      ver500RenderDraftRouteList('仕入へ登録しました / 配送候補へ連携しました');
+      return;
+    }
     ver500RenderDraftRouteList('仕入へ登録しました');
     return;
   }
