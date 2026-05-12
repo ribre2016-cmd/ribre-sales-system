@@ -133,7 +133,8 @@ function ver500BuildFallbackDraftFromForm() {
 }
 function ver500SaveDraftRoute(result) {
   try {
-    const source = result && typeof result === 'object' ? result : ver500BuildFallbackDraftFromForm();
+    const source = result && typeof result === 'object' ? Object.assign({}, result) : ver500BuildFallbackDraftFromForm();
+    source.status = 'draft';
     const route = ver500CreateDraftRouteFromCandidate(source);
     return ver500UpsertDraftRoute(route);
   } catch (e) {
@@ -141,16 +142,18 @@ function ver500SaveDraftRoute(result) {
     return null;
   }
 }
-function ver500RenderDraftRouteList() {
+function ver500RenderDraftRouteList(noticeMsg) {
   const rows = ver500DraftRoutes();
-  const draftRows = rows.filter((x) => x.status === 'draft');
   const select = document.getElementById('ver500DraftSelect');
   if (select) {
     select.innerHTML = '';
-    draftRows.forEach((x) => {
+    rows.forEach((x) => {
       const op = document.createElement('option');
       op.value = x.id;
       op.textContent =
+        '[' +
+        (x.status || 'draft') +
+        '] ' +
         (x.date || '日付不明') +
         ' / ' +
         ver500RouteLabel(x.sourceType) +
@@ -162,11 +165,11 @@ function ver500RenderDraftRouteList() {
       select.appendChild(op);
     });
   }
-  if (!draftRows.length) {
+  if (!rows.length) {
     ver500Render([{ type: '仮登録', level: 'warn', msg: '仮登録はありません' }]);
     return;
   }
-  const listRows = draftRows.slice(0, 50).map((x) => ({
+  const listRows = rows.slice(0, 50).map((x) => ({
     type: '仮登録',
     msg:
       '登録先: ' +
@@ -181,6 +184,7 @@ function ver500RenderDraftRouteList() {
       (x.amount || 0) +
       '円'
   }));
+  if (noticeMsg) listRows.unshift({ type: '仮登録', msg: noticeMsg });
   ver500Render(listRows);
 }
 function ver500ShowDraftRoutes() {
@@ -663,14 +667,18 @@ function ver500ConfirmSelectedDraft() {
     ver500Render([{ type: '仮登録', level: 'warn', msg: '確定できる候補がありません' }]);
     return;
   }
+  if (row.status === 'confirmed') {
+    ver500RenderDraftRouteList('すでに確定済みです');
+    return;
+  }
   if (row.sourceType === 'unknown') {
-    ver500Render([{ type: '仮登録', level: 'warn', msg: 'unknown は確定できません。内容を確認してください' }]);
+    ver500RenderDraftRouteList('未分類のため確定できません');
     return;
   }
   if (row.sourceType === 'receipt') {
     const updated = Object.assign({}, row, { status: 'confirmed' });
     ver500UpsertDraftRoute(updated);
-    ver500Render([{ type: '仮登録', msg: '証憑候補として確定しました' }]);
+    ver500RenderDraftRouteList('証憑候補として確定しました');
     return;
   }
   if (row.sourceType === 'shipping') {
@@ -695,7 +703,7 @@ function ver500ConfirmSelectedDraft() {
     localStorage.setItem('ribre_shipping_rows230', JSON.stringify(shippingRows.slice(0, 1000)));
     const updated = Object.assign({}, row, { status: 'confirmed' });
     ver500UpsertDraftRoute(updated);
-    ver500Render([{ type: '仮登録', msg: '配送候補として確定しました' }]);
+    ver500RenderDraftRouteList('配送候補へ登録しました');
     return;
   }
   document.getElementById('ver500Kind').value = row.sourceType === 'sale' ? 'sale' : 'purchase';
@@ -708,7 +716,16 @@ function ver500ConfirmSelectedDraft() {
   ver500ApplyCandidate();
   const updated = Object.assign({}, row, { status: 'confirmed' });
   ver500UpsertDraftRoute(updated);
+  if (row.sourceType === 'sale') {
+    ver500RenderDraftRouteList('売上へ登録しました');
+    return;
+  }
+  if (row.sourceType === 'purchase') {
+    ver500RenderDraftRouteList('仕入へ登録しました');
+    return;
+  }
   ver500Set('ver500Status', '確定OK');
+  ver500RenderDraftRouteList('確定しました');
 }
 function ver500ConfirmDraftRoute() {
   return ver500ConfirmSelectedDraft();
