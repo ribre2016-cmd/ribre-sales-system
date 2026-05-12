@@ -403,6 +403,149 @@ function ver500DocumentTypeDefaults(documentType) {
   };
   return map[t] || {};
 }
+function ver500OcrDocumentProfiles() {
+  return {
+    minna_market: {
+      preferredSourceType: 'purchase',
+      preferredCategory: 'surugaya_purchase',
+      defaultSupplierName: 'みんなの市場',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', '総額', '請求額', '落札金額'],
+      dateKeywords: ['日付', '取引日', '落札日'],
+      trackingKeywords: ['伝票番号', 'お問い合わせ番号'],
+      itemTitleKeywords: ['商品名', '品名', '落札商品'],
+      ignoreKeywords: ['テスト', 'サンプル']
+    },
+    auction_shiki: {
+      preferredSourceType: 'purchase',
+      preferredCategory: 'bookoff_purchase',
+      defaultSupplierName: 'オークション志木',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', '総額', '請求額', '落札金額'],
+      dateKeywords: ['日付', '取引日'],
+      trackingKeywords: ['伝票番号', 'お問い合わせ番号'],
+      itemTitleKeywords: ['商品名', '品名'],
+      ignoreKeywords: ['テスト', 'サンプル']
+    },
+    yamato: {
+      preferredSourceType: 'shipping',
+      preferredCategory: 'yamato_shipping',
+      defaultSupplierName: '',
+      defaultShippingCarrier: 'ヤマト',
+      amountKeywords: ['送料', '運賃', '合計'],
+      dateKeywords: ['出荷日', '発送日', '日付'],
+      trackingKeywords: ['お問い合わせ番号', '送り状番号', '伝票番号'],
+      itemTitleKeywords: ['品名', 'お荷物', '商品名'],
+      ignoreKeywords: ['控え', '見本']
+    },
+    sagawa: {
+      preferredSourceType: 'shipping',
+      preferredCategory: 'sagawa_shipping',
+      defaultSupplierName: '',
+      defaultShippingCarrier: '佐川',
+      amountKeywords: ['送料', '運賃', '合計'],
+      dateKeywords: ['出荷日', '発送日', '日付'],
+      trackingKeywords: ['お問い合わせ送り状No', '送り状No', '伝票番号'],
+      itemTitleKeywords: ['品名', 'お荷物', '商品名'],
+      ignoreKeywords: ['控え', '見本']
+    },
+    surugaya: {
+      preferredSourceType: 'purchase',
+      preferredCategory: 'surugaya_purchase',
+      defaultSupplierName: '駿河屋',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', '請求額', 'お支払'],
+      dateKeywords: ['日付', '注文日', '取引日'],
+      trackingKeywords: ['伝票番号', '追跡番号'],
+      itemTitleKeywords: ['商品名', '品名'],
+      ignoreKeywords: ['テスト', 'サンプル']
+    },
+    bookoff: {
+      preferredSourceType: 'purchase',
+      preferredCategory: 'bookoff_purchase',
+      defaultSupplierName: 'BOOKOFF',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', 'お買上計', '請求額'],
+      dateKeywords: ['日付', '購入日'],
+      trackingKeywords: ['伝票番号', '追跡番号'],
+      itemTitleKeywords: ['商品名', '品名'],
+      ignoreKeywords: ['テスト', 'サンプル']
+    },
+    receipt: {
+      preferredSourceType: 'receipt',
+      preferredCategory: 'receipt',
+      defaultSupplierName: '',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', '税込', 'お買上計'],
+      dateKeywords: ['日付', '購入日', '取引日'],
+      trackingKeywords: ['伝票番号'],
+      itemTitleKeywords: ['商品名', '品名'],
+      ignoreKeywords: ['再発行']
+    },
+    unknown: {
+      preferredSourceType: 'unknown',
+      preferredCategory: 'unknown',
+      defaultSupplierName: '',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', '請求額', '税込', 'お買上計'],
+      dateKeywords: ['日付'],
+      trackingKeywords: ['伝票番号', '追跡', 'お問い合わせ番号'],
+      itemTitleKeywords: ['商品名', '品名'],
+      ignoreKeywords: []
+    }
+  };
+}
+function ver500GetOcrDocumentProfile(documentType) {
+  const t = ver500NormalizeDocumentType(documentType);
+  const map = ver500OcrDocumentProfiles();
+  return map[t] || map.unknown;
+}
+function ver500ProfilePromptHints() {
+  const p = ver500OcrDocumentProfiles();
+  return (
+    '帳票タイプ別の優先読取項目:' +
+    ' minna_market(金額:' +
+    p.minna_market.amountKeywords.join('/') +
+    '), auction_shiki(金額:' +
+    p.auction_shiki.amountKeywords.join('/') +
+    '), yamato(追跡:' +
+    p.yamato.trackingKeywords.join('/') +
+    '), sagawa(追跡:' +
+    p.sagawa.trackingKeywords.join('/') +
+    '), surugaya(商品:' +
+    p.surugaya.itemTitleKeywords.join('/') +
+    '), bookoff(商品:' +
+    p.bookoff.itemTitleKeywords.join('/') +
+    '), receipt(金額:' +
+    p.receipt.amountKeywords.join('/') +
+    ')。'
+  );
+}
+function ver500ApplyDocumentProfile(result) {
+  const src = result && typeof result === 'object' ? Object.assign({}, result) : {};
+  const docType = ver500NormalizeDocumentType(src.documentType || '');
+  const profile = ver500GetOcrDocumentProfile(docType);
+  const fields = [];
+  if (!src.sourceType && profile.preferredSourceType && profile.preferredSourceType !== 'unknown') {
+    src.sourceType = profile.preferredSourceType;
+    fields.push('sourceType');
+  }
+  if ((!src.category || src.category === 'unknown') && profile.preferredCategory && profile.preferredCategory !== 'unknown') {
+    src.category = profile.preferredCategory;
+    fields.push('category');
+  }
+  if (!src.supplierName && profile.defaultSupplierName) {
+    src.supplierName = profile.defaultSupplierName;
+    fields.push('supplierName');
+  }
+  if (!src.shippingCarrier && profile.defaultShippingCarrier) {
+    src.shippingCarrier = profile.defaultShippingCarrier;
+    fields.push('shippingCarrier');
+  }
+  src.profileApplied = fields.length > 0;
+  src.profileFields = fields;
+  return src;
+}
 function ver500DefaultOcrMappingRules() {
   return {
     supplierByStore: [
@@ -756,12 +899,13 @@ function ver500ApplyAutoMapping(src) {
   const x = src && typeof src === 'object' ? src : {};
   const rules = ver500OcrMappingRules();
   const lookups = ver500LearningRuleLookups();
-  const storeName = String(x.storeName || x.partner || '');
-  const doc = ver500DetectDocumentTypeDetail(x, rules);
+  const profiled = ver500ApplyDocumentProfile(x);
+  const storeName = String(profiled.storeName || profiled.partner || '');
+  const doc = ver500DetectDocumentTypeDetail(profiled, rules);
   const defaults = ver500DocumentTypeDefaults(doc.documentType);
-  const category = String(defaults.category || x.category || 'unknown');
-  const sourceType = String(defaults.sourceType || x.sourceType || 'unknown');
-  const itemTitle = String(x.itemTitle || x.item || '');
+  const category = String(defaults.category || profiled.category || 'unknown');
+  const sourceType = String(defaults.sourceType || profiled.sourceType || 'unknown');
+  const itemTitle = String(profiled.itemTitle || profiled.item || '');
   let supplierName = String(defaults.supplierName || '');
   let supplierLearned = false;
   for (let i = 0; i < rules.supplierByStore.length; i++) {
@@ -791,6 +935,11 @@ function ver500ApplyAutoMapping(src) {
   if (genreLearned && genre) learnedFields.push('genre');
   if (shippingLearned && shippingCarrier) learnedFields.push('shippingCarrier');
   if (doc.documentMatchedBy === 'learning' && doc.documentType !== 'unknown') learnedFields.push('documentType');
+  const profileFields = Array.isArray(profiled.profileFields) ? profiled.profileFields : [];
+  for (let i = 0; i < profileFields.length; i++) {
+    const f = String(profileFields[i] || '');
+    if (f && !learnedFields.includes(f)) learnedFields.push(f);
+  }
   const learnedMapped = learnedFields.length > 0;
   const autoMapped = !!(supplierName || salesChannel || genre || shippingCarrier || accountType !== 'unknown');
   return {
@@ -805,7 +954,9 @@ function ver500ApplyAutoMapping(src) {
     documentType: doc.documentType,
     documentMatchedBy: doc.documentMatchedBy,
     mappedSourceType: sourceType,
-    mappedCategory: category
+    mappedCategory: category,
+    profileApplied: !!profiled.profileApplied,
+    profileFields: profileFields
   };
 }
 function ver500NormalizeRouteEntry(x) {
@@ -836,6 +987,8 @@ function ver500NormalizeRouteEntry(x) {
     autoMapped: !!src.autoMapped,
     learnedMapped: !!src.learnedMapped,
     learnedFields: Array.isArray(src.learnedFields) ? src.learnedFields.map((v) => String(v || '')).filter(Boolean).slice(0, 8) : [],
+    profileApplied: !!src.profileApplied,
+    profileFields: Array.isArray(src.profileFields) ? src.profileFields.map((v) => String(v || '')).filter(Boolean).slice(0, 8) : [],
     status: normStatus(src.status),
     evidence_url: String(src.evidence_url || ''),
     note: String(src.note || '')
@@ -886,6 +1039,8 @@ function ver500CreateDraftRouteFromCandidate(candidate) {
     autoMapped: !!c.autoMapped,
     learnedMapped: !!c.learnedMapped,
     learnedFields: Array.isArray(c.learnedFields) ? c.learnedFields : [],
+    profileApplied: !!c.profileApplied,
+    profileFields: Array.isArray(c.profileFields) ? c.profileFields : [],
     status: 'draft',
     evidence_url: c.evidence_url || '',
     note: c.memo || ''
@@ -922,6 +1077,8 @@ function ver500BuildFallbackDraftFromForm() {
     autoMapped: false,
     learnedMapped: false,
     learnedFields: [],
+    profileApplied: false,
+    profileFields: [],
     evidence_url: String((document.getElementById('ver500EvidenceUrl') || {}).value || ''),
     memo: 'fallback draft route'
   };
@@ -1093,6 +1250,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
     const lines = filteredRows.slice(0, 100).map((x) => {
       const status = esc(x.status || 'draft');
       const learned = x.learnedMapped ? '<span class="badge">[学習適用]</span>' : '';
+      const profiled = x.profileApplied ? '<span class="badge">[profile適用]</span>' : '';
       return (
         '<div class="row ok"><span>' +
         esc(x.date || '') +
@@ -1104,11 +1262,13 @@ function ver500RenderDraftRouteList(noticeMsg) {
         esc(x.storeName || '-') +
         ' / ' +
         esc(x.amount || 0) +
-        '円' +
+        '円 / profile適用:' +
+        (x.profileApplied ? 'あり' : 'なし') +
         '</span><span class="badge">[' +
         status +
         ']</span>' +
         learned +
+        profiled +
         '</div>'
       );
     });
@@ -1538,7 +1698,7 @@ function ver500NormalizeSchema(raw) {
     },
     ver500OcrMappingRules()
   );
-  return {
+  const normalized = {
     kind: kindRaw === 'sale' ? 'sale' : kindRaw === 'purchase' ? 'purchase' : sourceType === 'sale' ? 'sale' : sourceType === 'purchase' ? 'purchase' : 'unknown',
     category,
     sourceType,
@@ -1554,6 +1714,7 @@ function ver500NormalizeSchema(raw) {
     paymentMethod: String(x.paymentMethod || ''),
     note: String(x.note || x.memo || '')
   };
+  return ver500ApplyDocumentProfile(normalized);
 }
 function ver500SchemaToCandidate(schema, options = {}) {
   const s = ver500NormalizeSchema(schema);
@@ -1587,6 +1748,8 @@ function ver500SchemaToCandidate(schema, options = {}) {
     autoMapped: mapped.autoMapped,
     learnedMapped: mapped.learnedMapped,
     learnedFields: mapped.learnedFields,
+    profileApplied: mapped.profileApplied,
+    profileFields: mapped.profileFields,
     date: s.date || '',
     partner: s.storeName || '',
     item: s.itemTitle || 'AI読取候補',
@@ -1678,22 +1841,85 @@ function ver500ExtractByRules(text) {
     },
     ver500OcrMappingRules()
   );
-  return {
+  const profile = ver500GetOcrDocumentProfile(doc.documentType);
+  const pickByKeywords = (keywords, fallbackRegex) => {
+    const keys = Array.isArray(keywords) ? keywords : [];
+    for (let i = 0; i < keys.length; i++) {
+      const kw = String(keys[i] || '');
+      if (!kw) continue;
+      const rx = new RegExp(kw + '[^\\n\\r0-9¥￥]*([¥￥]?\\s?[0-9,０-９]{2,})', 'i');
+      const m = t.match(rx);
+      if (m && m[1]) return m[1];
+    }
+    const m2 = fallbackRegex ? t.match(fallbackRegex) : null;
+    return (m2 && (m2[1] || m2[0])) || '';
+  };
+  const pickDateByKeywords = (keywords) => {
+    const keys = Array.isArray(keywords) ? keywords : [];
+    for (let i = 0; i < keys.length; i++) {
+      const kw = String(keys[i] || '');
+      if (!kw) continue;
+      const rx = new RegExp(kw + '[^\\n\\r0-9]*(20\\d{2}[\\/\\-年]\\d{1,2}[\\/\\-月]\\d{1,2})', 'i');
+      const m = t.match(rx);
+      if (m && m[1]) return m[1];
+    }
+    return '';
+  };
+  const pickTrackingByKeywords = (keywords) => {
+    const keys = Array.isArray(keywords) ? keywords : [];
+    for (let i = 0; i < keys.length; i++) {
+      const kw = String(keys[i] || '');
+      if (!kw) continue;
+      const rx = new RegExp(kw + '[^\\n\\r0-9０-９A-Z]*([0-9０-９\\- ]{8,})', 'i');
+      const m = t.match(rx);
+      if (m && m[1]) return m[1];
+    }
+    return '';
+  };
+  const pickItemByKeywords = (keywords) => {
+    const keys = Array.isArray(keywords) ? keywords : [];
+    for (let i = 0; i < keys.length; i++) {
+      const kw = String(keys[i] || '');
+      if (!kw) continue;
+      const rx = new RegExp(kw + '[\\s:：]*([^\\n\\r]{2,80})', 'i');
+      const m = t.match(rx);
+      if (m && m[1]) return m[1].trim();
+    }
+    return '';
+  };
+  const amountByProfile = pickByKeywords(profile.amountKeywords, null);
+  const dateByProfile = pickDateByKeywords(profile.dateKeywords);
+  const trackingByProfile = pickTrackingByKeywords(profile.trackingKeywords);
+  const itemByProfile = pickItemByKeywords(profile.itemTitleKeywords);
+  let note = 'ルール抽出';
+  const ignoreList = Array.isArray(profile.ignoreKeywords) ? profile.ignoreKeywords : [];
+  for (let i = 0; i < ignoreList.length; i++) {
+    const kw = String(ignoreList[i] || '');
+    if (kw && t.includes(kw)) {
+      note += ' / ignore:' + kw;
+      break;
+    }
+  }
+  const base = {
     kind,
     category,
     sourceType,
     documentType: doc.documentType || 'unknown',
     documentMatchedBy: doc.documentMatchedBy || 'keyword',
     storeName: storeName || '',
-    date: ver500NormalizeDate(dateRaw || new Date().toISOString().slice(0, 10)),
-    amount: ver500Num(amountRaw),
+    date: ver500NormalizeDate(dateByProfile || dateRaw || new Date().toISOString().slice(0, 10)),
+    amount: ver500Num(amountByProfile || amountRaw),
     shipping: ver500Num(shippingRaw),
-    trackingNumber: sourceType === 'shipping' ? trackingNorm || ver500NormalizeTracking((t.match(/[0-9０-９]{10,14}/) || [])[0] || '') : trackingNorm,
-    itemTitle: 'AI読取候補',
+    trackingNumber:
+      sourceType === 'shipping'
+        ? ver500NormalizeTracking(trackingByProfile || trackingNorm || ver500NormalizeTracking((t.match(/[0-9０-９]{10,14}/) || [])[0] || ''))
+        : ver500NormalizeTracking(trackingByProfile || trackingNorm),
+    itemTitle: itemByProfile || 'AI読取候補',
     itemCount: 0,
     paymentMethod,
-    note: 'ルール抽出'
+    note
   };
+  return ver500ApplyDocumentProfile(base);
 }
 async function ver500OpenAiAnalyze(inputText, imageDataUrl) {
   const key = localStorage.getItem('ribre_openai_key200') || localStorage.getItem('ribre_openai_key180') || '';
@@ -1702,6 +1928,7 @@ async function ver500OpenAiAnalyze(inputText, imageDataUrl) {
   const prompt =
     'あなたは日本の売上管理OCRです。必ずJSONのみ返すこと。説明文は禁止。推測は禁止。存在しない値は null。' +
     '日本のEC/配送/買取伝票を想定し、documentType/category/sourceTypeを推定してください。不明時は unknown。documentType を必ず推定してください。' +
+    ver500ProfilePromptHints() +
     '出力schemaは次のみ: {"kind":"sale|purchase|unknown","documentType":"minna_market|auction_shiki|surugaya|bookoff|yamato|sagawa|mercari|yahoo|receipt|invoice|unknown","category":"yahoo_sale|mercari_sale|surugaya_purchase|bookoff_purchase|yamato_shipping|sagawa_shipping|receipt|invoice|unknown","sourceType":"sale|purchase|shipping|receipt|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
 
   let input;
@@ -1798,6 +2025,7 @@ async function ver500AnalyzeEvidence() {
       if (ai.category) cacheRows.push({ type: '分類', msg: 'category: ' + ai.category });
       if (ai.sourceType) cacheRows.push({ type: '分類', msg: 'sourceType: ' + ai.sourceType });
       if (ai.documentType) cacheRows.push({ type: '分類', msg: 'documentType: ' + ai.documentType + ' (' + (ai.documentMatchedBy || 'unknown') + ')' });
+      if (ai.profileApplied) cacheRows.push({ type: '分類', msg: 'profileApplied: true / ' + (ai.profileFields || []).join(',') });
       ver500Render(cacheRows);
       return;
     }
@@ -1883,6 +2111,7 @@ async function ver500AnalyzeEvidence() {
   if (ai.category) rows.push({ type: '分類', msg: 'category: ' + ai.category });
   if (ai.sourceType) rows.push({ type: '分類', msg: 'sourceType: ' + ai.sourceType });
   if (ai.documentType) rows.push({ type: '分類', msg: 'documentType: ' + ai.documentType + ' (' + (ai.documentMatchedBy || 'unknown') + ')' });
+  if (ai.profileApplied) rows.push({ type: '分類', msg: 'profileApplied: true / ' + (ai.profileFields || []).join(',') });
   ver500Render(rows);
 }
 function ver500ConfirmSelectedDraft() {
@@ -2037,6 +2266,9 @@ function ver500CurrentCandidate() {
     autoMapped: mapped.autoMapped,
     learnedMapped: mapped.learnedMapped,
     learnedFields: mapped.learnedFields
+    ,
+    profileApplied: mapped.profileApplied,
+    profileFields: mapped.profileFields
   });
 }
 function ver500ApplyCandidateData(candidate) {

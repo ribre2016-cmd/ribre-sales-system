@@ -303,6 +303,148 @@ function ribreDetectDocumentTypeDetail(src) {
   if (aiType !== 'unknown') return { documentType: aiType, documentMatchedBy: 'ai' };
   return { documentType: 'unknown', documentMatchedBy: 'unknown' };
 }
+function ribreOcrDocumentProfiles() {
+  return {
+    minna_market: {
+      preferredSourceType: 'purchase',
+      preferredCategory: 'surugaya_purchase',
+      defaultSupplierName: 'みんなの市場',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', '総額', '請求額', '落札金額'],
+      dateKeywords: ['日付', '取引日', '落札日'],
+      trackingKeywords: ['お問い合わせ番号', '送り状番号', '伝票番号'],
+      itemTitleKeywords: ['商品名', '品名', '落札商品'],
+      ignoreKeywords: ['テスト', 'サンプル']
+    },
+    auction_shiki: {
+      preferredSourceType: 'purchase',
+      preferredCategory: 'bookoff_purchase',
+      defaultSupplierName: 'オークション志木',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', '総額', '請求額'],
+      dateKeywords: ['日付', '取引日'],
+      trackingKeywords: ['お問い合わせ番号', '伝票番号'],
+      itemTitleKeywords: ['商品名', '品名'],
+      ignoreKeywords: ['テスト', 'サンプル']
+    },
+    yamato: {
+      preferredSourceType: 'shipping',
+      preferredCategory: 'yamato_shipping',
+      defaultSupplierName: '',
+      defaultShippingCarrier: 'ヤマト',
+      amountKeywords: ['送料', '運賃', '合計'],
+      dateKeywords: ['出荷日', '発送日', '日付'],
+      trackingKeywords: ['お問い合わせ番号', '送り状番号', '伝票番号'],
+      itemTitleKeywords: ['品名', 'お荷物', '商品名'],
+      ignoreKeywords: ['控え', '見本']
+    },
+    sagawa: {
+      preferredSourceType: 'shipping',
+      preferredCategory: 'sagawa_shipping',
+      defaultSupplierName: '',
+      defaultShippingCarrier: '佐川',
+      amountKeywords: ['送料', '運賃', '合計'],
+      dateKeywords: ['出荷日', '発送日', '日付'],
+      trackingKeywords: ['お問い合わせ送り状No', '送り状No', '伝票番号'],
+      itemTitleKeywords: ['品名', 'お荷物', '商品名'],
+      ignoreKeywords: ['控え', '見本']
+    },
+    surugaya: {
+      preferredSourceType: 'purchase',
+      preferredCategory: 'surugaya_purchase',
+      defaultSupplierName: '駿河屋',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', '請求額', 'お支払'],
+      dateKeywords: ['日付', '注文日', '取引日'],
+      trackingKeywords: ['伝票番号', '追跡番号'],
+      itemTitleKeywords: ['商品名', '品名'],
+      ignoreKeywords: ['テスト', 'サンプル']
+    },
+    bookoff: {
+      preferredSourceType: 'purchase',
+      preferredCategory: 'bookoff_purchase',
+      defaultSupplierName: 'BOOKOFF',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', 'お買上計', '請求額'],
+      dateKeywords: ['日付', '購入日'],
+      trackingKeywords: ['伝票番号', '追跡番号'],
+      itemTitleKeywords: ['商品名', '品名'],
+      ignoreKeywords: ['テスト', 'サンプル']
+    },
+    receipt: {
+      preferredSourceType: 'receipt',
+      preferredCategory: 'receipt',
+      defaultSupplierName: '',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', '税込', 'お買上計'],
+      dateKeywords: ['日付', '購入日'],
+      trackingKeywords: ['伝票番号'],
+      itemTitleKeywords: ['商品名', '品名'],
+      ignoreKeywords: ['再発行']
+    },
+    unknown: {
+      preferredSourceType: 'unknown',
+      preferredCategory: 'unknown',
+      defaultSupplierName: '',
+      defaultShippingCarrier: '',
+      amountKeywords: ['合計', '請求額', '税込'],
+      dateKeywords: ['日付'],
+      trackingKeywords: ['伝票番号', '追跡', 'お問い合わせ番号'],
+      itemTitleKeywords: ['商品名', '品名'],
+      ignoreKeywords: []
+    }
+  };
+}
+function ribreGetOcrDocumentProfile(documentType) {
+  const t = ribreNormalizeDocumentType(documentType);
+  const map = ribreOcrDocumentProfiles();
+  return map[t] || map.unknown;
+}
+function ribreProfilePromptHints() {
+  const p = ribreOcrDocumentProfiles();
+  return (
+    '帳票タイプ別の優先読取項目:' +
+    ' minna_market(金額:' +
+    p.minna_market.amountKeywords.join('/') +
+    '), auction_shiki(金額:' +
+    p.auction_shiki.amountKeywords.join('/') +
+    '), yamato(追跡:' +
+    p.yamato.trackingKeywords.join('/') +
+    '), sagawa(追跡:' +
+    p.sagawa.trackingKeywords.join('/') +
+    '), surugaya(商品:' +
+    p.surugaya.itemTitleKeywords.join('/') +
+    '), bookoff(商品:' +
+    p.bookoff.itemTitleKeywords.join('/') +
+    '), receipt(金額:' +
+    p.receipt.amountKeywords.join('/') +
+    ')。'
+  );
+}
+function ribreApplyDocumentProfile(result) {
+  const src = result && typeof result === 'object' ? Object.assign({}, result) : {};
+  const profile = ribreGetOcrDocumentProfile(src.documentType || 'unknown');
+  const fields = [];
+  if ((!src.sourceType || src.sourceType === 'unknown') && profile.preferredSourceType && profile.preferredSourceType !== 'unknown') {
+    src.sourceType = profile.preferredSourceType;
+    fields.push('sourceType');
+  }
+  if ((!src.category || src.category === 'unknown') && profile.preferredCategory && profile.preferredCategory !== 'unknown') {
+    src.category = profile.preferredCategory;
+    fields.push('category');
+  }
+  if (!src.supplierName && profile.defaultSupplierName) {
+    src.supplierName = profile.defaultSupplierName;
+    fields.push('supplierName');
+  }
+  if (!src.shippingCarrier && profile.defaultShippingCarrier) {
+    src.shippingCarrier = profile.defaultShippingCarrier;
+    fields.push('shippingCarrier');
+  }
+  src.profileApplied = fields.length > 0;
+  src.profileFields = fields;
+  return src;
+}
 function ribreCleanJsonText(text) {
   let t = String(text || '').trim();
   t = t.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
@@ -377,7 +519,7 @@ function ribreNormalizeOcrSchema(obj) {
     paymentMethod: String(src.paymentMethod || ''),
     note: String(src.note || src.memo || '')
   };
-  return result;
+  return ribreApplyDocumentProfile(result);
 }
 async function uploadOpenAIFile(key, ev) {
   const srcUrl = ev.dataUrl || ev.evidence_url || (ev.id && ocrEvidenceCache()[ev.id]) || '';
@@ -420,6 +562,7 @@ async function runOcr() {
   const prompt =
     'あなたは日本の売上管理OCRです。必ずJSONのみ返してください。説明文は禁止。推測は禁止。存在しない値は null。' +
     '日本のEC/配送/買取伝票を想定し、documentType/category/sourceTypeを推定してください。不明時は unknown。documentType を必ず推定してください。' +
+    ribreProfilePromptHints() +
     '出力schemaは次のみ: {"kind":"sale|purchase|unknown","documentType":"minna_market|auction_shiki|surugaya|bookoff|yamato|sagawa|mercari|yahoo|receipt|invoice|unknown","category":"yahoo_sale|mercari_sale|surugaya_purchase|bookoff_purchase|yamato_shipping|sagawa_shipping|receipt|invoice|unknown","sourceType":"sale|purchase|shipping|receipt|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
   try {
     const cacheKey = ocrBuildResultCacheKey({
@@ -440,6 +583,7 @@ async function runOcr() {
       if (cp.category) cacheRows.push({ type: '分類', msg: 'category: ' + cp.category });
       if (cp.sourceType) cacheRows.push({ type: '分類', msg: 'sourceType: ' + cp.sourceType });
       if (cp.documentType) cacheRows.push({ type: '分類', msg: 'documentType: ' + cp.documentType + ' (' + (cp.documentMatchedBy || 'unknown') + ')' });
+      if (cp.profileApplied) cacheRows.push({ type: '分類', msg: 'profileApplied: true / ' + (cp.profileFields || []).join(',') });
       renderList('ocrList', cacheRows);
       return;
     }
@@ -518,6 +662,7 @@ async function runOcr() {
     if (p.category) rows.push({ type: '分類', msg: 'category: ' + p.category });
     if (p.sourceType) rows.push({ type: '分類', msg: 'sourceType: ' + p.sourceType });
     if (p.documentType) rows.push({ type: '分類', msg: 'documentType: ' + p.documentType + ' (' + (p.documentMatchedBy || 'unknown') + ')' });
+    if (p.profileApplied) rows.push({ type: '分類', msg: 'profileApplied: true / ' + (p.profileFields || []).join(',') });
     renderList('ocrList', rows);
   } catch (e) {
     renderList('ocrList', [{ type: 'ERROR', level: 'danger', msg: e.message }]);
@@ -540,6 +685,8 @@ function fillCandidate(p, ev) {
         sourceType: p.sourceType || 'unknown',
         documentType: p.documentType || 'unknown',
         documentMatchedBy: p.documentMatchedBy || 'unknown',
+        profileApplied: !!p.profileApplied,
+        profileFields: Array.isArray(p.profileFields) ? p.profileFields : [],
         date: p.date || '',
         partner: p.storeName || '',
         item: p.itemTitle || '',
