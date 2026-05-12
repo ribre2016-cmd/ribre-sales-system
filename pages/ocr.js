@@ -27,6 +27,155 @@ function ver500Candidates() {
     return [];
   }
 }
+function ver500DraftRoutes() {
+  try {
+    const rows = JSON.parse(localStorage.getItem('ribre_ocr_draft_routes_v1') || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    return [];
+  }
+}
+function ver500RouteLabel(sourceType) {
+  const t = String(sourceType || 'unknown');
+  if (t === 'sale') return '売上';
+  if (t === 'purchase') return '仕入';
+  if (t === 'shipping') return '配送';
+  if (t === 'receipt') return '証憑';
+  return '未分類';
+}
+function ver500NormalizeRouteEntry(x) {
+  const src = x && typeof x === 'object' ? x : {};
+  const normStatus = (v) => {
+    const s = String(v || 'draft');
+    if (s === 'confirmed' || s === 'ignored') return s;
+    return 'draft';
+  };
+  return {
+    id: String(src.id || 'route_' + Date.now()),
+    createdAt: String(src.createdAt || new Date().toISOString()),
+    sourceType: String(src.sourceType || 'unknown'),
+    category: String(src.category || 'unknown'),
+    date: String(src.date || ''),
+    amount: ver500Num(src.amount),
+    shipping: ver500Num(src.shipping),
+    trackingNumber: ver500NormalizeTracking(src.trackingNumber || ''),
+    storeName: String(src.storeName || ''),
+    itemTitle: String(src.itemTitle || ''),
+    status: normStatus(src.status),
+    evidence_url: String(src.evidence_url || ''),
+    note: String(src.note || '')
+  };
+}
+function ver500SaveDraftRoutes(arr) {
+  const rows = (arr || []).map(ver500NormalizeRouteEntry).slice(0, 100);
+  const save = (n) => localStorage.setItem('ribre_ocr_draft_routes_v1', JSON.stringify(n === 0 ? [] : rows.slice(0, n)));
+  try {
+    save(100);
+    return;
+  } catch (e) {
+    if (!(e && e.name === 'QuotaExceededError')) return;
+  }
+  try {
+    save(50);
+    return;
+  } catch (e) {}
+  try {
+    save(20);
+    return;
+  } catch (e) {}
+  try {
+    save(0);
+  } catch (e) {}
+}
+function ver500CreateDraftRouteFromCandidate(candidate) {
+  const c = candidate && typeof candidate === 'object' ? candidate : {};
+  const sourceType = String(c.sourceType || 'unknown');
+  return ver500NormalizeRouteEntry({
+    id: 'route_' + Date.now(),
+    createdAt: new Date().toISOString(),
+    sourceType,
+    category: c.category || 'unknown',
+    date: c.date || '',
+    amount: c.amount || 0,
+    shipping: c.shipping || 0,
+    trackingNumber: c.slip || c.trackingNumber || '',
+    storeName: c.partner || c.storeName || '',
+    itemTitle: c.item || c.itemTitle || '',
+    status: 'draft',
+    evidence_url: c.evidence_url || '',
+    note: c.memo || ''
+  });
+}
+function ver500UpsertDraftRoute(route) {
+  const row = ver500NormalizeRouteEntry(route);
+  const rows = ver500DraftRoutes().filter((x) => String(x.id || '') !== row.id);
+  rows.unshift(row);
+  ver500SaveDraftRoutes(rows);
+  return row;
+}
+function ver500RenderDraftRouteList() {
+  const rows = ver500DraftRoutes();
+  const draftRows = rows.filter((x) => x.status === 'draft');
+  const select = document.getElementById('ver500DraftSelect');
+  if (select) {
+    select.innerHTML = '';
+    draftRows.forEach((x) => {
+      const op = document.createElement('option');
+      op.value = x.id;
+      op.textContent =
+        (x.date || '日付不明') +
+        ' / ' +
+        ver500RouteLabel(x.sourceType) +
+        ' / ' +
+        (x.storeName || '-') +
+        ' / ' +
+        (x.amount || 0) +
+        '円';
+      select.appendChild(op);
+    });
+  }
+  if (!draftRows.length) {
+    ver500Render([{ type: '仮登録', level: 'warn', msg: 'draft候補はありません' }]);
+    return;
+  }
+  const listRows = draftRows.slice(0, 50).map((x) => ({
+    type: '仮登録',
+    msg:
+      '登録先: ' +
+      ver500RouteLabel(x.sourceType) +
+      ' / 状態: ' +
+      x.status +
+      ' / ' +
+      (x.date || '') +
+      ' / ' +
+      (x.storeName || '-') +
+      ' / ' +
+      (x.amount || 0) +
+      '円'
+  }));
+  ver500Render(listRows);
+}
+function ver500EnsureDraftButtons() {
+  if (document.getElementById('ver500ShowDraftRoutesBtn')) return;
+  const sec = document.getElementById('aiauto50');
+  if (!sec) return;
+  const controls = sec.querySelector('.controls');
+  if (!controls) return;
+  const showBtn = document.createElement('button');
+  showBtn.id = 'ver500ShowDraftRoutesBtn';
+  showBtn.textContent = 'OCR仮登録一覧';
+  showBtn.onclick = () => ver500RenderDraftRouteList();
+  const confirmBtn = document.createElement('button');
+  confirmBtn.id = 'ver500ConfirmDraftBtn';
+  confirmBtn.textContent = '選択候補を確定';
+  confirmBtn.className = 'green';
+  confirmBtn.onclick = () => ver500ConfirmSelectedDraft();
+  const select = document.createElement('select');
+  select.id = 'ver500DraftSelect';
+  controls.appendChild(showBtn);
+  controls.appendChild(confirmBtn);
+  controls.appendChild(select);
+}
 function ver500SaveCandidates(arr) {
   const sanitizeCandidate = (c) => {
     const x = Object.assign({}, c || {});
@@ -175,6 +324,7 @@ function ver500SchemaToCandidate(schema, options = {}) {
     kind: candidateKind,
     category: s.category || 'unknown',
     sourceType: s.sourceType || 'unknown',
+    status: 'draft',
     date: s.date || '',
     partner: s.storeName || '',
     item: s.itemTitle || 'AI読取候補',
@@ -346,6 +496,7 @@ async function ver500AnalyzeEvidence() {
         evidenceUrl,
         fileName: cacheMeta.fileName
       });
+      const route = ver500UpsertDraftRoute(ver500CreateDraftRouteFromCandidate(ai));
       document.getElementById('ver500Kind').value = ai.kind || 'auto';
       document.getElementById('ver500Date').value = ai.date || '';
       document.getElementById('ver500Partner').value = ai.partner || '';
@@ -362,6 +513,8 @@ async function ver500AnalyzeEvidence() {
       const cacheRows = [
         { type: 'AI', msg: 'キャッシュ結果を使用しました' },
         { type: '分類', msg: 'AI判定：' + (ai.kind || '不明') },
+        { type: '仮登録', msg: '登録先: ' + ver500RouteLabel(route.sourceType) },
+        { type: '仮登録', msg: '状態: ' + route.status },
         { type: '日付', msg: ai.date || '' },
         { type: '相手先', msg: ai.partner || '' },
         { type: '内容', msg: ai.item || '' },
@@ -415,6 +568,7 @@ async function ver500AnalyzeEvidence() {
     evidenceUrl,
     fileName: file ? file.name : ver500LatestStorage()?.name || ''
   });
+  const route = ver500UpsertDraftRoute(ver500CreateDraftRouteFromCandidate(ai));
   if (cacheKey && typeof window.ribreOcrSaveCachedResult === 'function') {
     window.ribreOcrSaveCachedResult({
       cacheKey,
@@ -443,6 +597,8 @@ async function ver500AnalyzeEvidence() {
 
   const rows = [
     { type: '分類', msg: 'AI判定：' + ai.kind },
+    { type: '仮登録', msg: '登録先: ' + ver500RouteLabel(route.sourceType) },
+    { type: '仮登録', msg: '状態: ' + route.status },
     { type: '日付', msg: ai.date || '' },
     { type: '相手先', msg: ai.partner || '' },
     { type: '内容', msg: ai.item || '' },
@@ -453,12 +609,69 @@ async function ver500AnalyzeEvidence() {
   if (ai.sourceType) rows.push({ type: '分類', msg: 'sourceType: ' + ai.sourceType });
   ver500Render(rows);
 }
+function ver500ConfirmSelectedDraft() {
+  const select = document.getElementById('ver500DraftSelect');
+  const targetId = select && select.value ? select.value : '';
+  const rows = ver500DraftRoutes();
+  const row = rows.find((x) => String(x.id || '') === targetId) || rows.find((x) => x.status === 'draft');
+  if (!row) {
+    ver500Render([{ type: '仮登録', level: 'warn', msg: '確定できる候補がありません' }]);
+    return;
+  }
+  if (row.sourceType === 'unknown') {
+    ver500Render([{ type: '仮登録', level: 'warn', msg: 'unknown は確定できません。内容を確認してください' }]);
+    return;
+  }
+  if (row.sourceType === 'receipt') {
+    const updated = Object.assign({}, row, { status: 'confirmed' });
+    ver500UpsertDraftRoute(updated);
+    ver500Render([{ type: '仮登録', msg: '証憑候補として確定しました' }]);
+    return;
+  }
+  if (row.sourceType === 'shipping') {
+    let shippingRows = [];
+    try {
+      shippingRows = JSON.parse(localStorage.getItem('ribre_shipping_rows230') || '[]');
+    } catch (e) {}
+    shippingRows.unshift({
+      id: row.id,
+      date: row.date || today(),
+      itemId: '',
+      slip: row.trackingNumber || '',
+      trackingNumber: row.trackingNumber || '',
+      shippingCompany: /ヤマト/.test(String(row.category || '')) ? 'ヤマト' : /佐川/.test(String(row.category || '')) ? '佐川' : '',
+      shipping: ver500Num(row.shipping || row.amount || 0),
+      amount: ver500Num(row.shipping || row.amount || 0),
+      status: 'OCR仮登録',
+      evidence_url: row.evidence_url || '',
+      note: row.note || '',
+      at: new Date().toLocaleString('ja-JP')
+    });
+    localStorage.setItem('ribre_shipping_rows230', JSON.stringify(shippingRows.slice(0, 1000)));
+    const updated = Object.assign({}, row, { status: 'confirmed' });
+    ver500UpsertDraftRoute(updated);
+    ver500Render([{ type: '仮登録', msg: '配送候補として確定しました' }]);
+    return;
+  }
+  document.getElementById('ver500Kind').value = row.sourceType === 'sale' ? 'sale' : 'purchase';
+  document.getElementById('ver500Date').value = row.date || '';
+  document.getElementById('ver500Partner').value = row.storeName || '';
+  document.getElementById('ver500Item').value = row.itemTitle || '';
+  document.getElementById('ver500Amount').value = row.amount || 0;
+  document.getElementById('ver500Slip').value = row.trackingNumber || '';
+  document.getElementById('ver500EvidenceUrl').value = row.evidence_url || '';
+  ver500ApplyCandidate();
+  const updated = Object.assign({}, row, { status: 'confirmed' });
+  ver500UpsertDraftRoute(updated);
+  ver500Set('ver500Status', '確定OK');
+}
 function ver500CurrentCandidate() {
   return {
     kind:
       document.getElementById('ver500Kind').value === 'auto'
         ? 'expense'
         : document.getElementById('ver500Kind').value,
+    status: 'draft',
     date: document.getElementById('ver500Date').value,
     partner: document.getElementById('ver500Partner').value,
     item: document.getElementById('ver500Item').value,
@@ -662,6 +875,10 @@ window.ver500Render = ver500Render;
 window.ver500Set = ver500Set;
 window.ver500Num = ver500Num;
 window.ver500Candidates = ver500Candidates;
+window.ver500DraftRoutes = ver500DraftRoutes;
+window.ver500SaveDraftRoutes = ver500SaveDraftRoutes;
+window.ver500RenderDraftRouteList = ver500RenderDraftRouteList;
+window.ver500ConfirmSelectedDraft = ver500ConfirmSelectedDraft;
 window.ver500SaveCandidates = ver500SaveCandidates;
 window.ver500LatestStorage = ver500LatestStorage;
 window.ver500LoadLatestStorage = ver500LoadLatestStorage;
@@ -678,3 +895,14 @@ window.ver500Headers = ver500Headers;
 window.ver500SaveToProduction = ver500SaveToProduction;
 window.ver500ExportCandidates = ver500ExportCandidates;
 window.ver500Guide = ver500Guide;
+
+if (!window.__ver500DraftUiInit) {
+  window.__ver500DraftUiInit = true;
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      try {
+        ver500EnsureDraftButtons();
+      } catch (e) {}
+    }, 1200);
+  });
+}
