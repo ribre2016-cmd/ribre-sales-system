@@ -121,9 +121,34 @@ function ver500ParseJsonLoose(text) {
 function ver500NormalizeSchema(raw) {
   if (typeof window.ribreNormalizeOcrSchema === 'function') return window.ribreNormalizeOcrSchema(raw);
   const x = raw && typeof raw === 'object' ? raw : {};
+  const textPool = [x.storeName, x.partner, x.vendor, x.itemTitle, x.item, x.itemName, x.note, x.memo]
+    .map((v) => String(v || ''))
+    .join(' ')
+    .toLowerCase();
   const kindRaw = String(x.kind || '').toLowerCase();
+  const srcRaw = String(x.sourceType || '').toLowerCase();
+  let sourceType = 'unknown';
+  if (srcRaw === 'sale' || srcRaw === 'purchase' || srcRaw === 'shipping' || srcRaw === 'receipt') sourceType = srcRaw;
+  else if (/ヤマト|佐川|追跡|伝票|送り状|送料/.test(textPool)) sourceType = 'shipping';
+  else if (/領収|レシート/.test(textPool)) sourceType = 'receipt';
+  else if (/仕入|買取|請求|駿河屋|bookoff|ブックオフ/.test(textPool)) sourceType = 'purchase';
+  else if (/ヤフオク|メルカリ|売上|落札|入金/.test(textPool)) sourceType = 'sale';
+  const categoryRaw = String(x.category || '').toLowerCase();
+  let category = categoryRaw || 'unknown';
+  if (category === 'unknown') {
+    if (/ヤフオク/.test(textPool)) category = 'yahoo_sale';
+    else if (/メルカリ/.test(textPool)) category = 'mercari_sale';
+    else if (/駿河屋/.test(textPool)) category = 'surugaya_purchase';
+    else if (/bookoff|ブックオフ/.test(textPool)) category = 'bookoff_purchase';
+    else if (/ヤマト/.test(textPool)) category = 'yamato_shipping';
+    else if (/佐川/.test(textPool)) category = 'sagawa_shipping';
+    else if (/領収|レシート/.test(textPool)) category = 'receipt';
+    else if (/請求|invoice/.test(textPool)) category = 'invoice';
+  }
   return {
-    kind: kindRaw === 'sale' ? 'sale' : kindRaw === 'purchase' ? 'purchase' : 'unknown',
+    kind: kindRaw === 'sale' ? 'sale' : kindRaw === 'purchase' ? 'purchase' : sourceType === 'sale' ? 'sale' : sourceType === 'purchase' ? 'purchase' : 'unknown',
+    category,
+    sourceType,
     storeName: String(x.storeName || x.partner || x.vendor || ''),
     date: ver500NormalizeDate(x.date),
     amount: ver500Num(x.amount),
@@ -144,8 +169,12 @@ function ver500SchemaToCandidate(schema, options = {}) {
   if (s.paymentMethod) memoParts.push('支払:' + s.paymentMethod);
   if (s.shipping) memoParts.push('送料:' + s.shipping);
   if (s.itemCount) memoParts.push('数量:' + s.itemCount);
+  if (s.category) memoParts.push('カテゴリ:' + s.category);
+  if (s.sourceType) memoParts.push('種別:' + s.sourceType);
   return {
     kind: candidateKind,
+    category: s.category || 'unknown',
+    sourceType: s.sourceType || 'unknown',
     date: s.date || '',
     partner: s.storeName || '',
     item: s.itemTitle || 'AI読取候補',
@@ -212,13 +241,30 @@ function ver500ExtractByRules(text) {
   let kind = 'unknown';
   if (/売上|落札|ヤフオク|メルカリ|入金/.test(t)) kind = 'sale';
   else if (/仕入|請求|古物|買取|駿河屋|購入|領収/.test(t)) kind = 'purchase';
+  let sourceType = 'unknown';
+  if (/ヤマト|佐川|追跡|伝票|送り状|送料/.test(t)) sourceType = 'shipping';
+  else if (/領収|レシート/.test(t)) sourceType = 'receipt';
+  else if (kind === 'sale') sourceType = 'sale';
+  else if (kind === 'purchase') sourceType = 'purchase';
+  let category = 'unknown';
+  if (/ヤフオク/.test(t)) category = 'yahoo_sale';
+  else if (/メルカリ/.test(t)) category = 'mercari_sale';
+  else if (/駿河屋/.test(t)) category = 'surugaya_purchase';
+  else if (/BOOKOFF|ブックオフ/i.test(t)) category = 'bookoff_purchase';
+  else if (/ヤマト/.test(t)) category = 'yamato_shipping';
+  else if (/佐川/.test(t)) category = 'sagawa_shipping';
+  else if (/領収|レシート/.test(t)) category = 'receipt';
+  else if (/請求|invoice/i.test(t)) category = 'invoice';
+  const trackingNorm = ver500NormalizeTracking(trackingRaw);
   return {
     kind,
+    category,
+    sourceType,
     storeName: storeName || '',
     date: ver500NormalizeDate(dateRaw || new Date().toISOString().slice(0, 10)),
     amount: ver500Num(amountRaw),
     shipping: ver500Num(shippingRaw),
-    trackingNumber: ver500NormalizeTracking(trackingRaw),
+    trackingNumber: sourceType === 'shipping' ? trackingNorm || ver500NormalizeTracking((t.match(/[0-9０-９]{10,14}/) || [])[0] || '') : trackingNorm,
     itemTitle: 'AI読取候補',
     itemCount: 0,
     paymentMethod,
@@ -231,7 +277,8 @@ async function ver500OpenAiAnalyze(inputText, imageDataUrl) {
 
   const prompt =
     'あなたは日本の売上管理OCRです。必ずJSONのみ返すこと。説明文は禁止。推測は禁止。存在しない値は null。' +
-    '出力schemaは次のみ: {"kind":"sale|purchase|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
+    '日本のEC/配送/買取伝票を想定し、category/sourceTypeを推定してください。不明時は unknown。' +
+    '出力schemaは次のみ: {"kind":"sale|purchase|unknown","category":"yahoo_sale|mercari_sale|surugaya_purchase|bookoff_purchase|yamato_shipping|sagawa_shipping|receipt|invoice|unknown","sourceType":"sale|purchase|shipping|receipt|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
 
   let input;
   const hasImageInput = !!(imageDataUrl && (/^data:image\//i.test(String(imageDataUrl)) || /^https?:\/\//i.test(String(imageDataUrl))));
@@ -312,7 +359,7 @@ async function ver500AnalyzeEvidence() {
       ver500Set('ver500CandidateCount', arr.length + '件');
       ver500Set('ver500RegisterTarget', ai.kind === 'sale' ? '売上' : ai.kind === 'purchase' ? '仕入' : ai.kind);
       ver500Set('ver500Status', 'キャッシュ使用');
-      ver500Render([
+      const cacheRows = [
         { type: 'AI', msg: 'キャッシュ結果を使用しました' },
         { type: '分類', msg: 'AI判定：' + (ai.kind || '不明') },
         { type: '日付', msg: ai.date || '' },
@@ -320,7 +367,10 @@ async function ver500AnalyzeEvidence() {
         { type: '内容', msg: ai.item || '' },
         { type: '金額', msg: String(ai.amount || 0) + '円' },
         { type: '証憑', msg: ai.evidence_url || 'なし' }
-      ]);
+      ];
+      if (ai.category) cacheRows.push({ type: '分類', msg: 'category: ' + ai.category });
+      if (ai.sourceType) cacheRows.push({ type: '分類', msg: 'sourceType: ' + ai.sourceType });
+      ver500Render(cacheRows);
       return;
     }
   }
@@ -391,14 +441,17 @@ async function ver500AnalyzeEvidence() {
   ver500Set('ver500RegisterTarget', ai.kind === 'sale' ? '売上' : ai.kind === 'purchase' ? '仕入' : ai.kind);
   ver500Set('ver500Status', '解析OK');
 
-  ver500Render([
+  const rows = [
     { type: '分類', msg: 'AI判定：' + ai.kind },
     { type: '日付', msg: ai.date || '' },
     { type: '相手先', msg: ai.partner || '' },
     { type: '内容', msg: ai.item || '' },
     { type: '金額', msg: String(ai.amount || 0) + '円' },
     { type: '証憑', msg: ai.evidence_url || 'なし' }
-  ]);
+  ];
+  if (ai.category) rows.push({ type: '分類', msg: 'category: ' + ai.category });
+  if (ai.sourceType) rows.push({ type: '分類', msg: 'sourceType: ' + ai.sourceType });
+  ver500Render(rows);
 }
 function ver500CurrentCandidate() {
   return {

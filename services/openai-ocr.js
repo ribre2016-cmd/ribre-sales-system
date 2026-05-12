@@ -252,12 +252,49 @@ function ribreCleanJsonText(text) {
 }
 function ribreNormalizeOcrSchema(obj) {
   const src = obj && typeof obj === 'object' ? obj : {};
+  const textPool = [
+    src.storeName,
+    src.vendor,
+    src.partner,
+    src.itemTitle,
+    src.itemName,
+    src.item,
+    src.note,
+    src.memo
+  ]
+    .map((x) => String(x || ''))
+    .join(' ')
+    .toLowerCase();
+  const rawSource = String(src.sourceType || '').toLowerCase();
+  let sourceType = 'unknown';
+  if (rawSource === 'sale' || rawSource === 'purchase' || rawSource === 'shipping' || rawSource === 'receipt') sourceType = rawSource;
+  else if (/ヤマト|佐川|追跡|伝票|送り状|送料/.test(textPool)) sourceType = 'shipping';
+  else if (/領収|レシート/.test(textPool)) sourceType = 'receipt';
+  else if (/仕入|買取|請求|駿河屋|bookoff|ブックオフ/.test(textPool)) sourceType = 'purchase';
+  else if (/ヤフオク|メルカリ|売上|落札|入金/.test(textPool)) sourceType = 'sale';
+  const rawCategory = String(src.category || '').toLowerCase();
+  let category = 'unknown';
+  if (rawCategory) category = rawCategory;
+  if (category === 'unknown') {
+    if (/ヤフオク/.test(textPool)) category = 'yahoo_sale';
+    else if (/メルカリ/.test(textPool)) category = 'mercari_sale';
+    else if (/駿河屋/.test(textPool)) category = 'surugaya_purchase';
+    else if (/bookoff|ブックオフ/.test(textPool)) category = 'bookoff_purchase';
+    else if (/ヤマト/.test(textPool)) category = 'yamato_shipping';
+    else if (/佐川/.test(textPool)) category = 'sagawa_shipping';
+    else if (/領収|レシート/.test(textPool)) category = 'receipt';
+    else if (/請求|invoice/.test(textPool)) category = 'invoice';
+  }
   const rawKind = String(src.kind || src.type || '').toLowerCase();
   let kind = 'unknown';
   if (rawKind === 'sale') kind = 'sale';
   else if (rawKind === 'purchase') kind = 'purchase';
+  else if (sourceType === 'sale') kind = 'sale';
+  else if (sourceType === 'purchase') kind = 'purchase';
   const result = {
     kind,
+    category,
+    sourceType,
     storeName: String(src.storeName || src.vendor || src.partner || ''),
     date: ribreNormalizeOcrDate(src.date),
     amount: ribreNormalizeOcrMoney(src.amount),
@@ -310,7 +347,8 @@ async function runOcr() {
   renderList('ocrList', [{ type: 'OCR', level: 'warn', msg: 'AI読取中です' }]);
   const prompt =
     'あなたは日本の売上管理OCRです。必ずJSONのみ返してください。説明文は禁止。推測は禁止。存在しない値は null。' +
-    '出力schemaは次のみ: {"kind":"sale|purchase|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
+    '日本のEC/配送/買取伝票を想定し、category/sourceTypeを推定してください。不明時は unknown。' +
+    '出力schemaは次のみ: {"kind":"sale|purchase|unknown","category":"yahoo_sale|mercari_sale|surugaya_purchase|bookoff_purchase|yamato_shipping|sagawa_shipping|receipt|invoice|unknown","sourceType":"sale|purchase|shipping|receipt|unknown","storeName":"","date":"","amount":0,"shipping":0,"trackingNumber":"","itemTitle":"","itemCount":0,"paymentMethod":"","note":""}';
   try {
     const cacheKey = ocrBuildResultCacheKey({
       fileName: ev.fileName,
@@ -323,10 +361,13 @@ async function runOcr() {
     if (cached && cached.resultJson) {
       const cp = ribreNormalizeOcrSchema(ocrSanitizeResultJson(cached.resultJson));
       fillCandidate(cp, ev);
-      renderList('ocrList', [
+      const cacheRows = [
         { type: 'OCR', msg: 'キャッシュ結果を使用しました' },
         { type: '金額', msg: yen(cp.amount) }
-      ]);
+      ];
+      if (cp.category) cacheRows.push({ type: '分類', msg: 'category: ' + cp.category });
+      if (cp.sourceType) cacheRows.push({ type: '分類', msg: 'sourceType: ' + cp.sourceType });
+      renderList('ocrList', cacheRows);
       return;
     }
     const imageUrl = ev.dataUrl || ev.evidence_url || (ev.id && ocrEvidenceCache()[ev.id]) || '';
@@ -397,10 +438,13 @@ async function runOcr() {
       resultJson: p
     });
     fillCandidate(p, ev);
-    renderList('ocrList', [
+    const rows = [
       { type: 'OCR', msg: '自動入力しました' },
       { type: '金額', msg: yen(p.amount) }
-    ]);
+    ];
+    if (p.category) rows.push({ type: '分類', msg: 'category: ' + p.category });
+    if (p.sourceType) rows.push({ type: '分類', msg: 'sourceType: ' + p.sourceType });
+    renderList('ocrList', rows);
   } catch (e) {
     renderList('ocrList', [{ type: 'ERROR', level: 'danger', msg: e.message }]);
   }
