@@ -159,25 +159,39 @@ function ver500ShowDraftRoutes() {
   return ver500RenderDraftRouteList();
 }
 function ver500EnsureDraftButtons() {
-  if (document.getElementById('ver500ShowDraftRoutesBtn')) return;
-  const sec = document.getElementById('aiauto50');
+  if (document.getElementById('ver500DraftRoutesBtn')) return;
+  const sec = document.getElementById('ocr');
   if (!sec) return;
-  const controls = sec.querySelector('.controls');
-  if (!controls) return;
+  let controls = null;
+  const buttons = Array.from(sec.querySelectorAll('button'));
+  const anchor = buttons.find((b) => String(b.textContent || '').trim() === '仕入へ登録');
+  if (anchor && anchor.parentElement) controls = anchor.parentElement;
+  if (!controls) {
+    controls = sec.querySelector('.controls');
+  }
   const showBtn = document.createElement('button');
-  showBtn.id = 'ver500ShowDraftRoutesBtn';
+  showBtn.id = 'ver500DraftRoutesBtn';
   showBtn.textContent = 'OCR仮登録一覧';
-  showBtn.onclick = () => ver500RenderDraftRouteList();
+  showBtn.onclick = () => ver500ShowDraftRoutes();
   const confirmBtn = document.createElement('button');
   confirmBtn.id = 'ver500ConfirmDraftBtn';
   confirmBtn.textContent = '選択候補を確定';
   confirmBtn.className = 'green';
-  confirmBtn.onclick = () => ver500ConfirmSelectedDraft();
+  confirmBtn.onclick = () => ver500ConfirmDraftRoute();
   const select = document.createElement('select');
   select.id = 'ver500DraftSelect';
-  controls.appendChild(showBtn);
-  controls.appendChild(confirmBtn);
-  controls.appendChild(select);
+  if (controls) {
+    controls.appendChild(showBtn);
+    controls.appendChild(confirmBtn);
+    controls.appendChild(select);
+    return;
+  }
+  const fallback = document.createElement('div');
+  fallback.className = 'controls';
+  fallback.appendChild(showBtn);
+  fallback.appendChild(confirmBtn);
+  fallback.appendChild(select);
+  sec.appendChild(fallback);
 }
 function ver500SaveCandidates(arr) {
   const sanitizeCandidate = (c) => {
@@ -913,7 +927,7 @@ if (!window.__ver500DraftUiInit) {
       tries += 1;
       try {
         ver500EnsureDraftButtons();
-        if (document.getElementById('ver500ShowDraftRoutesBtn')) {
+        if (document.getElementById('ver500DraftRoutesBtn')) {
           clearInterval(timer);
           return;
         }
