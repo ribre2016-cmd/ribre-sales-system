@@ -103,6 +103,148 @@ function ver500RenderConfirmLogs() {
     }))
   );
 }
+function ver500LearningLogs() {
+  try {
+    const rows = JSON.parse(localStorage.getItem('ribre_ocr_learning_v1') || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    return [];
+  }
+}
+function ver500SaveLearningLogs(arr) {
+  const rows = Array.isArray(arr) ? arr.slice(0, 100) : [];
+  const save = (n) => localStorage.setItem('ribre_ocr_learning_v1', JSON.stringify(n === 0 ? [] : rows.slice(0, n)));
+  try {
+    save(100);
+    return;
+  } catch (e) {}
+  try {
+    save(50);
+    return;
+  } catch (e) {}
+  try {
+    save(20);
+    return;
+  } catch (e) {}
+  try {
+    save(0);
+  } catch (e) {}
+}
+function ver500AddLearningLog(log) {
+  const src = log && typeof log === 'object' ? log : {};
+  const rows = ver500LearningLogs();
+  rows.unshift({
+    id: String(src.id || 'ocr_learning_' + Date.now() + '_' + Math.floor(Math.random() * 1000)),
+    createdAt: String(src.createdAt || new Date().toISOString()),
+    source: String(src.source || ''),
+    keyword: String(src.keyword || ''),
+    value: String(src.value || ''),
+    target: String(src.target || ''),
+    routeId: String(src.routeId || ''),
+    note: String(src.note || '')
+  });
+  ver500SaveLearningLogs(rows);
+}
+function ver500RenderLearningLogs() {
+  const rows = ver500LearningLogs().slice(0, 50);
+  if (!rows.length) {
+    ver500Render([{ type: '学習履歴', level: 'warn', msg: '学習履歴はありません' }]);
+    return;
+  }
+  ver500Render(
+    rows.map((x) => ({
+      type: '学習履歴',
+      msg:
+        (x.createdAt || '') +
+        ' / ' +
+        (x.target || '-') +
+        ' / ' +
+        (x.keyword || '-') +
+        ' => ' +
+        (x.value || '-') +
+        ' / ' +
+        (x.note || 'added')
+    }))
+  );
+}
+function ver500IsLearnableValue(v) {
+  const s = String(v || '').trim();
+  if (!s) return false;
+  if (s.toLowerCase() === 'unknown') return false;
+  return true;
+}
+function ver500IsLearnableKeyword(v) {
+  const s = String(v || '').trim();
+  if (!ver500IsLearnableValue(s)) return false;
+  return s.length >= 2;
+}
+function ver500LearnFromCorrection(input) {
+  const src = input && typeof input === 'object' ? input : {};
+  const source = String(src.source || '');
+  const routeId = String(src.routeId || '');
+  const storeName = String(src.storeName || '').trim();
+  const itemTitle = String(src.itemTitle || '').trim();
+  const category = String(src.category || '').trim();
+  const supplierName = String(src.supplierName || '').trim();
+  const salesChannel = String(src.salesChannel || '').trim();
+  const genre = String(src.genre || '').trim();
+  const shippingCarrier = String(src.shippingCarrier || '').trim();
+  const rules = ver500NormalizeOcrMappingRules(ver500OcrMappingRules());
+  const logs = [];
+  let changed = false;
+  const pushLog = (target, keyword, value, note) => {
+    logs.push({ source, routeId, target, keyword, value, note });
+  };
+
+  if (ver500IsLearnableKeyword(storeName) && ver500IsLearnableValue(supplierName)) {
+    const duplicate = rules.supplierByStore.some((x) => String(x.keyword || '') === storeName && String(x.value || '') === supplierName);
+    if (duplicate) pushLog('supplierByStore', storeName, supplierName, 'duplicate_skip');
+    else {
+      rules.supplierByStore.push({ keyword: storeName, value: supplierName });
+      changed = true;
+      pushLog('supplierByStore', storeName, supplierName, 'added');
+    }
+  }
+  if (ver500IsLearnableKeyword(category) && ver500IsLearnableValue(salesChannel)) {
+    const current = String(rules.salesChannelByCategory[category] || '');
+    if (!current) {
+      rules.salesChannelByCategory[category] = salesChannel;
+      changed = true;
+      pushLog('salesChannelByCategory', category, salesChannel, 'added');
+    } else if (current === salesChannel) pushLog('salesChannelByCategory', category, salesChannel, 'duplicate_skip');
+    else pushLog('salesChannelByCategory', category, salesChannel, 'conflict_skip');
+  }
+  if (ver500IsLearnableKeyword(category) && ver500IsLearnableValue(shippingCarrier)) {
+    const current = String(rules.shippingCarrierByCategory[category] || '');
+    if (!current) {
+      rules.shippingCarrierByCategory[category] = shippingCarrier;
+      changed = true;
+      pushLog('shippingCarrierByCategory', category, shippingCarrier, 'added');
+    } else if (current === shippingCarrier) pushLog('shippingCarrierByCategory', category, shippingCarrier, 'duplicate_skip');
+    else pushLog('shippingCarrierByCategory', category, shippingCarrier, 'conflict_skip');
+  }
+  if (ver500IsLearnableKeyword(itemTitle) && ver500IsLearnableValue(genre)) {
+    const duplicate = rules.genreKeywords.some((x) => String(x.keyword || '') === itemTitle && String(x.value || '') === genre);
+    if (duplicate) pushLog('genreKeywords', itemTitle, genre, 'duplicate_skip');
+    else {
+      rules.genreKeywords.push({ keyword: itemTitle, value: genre });
+      changed = true;
+      pushLog('genreKeywords', itemTitle, genre, 'added');
+    }
+  }
+
+  if (changed) {
+    try {
+      localStorage.setItem('ribre_ocr_mapping_rules_v1', JSON.stringify(ver500NormalizeOcrMappingRules(rules)));
+    } catch (e) {
+      const note = e && e.name === 'QuotaExceededError' ? 'save_quota_skip' : 'save_failed';
+      logs.forEach((x) => {
+        if (x.note === 'added') x.note = note;
+      });
+    }
+  }
+  logs.forEach((x) => ver500AddLearningLog(x));
+}
 function ver500RouteLabel(sourceType) {
   const t = String(sourceType || 'unknown');
   if (t === 'sale') return '売上';
@@ -522,6 +664,7 @@ function ver500EnsureDraftButtons() {
   if (
     document.getElementById('ver500DraftRoutesBtn') &&
     document.getElementById('ver500ConfirmLogsBtn') &&
+    document.getElementById('ver500LearningLogsBtn') &&
     document.getElementById('ver500MappingRulesBtn') &&
     document.getElementById('ver500MappingRulesSaveBtn') &&
     document.getElementById('ver500MappingRulesJson') &&
@@ -553,6 +696,13 @@ function ver500EnsureDraftButtons() {
         historyBtn.textContent = 'OCR確定履歴';
         historyBtn.onclick = () => ver500RenderConfirmLogs();
         controls.appendChild(historyBtn);
+      }
+      if (!document.getElementById('ver500LearningLogsBtn')) {
+        const learningBtn = document.createElement('button');
+        learningBtn.id = 'ver500LearningLogsBtn';
+        learningBtn.textContent = 'OCR学習履歴';
+        learningBtn.onclick = () => ver500RenderLearningLogs();
+        controls.appendChild(learningBtn);
       }
       if (!document.getElementById('ver500MappingRulesJson')) {
         const mappingArea = document.createElement('textarea');
@@ -602,6 +752,10 @@ function ver500EnsureDraftButtons() {
   historyBtn.id = 'ver500ConfirmLogsBtn';
   historyBtn.textContent = 'OCR確定履歴';
   historyBtn.onclick = () => ver500RenderConfirmLogs();
+  const learningBtn = document.createElement('button');
+  learningBtn.id = 'ver500LearningLogsBtn';
+  learningBtn.textContent = 'OCR学習履歴';
+  learningBtn.onclick = () => ver500RenderLearningLogs();
   const confirmBtn = document.createElement('button');
   confirmBtn.id = 'ver500ConfirmDraftBtn';
   confirmBtn.textContent = '選択候補を確定';
@@ -623,6 +777,7 @@ function ver500EnsureDraftButtons() {
     controls.appendChild(mappingBtn);
     controls.appendChild(mappingSaveBtn);
     controls.appendChild(historyBtn);
+    controls.appendChild(learningBtn);
     controls.appendChild(confirmBtn);
     controls.appendChild(select);
     controls.appendChild(quickForm);
@@ -635,6 +790,7 @@ function ver500EnsureDraftButtons() {
   fallback.appendChild(mappingBtn);
   fallback.appendChild(mappingSaveBtn);
   fallback.appendChild(historyBtn);
+  fallback.appendChild(learningBtn);
   fallback.appendChild(confirmBtn);
   fallback.appendChild(select);
   fallback.appendChild(quickForm);
@@ -1196,6 +1352,19 @@ function ver500ConfirmSelectedDraft() {
   if (row.sourceType === 'receipt') {
     const updated = Object.assign({}, row, { status: 'confirmed' });
     ver500UpsertDraftRoute(updated);
+    ver500LearnFromCorrection({
+      source: 'draft_confirm',
+      routeId: row.id || '',
+      storeName: row.storeName || '',
+      itemTitle: row.itemTitle || '',
+      kind: row.sourceType === 'sale' ? 'sale' : row.sourceType === 'purchase' ? 'purchase' : 'unknown',
+      sourceType: row.sourceType || 'unknown',
+      category: row.category || 'unknown',
+      supplierName: row.supplierName || '',
+      salesChannel: row.salesChannel || '',
+      genre: row.genre || '',
+      shippingCarrier: row.shippingCarrier || ''
+    });
     logBase(row, 'receipt', '証憑候補として確定しました');
     ver500RenderDraftRouteList('証憑候補として確定しました');
     return;
@@ -1204,6 +1373,19 @@ function ver500ConfirmSelectedDraft() {
     const linked = ver500LinkOcrToShippingCandidate(row, true);
     const updated = Object.assign({}, row, { status: 'confirmed' });
     ver500UpsertDraftRoute(updated);
+    ver500LearnFromCorrection({
+      source: 'draft_confirm',
+      routeId: row.id || '',
+      storeName: row.storeName || '',
+      itemTitle: row.itemTitle || '',
+      kind: row.sourceType === 'sale' ? 'sale' : row.sourceType === 'purchase' ? 'purchase' : 'unknown',
+      sourceType: row.sourceType || 'unknown',
+      category: row.category || 'unknown',
+      supplierName: row.supplierName || '',
+      salesChannel: row.salesChannel || '',
+      genre: row.genre || '',
+      shippingCarrier: row.shippingCarrier || ''
+    });
     if (linked.added) {
       logBase(row, 'shipping', '配送候補へ連携しました');
       ver500RenderDraftRouteList('配送候補へ連携しました');
@@ -1232,7 +1414,11 @@ function ver500ConfirmSelectedDraft() {
     genre: row.genre || '',
     shippingCarrier: row.shippingCarrier || '',
     accountType: row.accountType || (row.sourceType === 'sale' ? 'sales' : 'purchase'),
-    autoMapped: !!row.autoMapped
+    autoMapped: !!row.autoMapped,
+    sourceType: row.sourceType || 'unknown',
+    category: row.category || 'unknown',
+    learningSource: 'draft_confirm',
+    learningRouteId: row.id || ''
   });
   const linked = ver500LinkOcrToShippingCandidate(row, false);
   const updated = Object.assign({}, row, { status: 'confirmed' });
@@ -1359,13 +1545,29 @@ function ver500ApplyCandidateData(candidate) {
     localStorage.setItem('ribre_full_purchases221', JSON.stringify(p));
     ver500Render([{ type: '登録', msg: '仕入/経費候補を登録しました' }]);
   }
+  ver500LearnFromCorrection({
+    source:
+      c.learningSource ||
+      (c.kind === 'sale' ? 'sale_register' : c.kind === 'purchase' || c.kind === 'expense' ? 'purchase_register' : 'register'),
+    routeId: c.learningRouteId || '',
+    storeName: c.partner || c.storeName || '',
+    itemTitle: c.item || c.itemTitle || '',
+    kind: c.kind || 'unknown',
+    sourceType: c.sourceType || (c.kind === 'sale' ? 'sale' : c.kind === 'purchase' || c.kind === 'expense' ? 'purchase' : 'unknown'),
+    category: c.category || 'unknown',
+    supplierName: c.supplierName || '',
+    salesChannel: c.salesChannel || '',
+    genre: c.genre || '',
+    shippingCarrier: c.shippingCarrier || ''
+  });
   try {
     refreshAll();
   } catch (e) {}
   ver500Set('ver500Status', '登録OK');
 }
 function ver500ApplyCandidate() {
-  return ver500ApplyCandidateData(ver500CurrentCandidate());
+  const candidate = Object.assign({}, ver500CurrentCandidate(), { learningSource: 'ai_auto_register' });
+  return ver500ApplyCandidateData(candidate);
 }
 function ver500Config() {
   try {
@@ -1511,6 +1713,9 @@ window.ver500SaveOcrMappingRulesFromEditor = ver500SaveOcrMappingRulesFromEditor
 window.ver500AddMappingRuleFromForm = ver500AddMappingRuleFromForm;
 window.ver500ConfirmLogs = ver500ConfirmLogs;
 window.ver500RenderConfirmLogs = ver500RenderConfirmLogs;
+window.ver500LearningLogs = ver500LearningLogs;
+window.ver500RenderLearningLogs = ver500RenderLearningLogs;
+window.ver500LearnFromCorrection = ver500LearnFromCorrection;
 window.ver500ConfirmSelectedDraft = ver500ConfirmSelectedDraft;
 window.ver500ConfirmDraftRoute = ver500ConfirmDraftRoute;
 window.ver500SaveCandidates = ver500SaveCandidates;
