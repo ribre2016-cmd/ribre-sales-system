@@ -1,4 +1,87 @@
 /* RIBRE — OpenAI 証憑 OCR・候補・自動登録（index.html から分離。ロジックは同一） */
+const OCR_RESULT_CACHE_KEY = 'ribre_ocr_result_cache_v1';
+const OCR_RESULT_HEAVY_FIELDS = new Set([
+  'dataUrl',
+  'data_url',
+  'imageDataUrl',
+  'image_data_url',
+  'base64',
+  'image',
+  'fileData',
+  'blob',
+  'raw',
+  'content'
+]);
+function ocrResultCacheRows() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(OCR_RESULT_CACHE_KEY) || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    return [];
+  }
+}
+function ocrSanitizeResultJson(v) {
+  if (Array.isArray(v)) return v.map(ocrSanitizeResultJson).slice(0, 50);
+  if (v && typeof v === 'object') {
+    const out = {};
+    Object.keys(v).forEach((k) => {
+      if (OCR_RESULT_HEAVY_FIELDS.has(k)) return;
+      out[k] = ocrSanitizeResultJson(v[k]);
+    });
+    return out;
+  }
+  return v;
+}
+function ocrBuildResultCacheKey(meta) {
+  const m = meta && typeof meta === 'object' ? meta : {};
+  const fileName = String(m.fileName || '').trim();
+  const size = Number(m.size || 0);
+  const mime = String(m.mime || m.type || '').trim();
+  const lastModified = Number(m.lastModified || 0);
+  const evidenceUrl = String(m.evidence_url || m.evidenceUrl || '').trim();
+  return [fileName, size, mime, lastModified, evidenceUrl].join('|');
+}
+function ocrGetCachedResult(cacheKey, kind) {
+  if (!cacheKey) return null;
+  const rows = ocrResultCacheRows();
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i] || {};
+    if (row.cacheKey === cacheKey && row.kind === kind && row.resultJson && typeof row.resultJson === 'object') {
+      return row;
+    }
+  }
+  return null;
+}
+function ocrSaveCachedResult(entry) {
+  const src = entry && typeof entry === 'object' ? entry : {};
+  if (!src.cacheKey || !src.kind || !src.resultJson || typeof src.resultJson !== 'object') return;
+  const baseRows = ocrResultCacheRows().filter((x) => !(x && x.cacheKey === src.cacheKey && x.kind === src.kind));
+  baseRows.unshift({
+    cacheKey: String(src.cacheKey),
+    createdAt: src.createdAt || new Date().toISOString(),
+    fileName: String(src.fileName || ''),
+    size: Number(src.size || 0),
+    kind: String(src.kind || ''),
+    resultJson: ocrSanitizeResultJson(src.resultJson)
+  });
+  const capped = baseRows.slice(0, 20);
+  const saveRows = (n) => localStorage.setItem(OCR_RESULT_CACHE_KEY, JSON.stringify(n === 0 ? [] : capped.slice(0, n)));
+  try {
+    saveRows(20);
+    return;
+  } catch (e) {}
+  try {
+    saveRows(10);
+    return;
+  } catch (e) {}
+  try {
+    saveRows(5);
+    return;
+  } catch (e) {}
+  try {
+    saveRows(0);
+  } catch (e) {}
+}
 function ocrEvidenceCache() {
   if (!window.__ribreEvidenceDataUrlCache) window.__ribreEvidenceDataUrlCache = {};
   return window.__ribreEvidenceDataUrlCache;
@@ -16,6 +99,8 @@ function registerEvidence() {
       id: 'ev_' + Date.now(),
       fileName: f.name,
       mime: f.type || 'unknown',
+      size: Number(f.size || 0),
+      lastModified: Number(f.lastModified || 0),
       kind: document.getElementById('ocrKind').value,
       dataUrl: rd.result,
       at: new Date().toLocaleString('ja-JP')
@@ -92,6 +177,23 @@ async function runOcr() {
   const prompt =
     '日本の会計OCRです。JSONのみ返してください。{ "date":"YYYY-MM-DD", "vendor":"相手先", "itemName":"内容", "amount":税込金額数値, "tax":税額数値, "type":"purchase|sale|shipping|expense", "invoiceNo":"番号", "memo":"補足" }';
   try {
+    const cacheKey = ocrBuildResultCacheKey({
+      fileName: ev.fileName,
+      size: ev.size,
+      mime: ev.mime,
+      lastModified: ev.lastModified,
+      evidence_url: ev.evidence_url
+    });
+    const cached = ocrGetCachedResult(cacheKey, 'runOcr');
+    if (cached && cached.resultJson) {
+      const cp = ocrSanitizeResultJson(cached.resultJson);
+      fillCandidate(cp, ev);
+      renderList('ocrList', [
+        { type: 'OCR', msg: 'キャッシュ結果を使用しました' },
+        { type: '金額', msg: yen(cp.amount) }
+      ]);
+      return;
+    }
     const imageUrl = ev.dataUrl || ev.evidence_url || (ev.id && ocrEvidenceCache()[ev.id]) || '';
     if (!imageUrl) throw new Error('証憑データが見つかりません。再登録してください');
     let body;
@@ -139,6 +241,13 @@ async function runOcr() {
         .join('\n');
     const p = extractJson(text);
     if (!p) throw new Error('JSON解析失敗');
+    ocrSaveCachedResult({
+      cacheKey,
+      fileName: ev.fileName,
+      size: ev.size,
+      kind: 'runOcr',
+      resultJson: p
+    });
     fillCandidate(p, ev);
     renderList('ocrList', [
       { type: 'OCR', msg: '自動入力しました' },
@@ -221,3 +330,7 @@ function ocrAutoRegister() {
   if (k === 'sale') ocrToSale();
   else ocrToPurchase();
 }
+
+window.ribreOcrBuildCacheKey = ocrBuildResultCacheKey;
+window.ribreOcrGetCachedResult = ocrGetCachedResult;
+window.ribreOcrSaveCachedResult = ocrSaveCachedResult;

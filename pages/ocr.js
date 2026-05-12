@@ -111,6 +111,17 @@ function ver500ReadFileAsDataUrl(file) {
     r.readAsDataURL(file);
   });
 }
+function ver500BuildCacheMeta(file, evidenceUrl) {
+  const latest = ver500LatestStorage() || {};
+  return {
+    fileName: (file && file.name) || latest.name || '',
+    size: Number((file && file.size) || latest.size || 0),
+    mime: (file && (file.type || '')) || latest.mime || latest.type || '',
+    type: (file && (file.type || '')) || latest.type || '',
+    lastModified: Number((file && file.lastModified) || latest.lastModified || 0),
+    evidence_url: evidenceUrl || latest.url || ''
+  };
+}
 function ver500ExtractByRules(text) {
   const t = String(text || '');
   const date = (t.match(/20\d{2}[\/\-年]\d{1,2}[\/\-月]\d{1,2}/) || [])[0] || new Date().toISOString().slice(0, 10);
@@ -188,6 +199,43 @@ async function ver500AnalyzeEvidence() {
     text += ' ' + file.name;
   }
 
+  const cacheMeta = ver500BuildCacheMeta(file, evidenceUrl);
+  const cacheKey =
+    typeof window.ribreOcrBuildCacheKey === 'function'
+      ? window.ribreOcrBuildCacheKey(cacheMeta)
+      : '';
+  if (cacheKey && typeof window.ribreOcrGetCachedResult === 'function') {
+    const cached = window.ribreOcrGetCachedResult(cacheKey, 'ver500');
+    if (cached && cached.resultJson && typeof cached.resultJson === 'object') {
+      const ai = Object.assign({}, cached.resultJson);
+      const forced = document.getElementById('ver500Kind').value;
+      if (forced && forced !== 'auto') ai.kind = forced;
+      document.getElementById('ver500Kind').value = ai.kind || 'auto';
+      document.getElementById('ver500Date').value = ai.date || '';
+      document.getElementById('ver500Partner').value = ai.partner || '';
+      document.getElementById('ver500Item').value = ai.item || '';
+      document.getElementById('ver500Amount').value = ai.amount || 0;
+      document.getElementById('ver500Slip').value = ai.slip || '';
+      const arr = ver500Candidates();
+      arr.unshift({ at: new Date().toLocaleString('ja-JP'), candidate: ai });
+      ver500SaveCandidates(arr);
+      ver500Set('ver500ResultKind', ai.kind || '不明');
+      ver500Set('ver500CandidateCount', arr.length + '件');
+      ver500Set('ver500RegisterTarget', ai.kind === 'sale' ? '売上' : ai.kind === 'purchase' ? '仕入' : ai.kind);
+      ver500Set('ver500Status', 'キャッシュ使用');
+      ver500Render([
+        { type: 'AI', msg: 'キャッシュ結果を使用しました' },
+        { type: '分類', msg: 'AI判定：' + (ai.kind || '不明') },
+        { type: '日付', msg: ai.date || '' },
+        { type: '相手先', msg: ai.partner || '' },
+        { type: '内容', msg: ai.item || '' },
+        { type: '金額', msg: String(ai.amount || 0) + '円' },
+        { type: '証憑', msg: ai.evidence_url || 'なし' }
+      ]);
+      return;
+    }
+  }
+
   let ai = await ver500OpenAiAnalyze(text, dataUrl);
   let fallback = ver500ExtractByRules(text);
   if (!ai || ai.error) {
@@ -204,6 +252,15 @@ async function ver500AnalyzeEvidence() {
   ai.slip = String(ai.slip || fallback.slip || '').replace(/[-\s]/g, '');
   ai.evidence_url = evidenceUrl;
   ai.file_name = file ? file.name : ver500LatestStorage()?.name || '';
+  if (cacheKey && typeof window.ribreOcrSaveCachedResult === 'function') {
+    window.ribreOcrSaveCachedResult({
+      cacheKey,
+      fileName: cacheMeta.fileName,
+      size: cacheMeta.size,
+      kind: 'ver500',
+      resultJson: ai
+    });
+  }
 
   document.getElementById('ver500Kind').value = ai.kind || 'auto';
   document.getElementById('ver500Date').value = ai.date || '';
