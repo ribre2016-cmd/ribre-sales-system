@@ -43,6 +43,58 @@ function ver500RouteLabel(sourceType) {
   if (t === 'receipt') return '証憑';
   return '未分類';
 }
+function ver500OcrMappingRules() {
+  return {
+    supplierByStore: [
+      { keyword: 'みんなの市場', value: 'みんなの市場' },
+      { keyword: 'オークション志木', value: 'オークション志木' }
+    ],
+    salesChannelByCategory: {
+      yahoo_sale: 'ヤフオク',
+      mercari_sale: 'メルカリ'
+    },
+    shippingCarrierByCategory: {
+      yamato_shipping: 'ヤマト',
+      sagawa_shipping: '佐川'
+    }
+  };
+}
+function ver500DetectGenre(itemTitle) {
+  const t = String(itemTitle || '').toLowerCase();
+  if (/blu[\s-]?ray|ブルーレイ/.test(t)) return 'Blu-ray';
+  if (/dvd/.test(t)) return 'DVD';
+  if (/cd/.test(t)) return 'CD';
+  if (/カセット|cassette/.test(t)) return 'カセット';
+  if (/コミック|comic|単行本|文庫|書籍|本/.test(t)) return '本';
+  return '';
+}
+function ver500ApplyAutoMapping(src) {
+  const x = src && typeof src === 'object' ? src : {};
+  const rules = ver500OcrMappingRules();
+  const storeName = String(x.storeName || x.partner || '');
+  const category = String(x.category || 'unknown');
+  const sourceType = String(x.sourceType || 'unknown');
+  const itemTitle = String(x.itemTitle || x.item || '');
+  let supplierName = '';
+  for (let i = 0; i < rules.supplierByStore.length; i++) {
+    const r = rules.supplierByStore[i];
+    if (storeName.includes(r.keyword)) {
+      supplierName = r.value;
+      break;
+    }
+  }
+  const salesChannel = rules.salesChannelByCategory[category] || '';
+  let shippingCarrier = rules.shippingCarrierByCategory[category] || '';
+  if (!shippingCarrier && /ヤマト/.test(storeName)) shippingCarrier = 'ヤマト';
+  if (!shippingCarrier && /佐川/.test(storeName)) shippingCarrier = '佐川';
+  const genre = ver500DetectGenre(itemTitle);
+  let accountType = 'unknown';
+  if (sourceType === 'sale') accountType = 'sales';
+  else if (sourceType === 'purchase') accountType = 'purchase';
+  else if (sourceType === 'shipping') accountType = 'shipping';
+  const autoMapped = !!(supplierName || salesChannel || genre || shippingCarrier || accountType !== 'unknown');
+  return { supplierName, salesChannel, genre, shippingCarrier, accountType, autoMapped };
+}
 function ver500NormalizeRouteEntry(x) {
   const src = x && typeof x === 'object' ? x : {};
   const normStatus = (v) => {
@@ -61,6 +113,12 @@ function ver500NormalizeRouteEntry(x) {
     trackingNumber: ver500NormalizeTracking(src.trackingNumber || ''),
     storeName: String(src.storeName || ''),
     itemTitle: String(src.itemTitle || ''),
+    supplierName: String(src.supplierName || ''),
+    salesChannel: String(src.salesChannel || ''),
+    genre: String(src.genre || ''),
+    shippingCarrier: String(src.shippingCarrier || ''),
+    accountType: String(src.accountType || 'unknown'),
+    autoMapped: !!src.autoMapped,
     status: normStatus(src.status),
     evidence_url: String(src.evidence_url || ''),
     note: String(src.note || '')
@@ -101,6 +159,12 @@ function ver500CreateDraftRouteFromCandidate(candidate) {
     trackingNumber: c.slip || c.trackingNumber || '',
     storeName: c.partner || c.storeName || '',
     itemTitle: c.item || c.itemTitle || '',
+    supplierName: c.supplierName || '',
+    salesChannel: c.salesChannel || '',
+    genre: c.genre || '',
+    shippingCarrier: c.shippingCarrier || '',
+    accountType: c.accountType || 'unknown',
+    autoMapped: !!c.autoMapped,
     status: 'draft',
     evidence_url: c.evidence_url || '',
     note: c.memo || ''
@@ -127,6 +191,12 @@ function ver500BuildFallbackDraftFromForm() {
     item: String((document.getElementById('ver500Item') || {}).value || ''),
     amount: ver500Num((document.getElementById('ver500Amount') || {}).value || 0),
     slip: ver500NormalizeTracking((document.getElementById('ver500Slip') || {}).value || ''),
+    supplierName: '',
+    salesChannel: '',
+    genre: ver500DetectGenre((document.getElementById('ver500Item') || {}).value || ''),
+    shippingCarrier: '',
+    accountType: sourceType === 'sale' ? 'sales' : sourceType === 'purchase' ? 'purchase' : 'unknown',
+    autoMapped: false,
     evidence_url: String((document.getElementById('ver500EvidenceUrl') || {}).value || ''),
     memo: 'fallback draft route'
   };
@@ -183,6 +253,9 @@ function ver500RenderDraftRouteList(noticeMsg) {
       ' / ' +
       (x.amount || 0) +
       '円'
+      + (x.genre ? ' / genre:' + x.genre : '')
+      + (x.salesChannel ? ' / channel:' + x.salesChannel : '')
+      + (x.shippingCarrier ? ' / carrier:' + x.shippingCarrier : '')
   }));
   if (noticeMsg) listRows.unshift({ type: '仮登録', msg: noticeMsg });
   ver500Render(listRows);
@@ -360,6 +433,7 @@ function ver500NormalizeSchema(raw) {
 }
 function ver500SchemaToCandidate(schema, options = {}) {
   const s = ver500NormalizeSchema(schema);
+  const mapped = ver500ApplyAutoMapping(s);
   const forced = String(options.forcedKind || '');
   const candidateKind = forced && forced !== 'auto' ? forced : s.kind === 'sale' ? 'sale' : s.kind === 'purchase' ? 'purchase' : 'expense';
   const memoParts = [];
@@ -369,11 +443,21 @@ function ver500SchemaToCandidate(schema, options = {}) {
   if (s.itemCount) memoParts.push('数量:' + s.itemCount);
   if (s.category) memoParts.push('カテゴリ:' + s.category);
   if (s.sourceType) memoParts.push('種別:' + s.sourceType);
+  if (mapped.supplierName) memoParts.push('仕入先:' + mapped.supplierName);
+  if (mapped.salesChannel) memoParts.push('販路:' + mapped.salesChannel);
+  if (mapped.genre) memoParts.push('ジャンル:' + mapped.genre);
+  if (mapped.shippingCarrier) memoParts.push('配送:' + mapped.shippingCarrier);
   return {
     kind: candidateKind,
     category: s.category || 'unknown',
     sourceType: s.sourceType || 'unknown',
     status: 'draft',
+    supplierName: mapped.supplierName,
+    salesChannel: mapped.salesChannel,
+    genre: mapped.genre,
+    shippingCarrier: mapped.shippingCarrier,
+    accountType: mapped.accountType,
+    autoMapped: mapped.autoMapped,
     date: s.date || '',
     partner: s.storeName || '',
     item: s.itemTitle || 'AI読取候補',
@@ -692,10 +776,14 @@ function ver500ConfirmSelectedDraft() {
       itemId: '',
       slip: row.trackingNumber || '',
       trackingNumber: row.trackingNumber || '',
-      shippingCompany: /ヤマト/.test(String(row.category || '')) ? 'ヤマト' : /佐川/.test(String(row.category || '')) ? '佐川' : '',
+      shippingCompany:
+        row.shippingCarrier ||
+        (/ヤマト/.test(String(row.category || '')) ? 'ヤマト' : /佐川/.test(String(row.category || '')) ? '佐川' : ''),
       shipping: ver500Num(row.shipping || row.amount || 0),
       amount: ver500Num(row.shipping || row.amount || 0),
       status: 'OCR仮登録',
+      accountType: row.accountType || 'shipping',
+      autoMapped: !!row.autoMapped,
       evidence_url: row.evidence_url || '',
       note: row.note || '',
       at: new Date().toLocaleString('ja-JP')
@@ -706,14 +794,22 @@ function ver500ConfirmSelectedDraft() {
     ver500RenderDraftRouteList('配送候補へ登録しました');
     return;
   }
-  document.getElementById('ver500Kind').value = row.sourceType === 'sale' ? 'sale' : 'purchase';
-  document.getElementById('ver500Date').value = row.date || '';
-  document.getElementById('ver500Partner').value = row.storeName || '';
-  document.getElementById('ver500Item').value = row.itemTitle || '';
-  document.getElementById('ver500Amount').value = row.amount || 0;
-  document.getElementById('ver500Slip').value = row.trackingNumber || '';
-  document.getElementById('ver500EvidenceUrl').value = row.evidence_url || '';
-  ver500ApplyCandidate();
+  ver500ApplyCandidateData({
+    kind: row.sourceType === 'sale' ? 'sale' : 'purchase',
+    date: row.date || '',
+    partner: row.storeName || '',
+    item: row.itemTitle || '',
+    amount: row.amount || 0,
+    slip: row.trackingNumber || '',
+    evidence_url: row.evidence_url || '',
+    memo: row.note || '',
+    supplierName: row.supplierName || '',
+    salesChannel: row.salesChannel || '',
+    genre: row.genre || '',
+    shippingCarrier: row.shippingCarrier || '',
+    accountType: row.accountType || (row.sourceType === 'sale' ? 'sales' : 'purchase'),
+    autoMapped: !!row.autoMapped
+  });
   const updated = Object.assign({}, row, { status: 'confirmed' });
   ver500UpsertDraftRoute(updated);
   if (row.sourceType === 'sale') {
@@ -731,11 +827,13 @@ function ver500ConfirmDraftRoute() {
   return ver500ConfirmSelectedDraft();
 }
 function ver500CurrentCandidate() {
-  return {
+  const kind =
+    document.getElementById('ver500Kind').value === 'auto'
+      ? 'expense'
+      : document.getElementById('ver500Kind').value;
+  const base = {
     kind:
-      document.getElementById('ver500Kind').value === 'auto'
-        ? 'expense'
-        : document.getElementById('ver500Kind').value,
+      kind,
     status: 'draft',
     date: document.getElementById('ver500Date').value,
     partner: document.getElementById('ver500Partner').value,
@@ -745,9 +843,19 @@ function ver500CurrentCandidate() {
     evidence_url: document.getElementById('ver500EvidenceUrl').value,
     memo: 'AI自動登録 Ver60.0'
   };
+  const mapped = ver500ApplyAutoMapping({
+    sourceType: kind === 'sale' ? 'sale' : kind === 'purchase' || kind === 'expense' ? 'purchase' : 'unknown',
+    category: 'unknown',
+    storeName: base.partner,
+    itemTitle: base.item
+  });
+  return Object.assign({}, base, mapped, {
+    accountType: mapped.accountType,
+    autoMapped: mapped.autoMapped
+  });
 }
-function ver500ApplyCandidate() {
-  const c = ver500CurrentCandidate();
+function ver500ApplyCandidateData(candidate) {
+  const c = Object.assign({}, candidate || {});
   if (!c.date || !c.amount) {
     alert('日付と金額を確認してください');
     return;
@@ -776,7 +884,12 @@ function ver500ApplyCandidate() {
       matchStatus: 'AI登録',
       memo: c.memo + ' / ' + c.partner,
       evidenceUrl: c.evidence_url,
-      source: 'AI自動登録 Ver60.0'
+      source: 'AI自動登録 Ver60.0',
+      supplierName: c.supplierName || '',
+      salesChannel: c.salesChannel || '',
+      genre: c.genre || '',
+      accountType: c.accountType || 'sales',
+      autoMapped: !!c.autoMapped
     });
     localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(s));
     localStorage.setItem('ribre_full_sales221', JSON.stringify(s));
@@ -799,7 +912,11 @@ function ver500ApplyCandidate() {
       invoiceNo: c.slip,
       memo: c.memo,
       evidenceUrl: c.evidence_url,
-      source: 'AI自動登録 Ver60.0'
+      source: 'AI自動登録 Ver60.0',
+      supplierName: c.supplierName || '',
+      genre: c.genre || '',
+      accountType: c.accountType || 'purchase',
+      autoMapped: !!c.autoMapped
     });
     localStorage.setItem('ribre_full_purchases221', JSON.stringify(p));
     ver500Render([{ type: '登録', msg: '仕入/経費候補を登録しました' }]);
@@ -808,6 +925,9 @@ function ver500ApplyCandidate() {
     refreshAll();
   } catch (e) {}
   ver500Set('ver500Status', '登録OK');
+}
+function ver500ApplyCandidate() {
+  return ver500ApplyCandidateData(ver500CurrentCandidate());
 }
 function ver500Config() {
   try {
