@@ -155,6 +155,9 @@ function ver500RenderDraftRouteList() {
   }));
   ver500Render(listRows);
 }
+function ver500ShowDraftRoutes() {
+  return ver500RenderDraftRouteList();
+}
 function ver500EnsureDraftButtons() {
   if (document.getElementById('ver500ShowDraftRoutesBtn')) return;
   const sec = document.getElementById('aiauto50');
@@ -665,6 +668,9 @@ function ver500ConfirmSelectedDraft() {
   ver500UpsertDraftRoute(updated);
   ver500Set('ver500Status', '確定OK');
 }
+function ver500ConfirmDraftRoute() {
+  return ver500ConfirmSelectedDraft();
+}
 function ver500CurrentCandidate() {
   return {
     kind:
@@ -878,7 +884,9 @@ window.ver500Candidates = ver500Candidates;
 window.ver500DraftRoutes = ver500DraftRoutes;
 window.ver500SaveDraftRoutes = ver500SaveDraftRoutes;
 window.ver500RenderDraftRouteList = ver500RenderDraftRouteList;
+window.ver500ShowDraftRoutes = ver500ShowDraftRoutes;
 window.ver500ConfirmSelectedDraft = ver500ConfirmSelectedDraft;
+window.ver500ConfirmDraftRoute = ver500ConfirmDraftRoute;
 window.ver500SaveCandidates = ver500SaveCandidates;
 window.ver500LatestStorage = ver500LatestStorage;
 window.ver500LoadLatestStorage = ver500LoadLatestStorage;
@@ -899,10 +907,18 @@ window.ver500Guide = ver500Guide;
 if (!window.__ver500DraftUiInit) {
   window.__ver500DraftUiInit = true;
   window.addEventListener('load', () => {
-    setTimeout(() => {
+    let tries = 0;
+    const maxTries = 8;
+    const timer = setInterval(() => {
+      tries += 1;
       try {
         ver500EnsureDraftButtons();
+        if (document.getElementById('ver500ShowDraftRoutesBtn')) {
+          clearInterval(timer);
+          return;
+        }
       } catch (e) {}
-    }, 1200);
+      if (tries >= maxTries) clearInterval(timer);
+    }, 400);
   });
 }
