@@ -35,6 +35,74 @@ function ver500DraftRoutes() {
     return [];
   }
 }
+function ver500ConfirmLogs() {
+  try {
+    const rows = JSON.parse(localStorage.getItem('ribre_ocr_confirm_logs_v1') || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    return [];
+  }
+}
+function ver500SaveConfirmLogs(arr) {
+  const rows = Array.isArray(arr) ? arr.slice(0, 100) : [];
+  const save = (n) => localStorage.setItem('ribre_ocr_confirm_logs_v1', JSON.stringify(n === 0 ? [] : rows.slice(0, n)));
+  try {
+    save(100);
+    return;
+  } catch (e) {}
+  try {
+    save(50);
+    return;
+  } catch (e) {}
+  try {
+    save(20);
+    return;
+  } catch (e) {}
+  try {
+    save(0);
+  } catch (e) {}
+}
+function ver500AddConfirmLog(log) {
+  const src = log && typeof log === 'object' ? log : {};
+  const rows = ver500ConfirmLogs();
+  rows.unshift({
+    id: String(src.id || 'ocr_confirm_' + Date.now()),
+    createdAt: String(src.createdAt || new Date().toISOString()),
+    routeId: String(src.routeId || ''),
+    sourceType: String(src.sourceType || 'unknown'),
+    category: String(src.category || 'unknown'),
+    target: String(src.target || 'none'),
+    message: String(src.message || ''),
+    trackingNumber: ver500NormalizeTracking(src.trackingNumber || ''),
+    amount: ver500Num(src.amount || 0),
+    storeName: String(src.storeName || ''),
+    itemTitle: String(src.itemTitle || '')
+  });
+  ver500SaveConfirmLogs(rows);
+}
+function ver500RenderConfirmLogs() {
+  const rows = ver500ConfirmLogs().slice(0, 20);
+  if (!rows.length) {
+    ver500Render([{ type: '確定履歴', level: 'warn', msg: '確定履歴はありません' }]);
+    return;
+  }
+  ver500Render(
+    rows.map((x) => ({
+      type: '確定履歴',
+      msg:
+        (x.createdAt || '') +
+        ' / ' +
+        ver500RouteLabel(x.sourceType) +
+        ' / ' +
+        (x.target || 'none') +
+        ' / ' +
+        (x.message || '') +
+        (x.trackingNumber ? ' / 伝票:' + x.trackingNumber : '') +
+        (x.storeName ? ' / ' + x.storeName : '') +
+        (x.itemTitle ? ' / ' + x.itemTitle : '')
+    }))
+  );
+}
 function ver500RouteLabel(sourceType) {
   const t = String(sourceType || 'unknown');
   if (t === 'sale') return '売上';
@@ -264,7 +332,18 @@ function ver500ShowDraftRoutes() {
   return ver500RenderDraftRouteList();
 }
 function ver500EnsureDraftButtons() {
-  if (document.getElementById('ver500DraftRoutesBtn')) return;
+  if (document.getElementById('ver500DraftRoutesBtn') && document.getElementById('ver500ConfirmLogsBtn')) return;
+  if (document.getElementById('ver500DraftRoutesBtn') && !document.getElementById('ver500ConfirmLogsBtn')) {
+    const existingDraftBtn = document.getElementById('ver500DraftRoutesBtn');
+    const historyBtn = document.createElement('button');
+    historyBtn.id = 'ver500ConfirmLogsBtn';
+    historyBtn.textContent = 'OCR確定履歴';
+    historyBtn.onclick = () => ver500RenderConfirmLogs();
+    if (existingDraftBtn && existingDraftBtn.parentElement) {
+      existingDraftBtn.parentElement.insertBefore(historyBtn, existingDraftBtn.nextSibling);
+      return;
+    }
+  }
   const sec = document.getElementById('ocr');
   if (!sec) return;
   let controls = null;
@@ -278,6 +357,10 @@ function ver500EnsureDraftButtons() {
   showBtn.id = 'ver500DraftRoutesBtn';
   showBtn.textContent = 'OCR仮登録一覧';
   showBtn.onclick = () => ver500ShowDraftRoutes();
+  const historyBtn = document.createElement('button');
+  historyBtn.id = 'ver500ConfirmLogsBtn';
+  historyBtn.textContent = 'OCR確定履歴';
+  historyBtn.onclick = () => ver500RenderConfirmLogs();
   const confirmBtn = document.createElement('button');
   confirmBtn.id = 'ver500ConfirmDraftBtn';
   confirmBtn.textContent = '選択候補を確定';
@@ -287,6 +370,7 @@ function ver500EnsureDraftButtons() {
   select.id = 'ver500DraftSelect';
   if (controls) {
     controls.appendChild(showBtn);
+    controls.appendChild(historyBtn);
     controls.appendChild(confirmBtn);
     controls.appendChild(select);
     return;
@@ -294,6 +378,7 @@ function ver500EnsureDraftButtons() {
   const fallback = document.createElement('div');
   fallback.className = 'controls';
   fallback.appendChild(showBtn);
+  fallback.appendChild(historyBtn);
   fallback.appendChild(confirmBtn);
   fallback.appendChild(select);
   sec.appendChild(fallback);
@@ -817,25 +902,43 @@ async function ver500AnalyzeEvidence() {
   ver500Render(rows);
 }
 function ver500ConfirmSelectedDraft() {
+  const logBase = (row, target, message) => {
+    const r = row && typeof row === 'object' ? row : {};
+    ver500AddConfirmLog({
+      routeId: r.id || '',
+      sourceType: r.sourceType || 'unknown',
+      category: r.category || 'unknown',
+      target,
+      message,
+      trackingNumber: r.trackingNumber || '',
+      amount: r.amount || r.shipping || 0,
+      storeName: r.storeName || '',
+      itemTitle: r.itemTitle || ''
+    });
+  };
   const select = document.getElementById('ver500DraftSelect');
   const targetId = select && select.value ? select.value : '';
   const rows = ver500DraftRoutes();
   const row = rows.find((x) => String(x.id || '') === targetId) || rows.find((x) => x.status === 'draft');
   if (!row) {
+    logBase(null, 'none', '確定できる候補がありません');
     ver500Render([{ type: '仮登録', level: 'warn', msg: '確定できる候補がありません' }]);
     return;
   }
   if (row.status === 'confirmed') {
+    logBase(row, 'none', 'すでに確定済みです');
     ver500RenderDraftRouteList('すでに確定済みです');
     return;
   }
   if (row.sourceType === 'unknown') {
+    logBase(row, 'none', '未分類のため確定できません');
     ver500RenderDraftRouteList('未分類のため確定できません');
     return;
   }
   if (row.sourceType === 'receipt') {
     const updated = Object.assign({}, row, { status: 'confirmed' });
     ver500UpsertDraftRoute(updated);
+    logBase(row, 'receipt', '証憑候補として確定しました');
     ver500RenderDraftRouteList('証憑候補として確定しました');
     return;
   }
@@ -844,13 +947,16 @@ function ver500ConfirmSelectedDraft() {
     const updated = Object.assign({}, row, { status: 'confirmed' });
     ver500UpsertDraftRoute(updated);
     if (linked.added) {
+      logBase(row, 'shipping', '配送候補へ連携しました');
       ver500RenderDraftRouteList('配送候補へ連携しました');
       return;
     }
     if (linked.reason === 'duplicate_tracking' || linked.reason === 'duplicate_item_id') {
+      logBase(row, 'shipping', '配送候補は重複のため追加しませんでした');
       ver500RenderDraftRouteList('配送候補は重複のため追加しませんでした');
       return;
     }
+    logBase(row, 'shipping', '配送候補への連携に失敗しました');
     ver500RenderDraftRouteList('配送候補への連携に失敗しました');
     return;
   }
@@ -875,20 +981,25 @@ function ver500ConfirmSelectedDraft() {
   ver500UpsertDraftRoute(updated);
   if (row.sourceType === 'sale') {
     if (linked.added) {
+      logBase(row, 'sales+shipping', '売上へ登録しました / 配送候補へ連携しました');
       ver500RenderDraftRouteList('売上へ登録しました / 配送候補へ連携しました');
       return;
     }
+    logBase(row, 'sales', '売上へ登録しました');
     ver500RenderDraftRouteList('売上へ登録しました');
     return;
   }
   if (row.sourceType === 'purchase') {
     if (linked.added) {
+      logBase(row, 'purchase+shipping', '仕入へ登録しました / 配送候補へ連携しました');
       ver500RenderDraftRouteList('仕入へ登録しました / 配送候補へ連携しました');
       return;
     }
+    logBase(row, 'purchase', '仕入へ登録しました');
     ver500RenderDraftRouteList('仕入へ登録しました');
     return;
   }
+  logBase(row, 'unknown', '確定しました');
   ver500Set('ver500Status', '確定OK');
   ver500RenderDraftRouteList('確定しました');
 }
@@ -1134,6 +1245,8 @@ window.ver500SaveDraftRoutes = ver500SaveDraftRoutes;
 window.ver500SaveDraftRoute = ver500SaveDraftRoute;
 window.ver500RenderDraftRouteList = ver500RenderDraftRouteList;
 window.ver500ShowDraftRoutes = ver500ShowDraftRoutes;
+window.ver500ConfirmLogs = ver500ConfirmLogs;
+window.ver500RenderConfirmLogs = ver500RenderConfirmLogs;
 window.ver500ConfirmSelectedDraft = ver500ConfirmSelectedDraft;
 window.ver500ConfirmDraftRoute = ver500ConfirmDraftRoute;
 window.ver500SaveCandidates = ver500SaveCandidates;

@@ -71,6 +71,13 @@ function normalizeSlip(v) {
 function shipSourceTag(x) {
   return String((x && x.source) || '').toLowerCase() === 'ocr' ? ' / OCR' : '';
 }
+function shipOcrLightMeta(x) {
+  if (String((x && x.source) || '').toLowerCase() !== 'ocr') return '';
+  const carrier = String((x && (x.carrier || x.company || x.shippingCompany || '')) || '');
+  const tracking = normalizeSlip((x && (x.trackingNumber || x.slip || '')) || '');
+  const evidence = String((x && x.evidence_url) || '');
+  return (carrier ? ' / ' + carrier : '') + (tracking ? ' / ' + tracking : '') + (evidence ? ' / 証憑あり' : '');
+}
 function extractItemId(v) {
   const s = String(v || '');
   const m = s.match(/[a-z]?\d{9,12}/i);
@@ -187,6 +194,9 @@ function matchShipping() {
         status: '一致',
         company: sh.company,
         source: sh.source || '',
+        carrier: sh.carrier || sh.company || '',
+        trackingNumber: sh.trackingNumber || sh.slip || '',
+        evidence_url: sh.evidence_url || '',
         itemId: sh.itemId,
         slip: sh.slip,
         shipping: sh.shipping,
@@ -199,6 +209,9 @@ function matchShipping() {
         status: '未一致',
         company: sh.company,
         source: sh.source || '',
+        carrier: sh.carrier || sh.company || '',
+        trackingNumber: sh.trackingNumber || sh.slip || '',
+        evidence_url: sh.evidence_url || '',
         itemId: sh.itemId,
         slip: sh.slip,
         shipping: sh.shipping,
@@ -219,7 +232,7 @@ function matchShipping() {
       .map((r) => ({
         type: r.status,
         level: r.status === '一致' ? 'ok' : 'warn',
-        msg: r.msg + ' / 送料:' + r.shipping + ' / ' + r.company + shipSourceTag(r)
+        msg: r.msg + ' / 送料:' + r.shipping + ' / ' + r.company + shipSourceTag(r) + shipOcrLightMeta(r)
       }))
   );
 }
@@ -435,10 +448,32 @@ function autoMatchShippingFromYahoo() {
       target.deliveryCompany = sh.company;
       target.matchStatus = '配送一致';
       matched++;
-      results.push({ status: '一致', company: sh.company, source: sh.source || '', itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: target.name });
+      results.push({
+        status: '一致',
+        company: sh.company,
+        source: sh.source || '',
+        carrier: sh.carrier || sh.company || '',
+        trackingNumber: sh.trackingNumber || sh.slip || '',
+        evidence_url: sh.evidence_url || '',
+        itemId: sh.itemId,
+        slip: sh.slip,
+        shipping: sh.shipping,
+        name: target.name
+      });
     } else {
       unmatched++;
-      results.push({ status: '未一致', company: sh.company, source: sh.source || '', itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: '' });
+      results.push({
+        status: '未一致',
+        company: sh.company,
+        source: sh.source || '',
+        carrier: sh.carrier || sh.company || '',
+        trackingNumber: sh.trackingNumber || sh.slip || '',
+        evidence_url: sh.evidence_url || '',
+        itemId: sh.itemId,
+        slip: sh.slip,
+        shipping: sh.shipping,
+        name: ''
+      });
     }
   });
 
@@ -452,7 +487,18 @@ function autoMatchShippingFromYahoo() {
     results.slice(0, 160).map((r) => ({
       type: r.status,
       level: r.status === '一致' ? 'ok' : 'warn',
-      msg: (r.status === '一致' ? '一致 ' : '未一致 ') + '商品ID:' + r.itemId + ' / 伝票:' + r.slip + ' / 送料:' + r.shipping + ' / ' + r.company + shipSourceTag(r)
+      msg:
+        (r.status === '一致' ? '一致 ' : '未一致 ') +
+        '商品ID:' +
+        r.itemId +
+        ' / 伝票:' +
+        r.slip +
+        ' / 送料:' +
+        r.shipping +
+        ' / ' +
+        r.company +
+        shipSourceTag(r) +
+        shipOcrLightMeta(r)
     }))
   );
 }
@@ -545,11 +591,34 @@ function ver250ImproveUnmatched() {
       target.unmatchedReason = '';
       matched++;
       if (!beforeMatched) improved++;
-      results.push({ status: '一致', company: target.deliveryCompany, source: sh.source || '', itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: target.name });
+      results.push({
+        status: '一致',
+        company: target.deliveryCompany,
+        source: sh.source || '',
+        carrier: sh.carrier || sh.company || target.deliveryCompany || '',
+        trackingNumber: sh.trackingNumber || sh.slip || '',
+        evidence_url: sh.evidence_url || '',
+        itemId: sh.itemId,
+        slip: sh.slip,
+        shipping: sh.shipping,
+        name: target.name
+      });
     } else {
       unmatched++;
       const reason = sh.company === '佐川急便' ? '佐川急便' : '未一致';
-      results.push({ status: '未一致', company: sh.company, source: sh.source || '', itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, name: '', reason });
+      results.push({
+        status: '未一致',
+        company: sh.company,
+        source: sh.source || '',
+        carrier: sh.carrier || sh.company || '',
+        trackingNumber: sh.trackingNumber || sh.slip || '',
+        evidence_url: sh.evidence_url || '',
+        itemId: sh.itemId,
+        slip: sh.slip,
+        shipping: sh.shipping,
+        name: '',
+        reason
+      });
     }
   });
 
@@ -567,7 +636,18 @@ function ver250ImproveUnmatched() {
     results.slice(0, 180).map((r) => ({
       type: r.status,
       level: r.status === '一致' ? 'ok' : 'warn',
-      msg: (r.status === '一致' ? '一致 ' : '未一致 ') + '商品ID:' + r.itemId + ' / 伝票:' + r.slip + ' / 送料:' + r.shipping + ' / ' + r.company + shipSourceTag(r)
+      msg:
+        (r.status === '一致' ? '一致 ' : '未一致 ') +
+        '商品ID:' +
+        r.itemId +
+        ' / 伝票:' +
+        r.slip +
+        ' / 送料:' +
+        r.shipping +
+        ' / ' +
+        r.company +
+        shipSourceTag(r) +
+        shipOcrLightMeta(r)
     }))
   );
 }
@@ -577,7 +657,17 @@ function ver250ShowOnlyUnmatched() {
     (rows.length ? rows : []).slice(0, 300).map((r) => ({
       type: r.company || '未一致',
       level: 'warn',
-      msg: '未一致 商品ID:' + r.itemId + ' / 伝票:' + r.slip + ' / 送料:' + r.shipping + ' / ' + (r.company || '') + shipSourceTag(r)
+      msg:
+        '未一致 商品ID:' +
+        r.itemId +
+        ' / 伝票:' +
+        r.slip +
+        ' / 送料:' +
+        r.shipping +
+        ' / ' +
+        (r.company || '') +
+        shipSourceTag(r) +
+        shipOcrLightMeta(r)
     }))
   );
   if (!rows.length) {
