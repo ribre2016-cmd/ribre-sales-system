@@ -793,57 +793,92 @@ function ver500SaveDraftRoute(result) {
     return null;
   }
 }
+function ver500DraftRoutesContainer() {
+  let box = document.getElementById('ver500DraftRoutesContainer');
+  if (box) return box;
+  const sec = document.getElementById('ocr');
+  if (!sec) return null;
+  box = document.createElement('div');
+  box.id = 'ver500DraftRoutesContainer';
+  box.className = 'list';
+  box.style.marginTop = '8px';
+  sec.appendChild(box);
+  return box;
+}
 function ver500RenderDraftRouteList(noticeMsg) {
-  const rows = ver500DraftRoutes();
-  const select = document.getElementById('ver500DraftSelect');
-  if (select) {
-    select.innerHTML = '';
-    rows.forEach((x) => {
-      const op = document.createElement('option');
-      op.value = x.id;
-      op.textContent =
-        '[' +
-        (x.status || 'draft') +
-        '] ' +
-        (x.date || '日付不明') +
+  try {
+    const rows = ver500DraftRoutes();
+    const box = ver500DraftRoutesContainer();
+    const esc = (v) =>
+      String(v || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const select = document.getElementById('ver500DraftSelect');
+    if (select) {
+      select.innerHTML = '';
+      rows.forEach((x) => {
+        const op = document.createElement('option');
+        op.value = x.id;
+        op.textContent =
+          '[' +
+          (x.status || 'draft') +
+          '] ' +
+          (x.date || '日付不明') +
+          ' / ' +
+          ver500RouteLabel(x.sourceType) +
+          ' / ' +
+          (x.storeName || '-') +
+          ' / ' +
+          (x.amount || 0) +
+          '円';
+        select.appendChild(op);
+      });
+    }
+    if (!box) {
+      ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
+      return;
+    }
+    if (!rows.length) {
+      box.innerHTML =
+        '<div class="row ok"><span>OCR仮登録一覧（0件）</span><span class="badge">[draft]</span></div>' +
+        '<div class="row warn"><span>仮登録はありません</span><span class="badge">0件</span></div>';
+      return;
+    }
+    const lines = rows.slice(0, 100).map((x) => {
+      const status = esc(x.status || 'draft');
+      const learned = x.learnedMapped ? '<span class="badge">[学習適用]</span>' : '';
+      return (
+        '<div class="row ok"><span>' +
+        esc(x.date || '') +
         ' / ' +
-        ver500RouteLabel(x.sourceType) +
+        esc(ver500RouteLabel(x.sourceType)) +
         ' / ' +
-        (x.storeName || '-') +
+        esc(x.storeName || '-') +
         ' / ' +
-        (x.amount || 0) +
-        '円';
-      select.appendChild(op);
+        esc(x.amount || 0) +
+        '円' +
+        '</span><span class="badge">[' +
+        status +
+        ']</span>' +
+        learned +
+        '</div>'
+      );
     });
+    const header =
+      '<div class="row ok"><span>OCR仮登録一覧（' + rows.length + '件）' + (noticeMsg ? ' / ' + esc(noticeMsg) : '') + '</span><span class="badge">一覧</span></div>';
+    box.innerHTML = header + lines.join('');
+  } catch (e) {
+    ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
+    const box = ver500DraftRoutesContainer();
+    if (box) box.innerHTML = '<div class="row warn"><span>OCR仮登録一覧の表示に失敗しました</span><span class="badge">error</span></div>';
   }
-  if (!rows.length) {
-    ver500Render([{ type: '仮登録', level: 'warn', msg: '仮登録はありません' }]);
-    return;
-  }
-  const listRows = rows.slice(0, 50).map((x) => ({
-    type: '仮登録',
-    msg:
-      '登録先: ' +
-      ver500RouteLabel(x.sourceType) +
-      ' / 状態: ' +
-      x.status +
-      ' / ' +
-      (x.date || '') +
-      ' / ' +
-      (x.storeName || '-') +
-      ' / ' +
-      (x.amount || 0) +
-      '円'
-      + (x.genre ? ' / genre:' + x.genre : '')
-      + (x.salesChannel ? ' / channel:' + x.salesChannel : '')
-      + (x.shippingCarrier ? ' / carrier:' + x.shippingCarrier : '')
-      + ' / 学習適用:' + (x.learnedMapped ? 'あり' : 'なし')
-  }));
-  if (noticeMsg) listRows.unshift({ type: '仮登録', msg: noticeMsg });
-  ver500Render(listRows);
 }
 function ver500ShowDraftRoutes() {
-  return ver500RenderDraftRouteList();
+  ver500RenderDraftRouteList();
+  return true;
 }
 function ver500EnsureDraftButtons() {
   if (
@@ -853,7 +888,8 @@ function ver500EnsureDraftButtons() {
     document.getElementById('ver500MappingRulesBtn') &&
     document.getElementById('ver500MappingRulesSaveBtn') &&
     document.getElementById('ver500MappingRulesJson') &&
-    document.getElementById('ver500MappingQuickForm')
+    document.getElementById('ver500MappingQuickForm') &&
+    document.getElementById('ver500DraftRoutesContainer')
   ) {
     return;
   }
@@ -909,6 +945,7 @@ function ver500EnsureDraftButtons() {
           controls.appendChild(quickForm);
         }
       }
+      ver500DraftRoutesContainer();
       return;
     }
   }
@@ -981,6 +1018,7 @@ function ver500EnsureDraftButtons() {
   fallback.appendChild(quickForm);
   fallback.appendChild(mappingArea);
   sec.appendChild(fallback);
+  ver500DraftRoutesContainer();
 }
 function ver500SaveCandidates(arr) {
   const sanitizeCandidate = (c) => {
