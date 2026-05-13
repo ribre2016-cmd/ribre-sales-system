@@ -1506,6 +1506,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    const escJs = (v) => String(v || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const scoreLabel = (score) => {
       if (score >= 90) return '高信頼';
       if (score >= 70) return '確認推奨';
@@ -1533,6 +1534,10 @@ function ver500RenderDraftRouteList(noticeMsg) {
       if (s === 'ignored') return badgeHtml('[' + statusText + ']', '#fdecec', '#b33a3a');
       return badgeHtml('[' + statusText + ']', '#eceff3', '#4b5563');
     };
+    const scoreBadgeHtml = (score, label) => {
+      const st = scoreStyle(score);
+      return badgeHtml('判定精度: ' + score + '（' + label + '）', st.bg, '#1f2937');
+    };
     const missingItems = (x) => {
       const miss = [];
       if (!String((x && x.date) || '').trim()) miss.push('日付');
@@ -1541,9 +1546,12 @@ function ver500RenderDraftRouteList(noticeMsg) {
       if (!ver500NormalizeTracking((x && (x.trackingNumber || x.slip)) || '')) miss.push('伝票番号');
       return miss;
     };
+    const missingText = (miss) => (miss.length ? '要確認: ' + miss.join('・') + 'が未入力' : '');
     const select = document.getElementById('ver500DraftSelect');
+    const prevSelectedId = String((select && select.value) || '');
     if (select) {
       select.innerHTML = '';
+      let matched = false;
       filteredRows.forEach((x) => {
         const op = document.createElement('option');
         op.value = x.id;
@@ -1560,8 +1568,13 @@ function ver500RenderDraftRouteList(noticeMsg) {
           ' / ' +
           (x.amount || 0) +
           '円';
+        if (prevSelectedId && String(x.id || '') === prevSelectedId) {
+          op.selected = true;
+          matched = true;
+        }
         select.appendChild(op);
       });
+      if (!matched && select.options.length) select.options[0].selected = true;
     }
     if (!box) {
       ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
@@ -1603,12 +1616,16 @@ function ver500RenderDraftRouteList(noticeMsg) {
       return;
     }
     const lines = filteredRows.slice(0, 100).map((x) => {
+      const rowId = String(x.id || '');
+      const selectedId = String((select && select.value) || '');
+      const isSelected = rowId && rowId === selectedId;
       const status = ver500DraftStatusBadgeLabel(x.status || 'draft');
       const score = Math.max(0, Math.min(100, Number(x.confidenceScore || ver500OcrConfidenceScore(x))));
       const conf = scoreLabel(score);
       const style = scoreStyle(score);
       const miss = missingItems(x);
-      const missText = miss.length ? ' / 不足: ' + miss.join('・') : '';
+      const missText = missingText(miss);
+      const missBadge = missText ? badgeHtml(missText, '#fdecec', '#b33a3a') : '';
       const learned = x.learnedMapped ? badgeHtml('[AI学習済み]', '#e8f2ff', '#1d4ed8') : '';
       const profiled = x.profileApplied ? badgeHtml('[帳票ルール適用]', '#f2ecff', '#6d28d9') : '';
       const autoBadge = x.autoConfirmed ? badgeHtml('[自動確定]', '#eaf2ff', '#1e40af') : '';
@@ -1617,27 +1634,36 @@ function ver500RenderDraftRouteList(noticeMsg) {
         style.bg +
         ';border-left:4px solid ' +
         style.bar +
-        ';padding-left:8px;"><span>' +
-        esc(x.date || '') +
-        ' / ' +
-        esc(ver500RouteLabel(x.sourceType)) +
-        ' / ' +
-        esc(ver500DocumentTypeLabel(x.documentType || 'unknown')) +
-        ' / ' +
-        esc(x.storeName || '-') +
-        ' / ' +
-        esc(x.amount || 0) +
-        '円 / 判定精度: ' +
-        score +
-        '（' +
-        conf +
-        '）' +
-        missText +
-        '</span>' +
+        ';padding:10px 12px;border-radius:10px;margin-bottom:8px;cursor:pointer;' +
+        (isSelected ? 'outline:2px solid #8aaee8;' : '') +
+        '" onclick="ver500SelectDraftRouteCard(\'' +
+        escJs(rowId) +
+        '\')">' +
+        '<div style="display:flex;flex-direction:column;gap:7px;width:100%;">' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
         statusBadgeHtml(status, x.status || 'draft') +
+        '<span>' +
+        esc(x.date || '') +
+        '</span><span>' +
+        esc(ver500RouteLabel(x.sourceType)) +
+        '</span><span>' +
+        esc(ver500DocumentTypeLabel(x.documentType || 'unknown')) +
+        '</span></div>' +
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+        '<span>相手先: ' +
+        esc(x.storeName || '-') +
+        '</span><span>内容: ' +
+        esc(x.itemTitle || '-') +
+        '</span><span style="font-weight:700;">金額: ' +
+        esc(x.amount || 0) +
+        '円</span></div>' +
+        '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">' +
+        scoreBadgeHtml(score, conf) +
+        missBadge +
         learned +
         profiled +
         autoBadge +
+        '</div></div>' +
         '</div>'
       );
     });
@@ -1653,6 +1679,26 @@ function ver500RenderDraftRouteList(noticeMsg) {
 function ver500ShowDraftRoutes() {
   ver500RenderDraftRouteList();
   return true;
+}
+function ver500SelectDraftRouteCard(routeId) {
+  try {
+    const select = document.getElementById('ver500DraftSelect');
+    const id = String(routeId || '');
+    if (!select || !id) return false;
+    let found = false;
+    for (let i = 0; i < select.options.length; i++) {
+      if (String(select.options[i].value || '') === id) {
+        select.selectedIndex = i;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+    ver500RenderDraftRouteList();
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 function ver500EnsureDraftButtons() {
   if (
@@ -2936,6 +2982,7 @@ window.ver500MaybeAutoConfirmRoute = ver500MaybeAutoConfirmRoute;
 window.ver500OcrConfidenceScore = ver500OcrConfidenceScore;
 window.ver500RenderDraftRouteList = ver500RenderDraftRouteList;
 window.ver500ShowDraftRoutes = ver500ShowDraftRoutes;
+window.ver500SelectDraftRouteCard = ver500SelectDraftRouteCard;
 window.ver500DefaultOcrMappingRules = ver500DefaultOcrMappingRules;
 window.ver500NormalizeOcrMappingRules = ver500NormalizeOcrMappingRules;
 window.ver500OcrMappingRules = ver500OcrMappingRules;
