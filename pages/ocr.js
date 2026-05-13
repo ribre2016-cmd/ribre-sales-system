@@ -1247,6 +1247,9 @@ function ver500NormalizeRouteEntry(x) {
     autoConfirmed: !!src.autoConfirmed,
     status: normStatus(src.status),
     reviewStatus: normReviewStatus(src.reviewStatus),
+    assignee: String(src.assignee || ''),
+    reviewedBy: String(src.reviewedBy || ''),
+    reviewedAt: String(src.reviewedAt || ''),
     evidence_url: String(src.evidence_url || ''),
     note: String(src.note || '')
   };
@@ -1301,6 +1304,9 @@ function ver500CreateDraftRouteFromCandidate(candidate) {
     confidenceScore: Math.max(0, Math.min(100, Number(c.confidenceScore || 0))),
     autoConfirmed: !!c.autoConfirmed,
     status: 'draft',
+    assignee: String(c.assignee || ''),
+    reviewedBy: String(c.reviewedBy || ''),
+    reviewedAt: String(c.reviewedAt || ''),
     evidence_url: c.evidence_url || '',
     note: c.memo || ''
   });
@@ -1448,6 +1454,36 @@ function ver500NormalizeReviewStatus(reviewStatus) {
   if (s === 'later' || s === 'pending' || s === 'ignored' || s === 'done') return s;
   return 'none';
 }
+function ver500CurrentStaffName() {
+  const fromCurrent = String(localStorage.getItem('ribre_ocr_current_staff_v1') || '').trim();
+  if (fromCurrent) return fromCurrent;
+  const fromStaff = String(localStorage.getItem('ribre_current_staff_name') || localStorage.getItem('ribre_staff_name') || '').trim();
+  if (fromStaff) return fromStaff;
+  return String(ver500Email() || '').trim();
+}
+function ver500SetCurrentStaffName(name) {
+  const n = String(name || '').trim();
+  try {
+    localStorage.setItem('ribre_ocr_current_staff_v1', n);
+  } catch (e) {}
+  return n;
+}
+function ver500FormatReviewedAt(v) {
+  const d = v ? new Date(v) : null;
+  if (!d || Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return y + '-' + m + '-' + day + ' ' + hh + ':' + mm;
+}
+function ver500SaveCurrentStaff() {
+  const input = document.getElementById('ver500CurrentStaffInput');
+  const name = ver500SetCurrentStaffName((input && input.value) || '');
+  ver500RenderDraftRouteList(name ? '現在の担当者を保存しました' : '担当者設定をクリアしました');
+  return true;
+}
 function ver500FilteredDraftRoutes(rows, filterOverride) {
   const all = Array.isArray(rows) ? rows : [];
   const filter = String(filterOverride || ver500DraftFilterValue() || 'draft');
@@ -1517,7 +1553,13 @@ function ver500RenderDraftRouteList(noticeMsg) {
     const rows = ver500DraftRoutes();
     const currentFilter = ver500DraftFilterValue();
     const currentViewMode = String(window.__ver500DraftViewMode || 'priority');
-    const filteredRows = ver500FilteredDraftRoutes(rows, currentFilter);
+    const currentStaff = ver500CurrentStaffName();
+    const mineOnly = !!window.__ver500DraftMineOnly;
+    const filteredRows = ver500FilteredDraftRoutes(rows, currentFilter).filter((x) => {
+      if (!mineOnly) return true;
+      if (!currentStaff) return true;
+      return String((x && x.assignee) || '').trim() === currentStaff;
+    });
     const box = ver500DraftRoutesContainer();
     const esc = (v) =>
       String(v || '')
@@ -1614,6 +1656,14 @@ function ver500RenderDraftRouteList(noticeMsg) {
       const selectedMode = (v) => (currentViewMode === v ? ' selected' : '');
       toolbarHtml =
         '<div class="row ok"><span>' +
+        '<label for="ver500CurrentStaffInput">担当者:</label> ' +
+        '<input id="ver500CurrentStaffInput" value="' +
+        esc(currentStaff) +
+        '" placeholder="担当者名" style="width:120px;" /> ' +
+        '<button id="ver500CurrentStaffSaveBtn" onclick="ver500SaveCurrentStaff()">担当者保存</button> ' +
+        '<span id="ver500CurrentStaffLabel" class="badge">現在の担当者: ' +
+        esc(currentStaff || '未設定') +
+        '</span> ' +
         '<label for="ver500DraftFilter">フィルタ:</label> ' +
         '<select id="ver500DraftFilter" onchange="ver500RenderDraftRouteList()">' +
         '<option value="all"' +
@@ -1641,6 +1691,9 @@ function ver500RenderDraftRouteList(noticeMsg) {
         selectedMode('status') +
         '>状態別</option>' +
         '</select> ' +
+        '<label><input type="checkbox" id="ver500DraftMineOnly" ' +
+        (mineOnly ? 'checked ' : '') +
+        'onchange="window.__ver500DraftMineOnly=this.checked;ver500RenderDraftRouteList()" />自分の担当のみ</label> ' +
         '<button id="ver500DeleteDraftBtn" onclick="ver500DeleteSelectedDraftRoute()">選んだ候補を削除</button> ' +
         '<button id="ver500ReviewLaterBtn" onclick="ver500SetSelectedDraftReviewStatus(\'later\')">選択候補をあとで確認</button> ' +
         '<button id="ver500ReviewPendingBtn" onclick="ver500SetSelectedDraftReviewStatus(\'pending\')">選択候補を保留</button> ' +
@@ -1725,6 +1778,14 @@ function ver500RenderDraftRouteList(noticeMsg) {
         '</span><span style="font-weight:700;">金額: ' +
         esc(x.amount || 0) +
         '円</span></div>' +
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+        '<span>担当: ' +
+        esc(x.assignee || '-') +
+        '</span><span>確認者: ' +
+        esc(x.reviewedBy || '-') +
+        '</span><span>確認日時: ' +
+        esc(ver500FormatReviewedAt(x.reviewedAt) || '-') +
+        '</span></div>' +
         '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">' +
         scoreBadgeHtml(score, conf) +
         missBadge +
@@ -1861,7 +1922,14 @@ function ver500SetDraftReviewStatus(routeId, reviewStatus) {
     const idx = rows.findIndex((x) => String((x && x.id) || '') === id);
     if (idx < 0) return false;
     const nextStatus = ver500NormalizeReviewStatus(reviewStatus);
-    const updated = Object.assign({}, rows[idx], { reviewStatus: nextStatus });
+    const staffName = ver500CurrentStaffName();
+    const current = rows[idx] || {};
+    const updated = Object.assign({}, current, {
+      reviewStatus: nextStatus,
+      reviewedBy: staffName || String(current.reviewedBy || ''),
+      reviewedAt: new Date().toISOString(),
+      assignee: String(current.assignee || '').trim() || staffName || ''
+    });
     rows[idx] = ver500NormalizeRouteEntry(updated);
     ver500SaveDraftRoutes(rows);
     ver500RenderDraftRouteList('処理状態を更新しました');
@@ -3164,6 +3232,8 @@ window.ver500ShowDraftRoutes = ver500ShowDraftRoutes;
 window.ver500SelectDraftRouteCard = ver500SelectDraftRouteCard;
 window.ver500SetDraftReviewStatus = ver500SetDraftReviewStatus;
 window.ver500SetSelectedDraftReviewStatus = ver500SetSelectedDraftReviewStatus;
+window.ver500CurrentStaffName = ver500CurrentStaffName;
+window.ver500SaveCurrentStaff = ver500SaveCurrentStaff;
 window.ver500DefaultOcrMappingRules = ver500DefaultOcrMappingRules;
 window.ver500NormalizeOcrMappingRules = ver500NormalizeOcrMappingRules;
 window.ver500OcrMappingRules = ver500OcrMappingRules;
