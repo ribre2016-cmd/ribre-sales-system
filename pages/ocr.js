@@ -171,6 +171,7 @@ function ver500AuditActionLabel(action) {
   if (a === 'auto_confirmed') return '自動確定';
   if (a === 'learning_saved') return '学習保存';
   if (a === 'rule_added') return 'ルール追加';
+  if (a === 'manual_corrected') return '手動修正';
   return a || '不明';
 }
 function ver500RenderAuditLogs() {
@@ -1354,6 +1355,8 @@ function ver500NormalizeRouteEntry(x) {
     autoConfirmed: !!src.autoConfirmed,
     status: normStatus(src.status),
     reviewStatus: normReviewStatus(src.reviewStatus),
+    manualCorrected: !!src.manualCorrected,
+    correctedFields: Array.isArray(src.correctedFields) ? src.correctedFields.map((v) => String(v || '')).filter(Boolean).slice(0, 20) : [],
     assignee: String(src.assignee || ''),
     reviewedBy: String(src.reviewedBy || ''),
     reviewedAt: String(src.reviewedAt || ''),
@@ -1960,9 +1963,26 @@ function ver500RenderDraftRouteList(noticeMsg) {
       const missBadge = missText ? badgeHtml(missText, '#fdecec', '#b33a3a') : '';
       const reviewStatus = ver500NormalizeReviewStatus(x.reviewStatus || 'none');
       const reviewBadge = reviewStatusBadgeHtml(reviewStatus);
+      const correctedBadge = x.manualCorrected ? badgeHtml('[手動修正あり]', '#fff2e6', '#9a3412') : '';
       const learned = x.learnedMapped ? badgeHtml('[AI学習済み]', '#e8f2ff', '#1d4ed8') : '';
       const profiled = x.profileApplied ? badgeHtml('[帳票ルール適用]', '#f2ecff', '#6d28d9') : '';
       const autoBadge = x.autoConfirmed ? badgeHtml('[自動確定]', '#eaf2ff', '#1e40af') : '';
+      const isEditing = String(window.__ver500EditRouteId || '') === rowId;
+      const sourceOptions = ['sale', 'purchase', 'shipping', 'receipt', 'unknown']
+        .map((v) => '<option value="' + v + '"' + (String(x.sourceType || 'unknown') === v ? ' selected' : '') + '>' + esc(ver500RouteLabel(v)) + '</option>')
+        .join('');
+      const docOptions = ver500AllowedDocumentTypes()
+        .map(
+          (v) =>
+            '<option value="' +
+            esc(v) +
+            '"' +
+            (ver500NormalizeDocumentType(x.documentType || 'unknown') === v ? ' selected' : '') +
+            '>' +
+            esc(ver500DocumentTypeLabel(v)) +
+            '</option>'
+        )
+        .join('');
       const cardHtml =
         '<div class="row ok" style="background:' +
         style.bg +
@@ -1989,6 +2009,9 @@ function ver500RenderDraftRouteList(noticeMsg) {
         '<button onclick="event.stopPropagation();ver500PreviewEvidenceByRoute(\'' +
         escJs(rowId) +
         '\')">証憑を見る</button>' +
+        '<button onclick="event.stopPropagation();ver500OpenManualCorrect(\'' +
+        escJs(rowId) +
+        '\')">修正する</button>' +
         '<select onclick="event.stopPropagation()" onchange="event.stopPropagation();ver500SetDraftReviewStatus(\'' +
         escJs(rowId) +
         '\', this.value)">' +
@@ -2008,14 +2031,42 @@ function ver500RenderDraftRouteList(noticeMsg) {
         (reviewStatus === 'done' ? ' selected' : '') +
         '>処理済み</option>' +
         '</select></div></div>' +
-        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
-        '<span>相手先: ' +
-        esc(x.storeName || '-') +
-        '</span><span>内容: ' +
-        esc(x.itemTitle || '-') +
-        '</span><span style="font-weight:700;">金額: ' +
-        esc(x.amount || 0) +
-        '円</span></div>' +
+        (isEditing
+          ? '<div style="display:flex;flex-wrap:wrap;gap:8px;">' +
+            '<label>日付 <input id="ver500EditDate" value="' +
+            esc(x.date || '') +
+            '" /></label>' +
+            '<label>金額 <input id="ver500EditAmount" value="' +
+            esc(x.amount || 0) +
+            '" /></label>' +
+            '<label>相手先 <input id="ver500EditStoreName" value="' +
+            esc(x.storeName || '') +
+            '" /></label>' +
+            '<label>内容 <input id="ver500EditItemTitle" value="' +
+            esc(x.itemTitle || '') +
+            '" /></label>' +
+            '<label>伝票番号 <input id="ver500EditTracking" value="' +
+            esc(x.trackingNumber || '') +
+            '" /></label>' +
+            '<label>登録種別 <select id="ver500EditSourceType">' +
+            sourceOptions +
+            '</select></label>' +
+            '<label>帳票タイプ <select id="ver500EditDocumentType">' +
+            docOptions +
+            '</select></label>' +
+            '<button onclick="event.stopPropagation();ver500SaveManualCorrect(\'' +
+            escJs(rowId) +
+            '\')">保存</button>' +
+            '<button onclick="event.stopPropagation();ver500CancelManualCorrect()">キャンセル</button>' +
+            '</div>'
+          : '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+            '<span>相手先: ' +
+            esc(x.storeName || '-') +
+            '</span><span>内容: ' +
+            esc(x.itemTitle || '-') +
+            '</span><span style="font-weight:700;">金額: ' +
+            esc(x.amount || 0) +
+            '円</span></div>') +
         '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
         '<span>担当: ' +
         esc(x.assignee || '-') +
@@ -2027,6 +2078,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
         '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">' +
         scoreBadgeHtml(score, conf) +
         missBadge +
+        correctedBadge +
         learned +
         profiled +
         autoBadge +
@@ -2198,6 +2250,85 @@ function ver500SelectDraftRouteCard(routeId) {
     ver500RenderDraftRouteList();
     return true;
   } catch (e) {
+    return false;
+  }
+}
+function ver500OpenManualCorrect(routeId) {
+  window.__ver500EditRouteId = String(routeId || '');
+  ver500RenderDraftRouteList();
+  return true;
+}
+function ver500CancelManualCorrect() {
+  window.__ver500EditRouteId = '';
+  ver500RenderDraftRouteList();
+  return true;
+}
+function ver500SaveManualCorrect(routeId) {
+  try {
+    const id = String(routeId || '');
+    if (!id) return false;
+    const rows = ver500DraftRoutes();
+    const idx = rows.findIndex((x) => String((x && x.id) || '') === id);
+    if (idx < 0) return false;
+    const beforeRow = ver500NormalizeRouteEntry(rows[idx]);
+    const srcTypeRaw = String(((document.getElementById('ver500EditSourceType') || {}).value || '')).trim();
+    const sourceType = ['sale', 'purchase', 'shipping', 'receipt'].includes(srcTypeRaw) ? srcTypeRaw : 'unknown';
+    const documentType = ver500NormalizeDocumentType((document.getElementById('ver500EditDocumentType') || {}).value || 'unknown');
+    const updated = ver500NormalizeRouteEntry(
+      Object.assign({}, beforeRow, {
+        date: String((document.getElementById('ver500EditDate') || {}).value || ''),
+        amount: ver500Num((document.getElementById('ver500EditAmount') || {}).value || 0),
+        storeName: String((document.getElementById('ver500EditStoreName') || {}).value || ''),
+        itemTitle: String((document.getElementById('ver500EditItemTitle') || {}).value || ''),
+        trackingNumber: ver500NormalizeTracking((document.getElementById('ver500EditTracking') || {}).value || ''),
+        sourceType,
+        documentType
+      })
+    );
+    const fields = ['date', 'amount', 'storeName', 'itemTitle', 'trackingNumber', 'sourceType', 'documentType'];
+    const changedFields = fields.filter((k) => String(beforeRow[k] || '') !== String(updated[k] || ''));
+    updated.manualCorrected = changedFields.length > 0 || !!beforeRow.manualCorrected;
+    updated.correctedFields = changedFields.length ? changedFields : beforeRow.correctedFields || [];
+    updated.confidenceScore = ver500OcrConfidenceScore(updated);
+    const next = rows.slice();
+    next[idx] = updated;
+    try {
+      localStorage.setItem('ribre_ocr_draft_routes_v1', JSON.stringify(next.map(ver500NormalizeRouteEntry).slice(0, 100)));
+    } catch (e) {
+      ver500RenderDraftRouteList('保存に失敗しました（データは変更していません）');
+      return false;
+    }
+    ver500AddAuditLog({
+      action: 'manual_corrected',
+      routeId: id,
+      target: 'route',
+      before: {
+        date: beforeRow.date,
+        amount: beforeRow.amount,
+        storeName: beforeRow.storeName,
+        itemTitle: beforeRow.itemTitle,
+        trackingNumber: beforeRow.trackingNumber,
+        sourceType: beforeRow.sourceType,
+        documentType: beforeRow.documentType
+      },
+      after: {
+        date: updated.date,
+        amount: updated.amount,
+        storeName: updated.storeName,
+        itemTitle: updated.itemTitle,
+        trackingNumber: updated.trackingNumber,
+        sourceType: updated.sourceType,
+        documentType: updated.documentType
+      },
+      message: 'OCR候補を手動修正しました'
+    });
+    const learningCandidate = ver500BuildLearningCandidate(updated);
+    ver500LearnFromCandidate(learningCandidate, { source: 'manual_correct', routeId: id, note: 'manual-correct', forceLog: true });
+    window.__ver500EditRouteId = '';
+    ver500RenderDraftRouteList(changedFields.length ? '候補を修正しました' : '変更はありません');
+    return true;
+  } catch (e) {
+    ver500RenderDraftRouteList('保存に失敗しました');
     return false;
   }
 }
@@ -3593,6 +3724,9 @@ window.ver500CurrentStaffName = ver500CurrentStaffName;
 window.ver500SaveCurrentStaff = ver500SaveCurrentStaff;
 window.ver500PreviewEvidenceByRoute = ver500PreviewEvidenceByRoute;
 window.ver500CloseEvidencePreview = ver500CloseEvidencePreview;
+window.ver500OpenManualCorrect = ver500OpenManualCorrect;
+window.ver500SaveManualCorrect = ver500SaveManualCorrect;
+window.ver500CancelManualCorrect = ver500CancelManualCorrect;
 window.ver500DefaultOcrMappingRules = ver500DefaultOcrMappingRules;
 window.ver500NormalizeOcrMappingRules = ver500NormalizeOcrMappingRules;
 window.ver500OcrMappingRules = ver500OcrMappingRules;
