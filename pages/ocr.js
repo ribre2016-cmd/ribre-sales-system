@@ -1616,6 +1616,12 @@ function ver500RenderDraftRouteList(noticeMsg) {
       if (!ver500NormalizeTracking((x && (x.trackingNumber || x.slip)) || '')) miss.push('伝票番号');
       return miss;
     };
+    const isToday = (v) => {
+      const d = v ? new Date(v) : null;
+      if (!d || Number.isNaN(d.getTime())) return false;
+      const now = new Date();
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    };
     const missingText = (miss) => (miss.length ? '要確認: ' + miss.join('・') + 'が未入力' : '');
     const select = document.getElementById('ver500DraftSelect');
     const prevSelectedId = String((select && select.value) || '');
@@ -1651,9 +1657,66 @@ function ver500RenderDraftRouteList(noticeMsg) {
       return;
     }
     let toolbarHtml = '';
+    let summaryHtml = '';
     try {
       const selected = (v) => (currentFilter === v ? ' selected' : '');
       const selectedMode = (v) => (currentViewMode === v ? ' selected' : '');
+      const summary = {
+        urgent: 0,
+        draft: 0,
+        autoConfirmed: 0,
+        confirmed: 0,
+        ignored: 0,
+        later: 0,
+        pending: 0,
+        mine: 0,
+        doneToday: 0
+      };
+      rows.forEach((r) => {
+        const row = r && typeof r === 'object' ? r : {};
+        const score = Math.max(0, Math.min(100, Number(row.confidenceScore || ver500OcrConfidenceScore(row))));
+        const miss = missingItems(row);
+        const statusRaw = String(row.status || 'draft');
+        const reviewStatus = ver500NormalizeReviewStatus(row.reviewStatus || 'none');
+        const sourceUnknown = String(row.sourceType || 'unknown') === 'unknown';
+        const docUnknown = ver500NormalizeDocumentType(row.documentType || 'unknown') === 'unknown';
+        const urgent = miss.length > 0 || score < 70 || sourceUnknown || docUnknown;
+        if (urgent) summary.urgent += 1;
+        if (statusRaw === 'draft' && !urgent) summary.draft += 1;
+        if (row.autoConfirmed) summary.autoConfirmed += 1;
+        if (statusRaw === 'confirmed' && !row.autoConfirmed) summary.confirmed += 1;
+        if (statusRaw === 'ignored') summary.ignored += 1;
+        if (reviewStatus === 'later') summary.later += 1;
+        if (reviewStatus === 'pending') summary.pending += 1;
+        if (currentStaff && String(row.assignee || '').trim() === currentStaff) summary.mine += 1;
+        if (isToday(row.reviewedAt) || (statusRaw === 'confirmed' && (isToday(row.updatedAt) || isToday(row.createdAt)))) summary.doneToday += 1;
+      });
+      const summaryCard = (label, count, bg, border, color) =>
+        '<div style="min-width:120px;flex:1 1 120px;padding:8px 10px;border-radius:10px;background:' +
+        bg +
+        ';border:1px solid ' +
+        border +
+        ';"><div style="font-size:12px;color:' +
+        color +
+        ';">' +
+        esc(label) +
+        '</div><div style="font-size:18px;font-weight:700;color:' +
+        color +
+        ';">' +
+        count +
+        '件</div></div>';
+      summaryHtml =
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 8px 0;">' +
+        summaryCard('今すぐ確認が必要', summary.urgent, '#fdecec', '#f3c3c3', '#a63a3a') +
+        summaryCard('未確定', summary.draft, '#fff9e8', '#f1deaa', '#8a6a00') +
+        summaryCard('自動確定済み', summary.autoConfirmed, '#eaf2ff', '#c3d6f6', '#1e40af') +
+        summaryCard('確定済み', summary.confirmed, '#e8f7ec', '#b8e6c4', '#1f7a34') +
+        summaryCard('除外済み', summary.ignored, '#f1f3f5', '#d8dde3', '#4b5563') +
+        summaryCard('あとで確認', summary.later, '#fff5e8', '#f0d1a6', '#9a5b00') +
+        summaryCard('保留', summary.pending, '#efeaff', '#d5c5f6', '#6d28d9') +
+        summaryCard('自分の担当', summary.mine, '#e7f7f5', '#b9e4dd', '#0f766e') +
+        summaryCard('今日処理済み', summary.doneToday, '#e8f7ec', '#b8e6c4', '#1f7a34') +
+        '</div>';
       toolbarHtml =
         '<div class="row ok"><span>' +
         '<label for="ver500CurrentStaffInput">担当者:</label> ' +
@@ -1707,6 +1770,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
     }
     if (!filteredRows.length) {
       box.innerHTML =
+        summaryHtml +
         toolbarHtml +
         '<div class="row ok"><span>OCR読取候補一覧（0件）</span><span class="badge">[未確定]</span></div>' +
         '<div class="row warn"><span>仮登録はありません</span><span class="badge">0件</span></div>';
@@ -1883,7 +1947,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
     }
     const header =
       '<div class="row ok"><span>OCR読取候補一覧（' + filteredRows.length + '件）' + (noticeMsg ? ' / ' + esc(noticeMsg) : '') + '</span><span class="badge">一覧</span></div>';
-    box.innerHTML = toolbarHtml + header + contentHtml;
+    box.innerHTML = summaryHtml + toolbarHtml + header + contentHtml;
   } catch (e) {
     ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
     const box = ver500DraftRoutesContainer();
