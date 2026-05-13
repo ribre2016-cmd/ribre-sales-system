@@ -1721,11 +1721,55 @@ function ver500RenderDraftRouteList(noticeMsg) {
     const currentFilter = ver500DraftFilterValue();
     const currentViewMode = String(window.__ver500DraftViewMode || 'priority');
     const currentStaff = ver500CurrentStaffName();
-    const mineOnly = !!window.__ver500DraftMineOnly;
-    const filteredRows = ver500FilteredDraftRoutes(rows, currentFilter).filter((x) => {
-      if (!mineOnly) return true;
-      if (!currentStaff) return true;
-      return String((x && x.assignee) || '').trim() === currentStaff;
+    const filterState = ver500ListFilterState();
+    window.__ver500DraftMineOnly = !!filterState.mineOnly;
+    const queryWord = String(filterState.query || '').trim().toLowerCase();
+    const minAmount = String(filterState.minAmount || '').trim() === '' ? null : ver500Num(filterState.minAmount);
+    const maxAmount = String(filterState.maxAmount || '').trim() === '' ? null : ver500Num(filterState.maxAmount);
+    const baseRows = ver500FilteredDraftRoutes(rows, currentFilter);
+    const filteredRows = baseRows.filter((x) => {
+      const row = x && typeof x === 'object' ? x : {};
+      const score = Math.max(0, Math.min(100, Number(row.confidenceScore || ver500OcrConfidenceScore(row))));
+      const miss = missingItems(row);
+      const sourceUnknown = String(row.sourceType || 'unknown') === 'unknown';
+      const docUnknown = ver500NormalizeDocumentType(row.documentType || 'unknown') === 'unknown';
+      const needsReview = miss.length > 0 || score < 70 || sourceUnknown || docUnknown;
+      if (filterState.needReviewOnly && !needsReview) return false;
+      if (filterState.manualCorrectedOnly && !row.manualCorrected) return false;
+      if (filterState.learnedOnly && !row.learnedMapped) return false;
+      if (filterState.profiledOnly && !row.profileApplied) return false;
+      if (filterState.autoConfirmedOnly && !row.autoConfirmed) return false;
+      if (filterState.hasEvidenceOnly && !String(row.evidence_url || '').trim()) return false;
+      if (filterState.todayProcessedOnly) {
+        const isDoneToday = isToday(row.reviewedAt) || (String(row.status || 'draft') === 'confirmed' && (isToday(row.updatedAt) || isToday(row.createdAt)));
+        if (!isDoneToday) return false;
+      }
+      if (filterState.mineOnly) {
+        if (!currentStaff) return true;
+        if (String(row.assignee || '').trim() !== currentStaff) return false;
+      }
+      const amount = ver500Num(row.amount || 0);
+      if (minAmount != null && amount < minAmount) return false;
+      if (maxAmount != null && amount > maxAmount) return false;
+      if (queryWord) {
+        const haystack = [
+          row.storeName,
+          row.itemTitle,
+          row.amount,
+          row.trackingNumber,
+          row.documentType,
+          ver500DocumentTypeLabel(row.documentType || 'unknown'),
+          row.sourceType,
+          ver500RouteLabel(row.sourceType || 'unknown'),
+          row.assignee,
+          row.reviewedBy,
+          row.note
+        ]
+          .map((v) => String(v || '').toLowerCase())
+          .join(' ');
+        if (!haystack.includes(queryWord)) return false;
+      }
+      return true;
     });
     const box = ver500DraftRoutesContainer();
     const esc = (v) =>
@@ -1932,15 +1976,49 @@ function ver500RenderDraftRouteList(noticeMsg) {
         '>状態別</option>' +
         '</select> ' +
         '<label><input type="checkbox" id="ver500DraftMineOnly" ' +
-        (mineOnly ? 'checked ' : '') +
-        'onchange="window.__ver500DraftMineOnly=this.checked;ver500RenderDraftRouteList()" />自分の担当のみ</label> ' +
+        (filterState.mineOnly ? 'checked ' : '') +
+        'onchange="ver500SetListFilterField(\'mineOnly\', this.checked)" />自分の担当のみ</label> ' +
+        '<button id="ver500FilterResetBtn" onclick="ver500ResetListFilters()">絞り込み解除</button> ' +
         '<button id="ver500DeleteDraftBtn" onclick="ver500DeleteSelectedDraftRoute()">選んだ候補を削除</button> ' +
         '<button id="ver500ReviewLaterBtn" onclick="ver500SetSelectedDraftReviewStatus(\'later\')">選択候補をあとで確認</button> ' +
         '<button id="ver500ReviewPendingBtn" onclick="ver500SetSelectedDraftReviewStatus(\'pending\')">選択候補を保留</button> ' +
         '<button id="ver500ReviewDoneBtn" onclick="ver500SetSelectedDraftReviewStatus(\'done\')">選択候補を処理済み</button> ' +
         '<button id="ver500HideConfirmedBtn" onclick="ver500HideConfirmedDraftRoutes()">確定済みを隠す</button> ' +
         '<button id="ver500CleanupDraftBtn" onclick="ver500CleanupOldDraftRoutes()">古い候補を整理</button>' +
-        '</span><span class="badge">操作</span></div>';
+        '</span><span class="badge">操作</span></div>' +
+        '<div class="row ok"><span>' +
+        '<label for="ver500SearchQuery">検索:</label> ' +
+        '<input id="ver500SearchQuery" value="' +
+        esc(filterState.query || '') +
+        '" placeholder="相手先・内容・金額・伝票番号・帳票タイプ・登録種別・担当者・確認者・メモ" style="min-width:280px;" oninput="ver500SetListFilterField(\'query\', this.value)" /> ' +
+        '<label><input type="checkbox" ' +
+        (filterState.needReviewOnly ? 'checked ' : '') +
+        'onchange="ver500SetListFilterField(\'needReviewOnly\', this.checked)" />要確認のみ</label> ' +
+        '<label><input type="checkbox" ' +
+        (filterState.manualCorrectedOnly ? 'checked ' : '') +
+        'onchange="ver500SetListFilterField(\'manualCorrectedOnly\', this.checked)" />手動修正あり</label> ' +
+        '<label><input type="checkbox" ' +
+        (filterState.learnedOnly ? 'checked ' : '') +
+        'onchange="ver500SetListFilterField(\'learnedOnly\', this.checked)" />AI学習済み</label> ' +
+        '<label><input type="checkbox" ' +
+        (filterState.profiledOnly ? 'checked ' : '') +
+        'onchange="ver500SetListFilterField(\'profiledOnly\', this.checked)" />帳票ルール適用</label> ' +
+        '<label><input type="checkbox" ' +
+        (filterState.autoConfirmedOnly ? 'checked ' : '') +
+        'onchange="ver500SetListFilterField(\'autoConfirmedOnly\', this.checked)" />自動確定のみ</label> ' +
+        '<label><input type="checkbox" ' +
+        (filterState.hasEvidenceOnly ? 'checked ' : '') +
+        'onchange="ver500SetListFilterField(\'hasEvidenceOnly\', this.checked)" />証憑あり</label> ' +
+        '<label><input type="checkbox" ' +
+        (filterState.todayProcessedOnly ? 'checked ' : '') +
+        'onchange="ver500SetListFilterField(\'todayProcessedOnly\', this.checked)" />今日処理したもの</label> ' +
+        '<label>最小金額 <input value="' +
+        esc(filterState.minAmount || '') +
+        '" style="width:90px;" oninput="ver500SetListFilterField(\'minAmount\', this.value)" /></label> ' +
+        '<label>最大金額 <input value="' +
+        esc(filterState.maxAmount || '') +
+        '" style="width:90px;" oninput="ver500SetListFilterField(\'maxAmount\', this.value)" /></label>' +
+        '</span><span class="badge">検索</span></div>';
     } catch (e) {
       ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録フィルタUIの生成に失敗しました' }]);
       toolbarHtml = '<div class="row warn"><span>OCR仮登録フィルタUIの生成に失敗しました</span><span class="badge">error</span></div>';
@@ -1950,7 +2028,9 @@ function ver500RenderDraftRouteList(noticeMsg) {
       box.innerHTML =
         summaryHtml +
         toolbarHtml +
-        '<div class="row ok"><span>OCR読取候補一覧（0件）</span><span class="badge">[未確定]</span></div>' +
+        '<div class="row ok"><span>OCR読取候補一覧（表示中: 0件 / 全体: ' +
+        rows.length +
+        '件）</span><span class="badge">[未確定]</span></div>' +
         '<div class="row warn"><span>仮登録はありません</span><span class="badge">0件</span></div>';
       return;
     }
@@ -2183,7 +2263,13 @@ function ver500RenderDraftRouteList(noticeMsg) {
       contentHtml = buildGroupedHtml(cardRows, priorityMeta, ['later', 'pending', 'urgent', 'draft', 'auto_confirmed', 'confirmed', 'ignored']);
     }
     const header =
-      '<div class="row ok"><span>OCR読取候補一覧（' + filteredRows.length + '件）' + (noticeMsg ? ' / ' + esc(noticeMsg) : '') + '</span><span class="badge">一覧</span></div>';
+      '<div class="row ok"><span>OCR読取候補一覧（表示中: ' +
+      filteredRows.length +
+      '件 / 全体: ' +
+      rows.length +
+      '件）' +
+      (noticeMsg ? ' / ' + esc(noticeMsg) : '') +
+      '</span><span class="badge">一覧</span></div>';
     const bulkCount = ver500BulkSelectedIds().length;
     const bulkBarHtml =
       '<div class="row ok"><span>' +
@@ -2304,6 +2390,50 @@ function ver500ToggleBulkSelect(routeId, checked) {
 function ver500ClearBulkSelection() {
   ver500SetBulkSelectedIds([]);
   ver500RenderDraftRouteList('選択を解除しました');
+  return true;
+}
+function ver500ListFilterState() {
+  const base = {
+    query: '',
+    needReviewOnly: false,
+    manualCorrectedOnly: false,
+    learnedOnly: false,
+    profiledOnly: false,
+    autoConfirmedOnly: false,
+    hasEvidenceOnly: false,
+    todayProcessedOnly: false,
+    mineOnly: false,
+    minAmount: '',
+    maxAmount: ''
+  };
+  const src = window.__ver500ListFilterState && typeof window.__ver500ListFilterState === 'object' ? window.__ver500ListFilterState : {};
+  return Object.assign({}, base, src);
+}
+function ver500SetListFilterField(key, value) {
+  const next = ver500ListFilterState();
+  next[String(key || '')] = value;
+  next.mineOnly = !!next.mineOnly;
+  window.__ver500ListFilterState = next;
+  window.__ver500DraftMineOnly = !!next.mineOnly;
+  ver500RenderDraftRouteList();
+  return true;
+}
+function ver500ResetListFilters() {
+  window.__ver500ListFilterState = {
+    query: '',
+    needReviewOnly: false,
+    manualCorrectedOnly: false,
+    learnedOnly: false,
+    profiledOnly: false,
+    autoConfirmedOnly: false,
+    hasEvidenceOnly: false,
+    todayProcessedOnly: false,
+    mineOnly: false,
+    minAmount: '',
+    maxAmount: ''
+  };
+  window.__ver500DraftMineOnly = false;
+  ver500RenderDraftRouteList('絞り込みを解除しました');
   return true;
 }
 function ver500OpenManualCorrect(routeId) {
@@ -3861,6 +3991,8 @@ window.ver500ClearBulkSelection = ver500ClearBulkSelection;
 window.ver500BulkConfirmSelected = ver500BulkConfirmSelected;
 window.ver500BulkSetReviewStatus = ver500BulkSetReviewStatus;
 window.ver500BulkDeleteSelected = ver500BulkDeleteSelected;
+window.ver500SetListFilterField = ver500SetListFilterField;
+window.ver500ResetListFilters = ver500ResetListFilters;
 window.ver500SetDraftReviewStatus = ver500SetDraftReviewStatus;
 window.ver500SetSelectedDraftReviewStatus = ver500SetSelectedDraftReviewStatus;
 window.ver500CurrentStaffName = ver500CurrentStaffName;
