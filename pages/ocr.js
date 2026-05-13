@@ -1484,6 +1484,16 @@ function ver500SaveCurrentStaff() {
   ver500RenderDraftRouteList(name ? '現在の担当者を保存しました' : '担当者設定をクリアしました');
   return true;
 }
+function ver500PreviewEvidenceByRoute(routeId) {
+  window.__ver500EvidencePreviewRouteId = String(routeId || '');
+  ver500RenderDraftRouteList();
+  return true;
+}
+function ver500CloseEvidencePreview() {
+  window.__ver500EvidencePreviewRouteId = '';
+  ver500RenderDraftRouteList();
+  return true;
+}
 function ver500FilteredDraftRoutes(rows, filterOverride) {
   const all = Array.isArray(rows) ? rows : [];
   const filter = String(filterOverride || ver500DraftFilterValue() || 'draft');
@@ -1621,6 +1631,16 @@ function ver500RenderDraftRouteList(noticeMsg) {
       if (!d || Number.isNaN(d.getTime())) return false;
       const now = new Date();
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    };
+    const detectEvidenceType = (url) => {
+      const u = String(url || '').trim();
+      if (!u) return 'none';
+      if (/^data:image\//i.test(u)) return 'image';
+      if (/^data:application\/pdf/i.test(u)) return 'pdf';
+      if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(u)) return 'image';
+      if (/\.pdf(\?|#|$)/i.test(u)) return 'pdf';
+      if (/^https?:\/\//i.test(u) || /^blob:/i.test(u)) return 'url';
+      return 'url';
     };
     const missingText = (miss) => (miss.length ? '要確認: ' + miss.join('・') + 'が未入力' : '');
     const select = document.getElementById('ver500DraftSelect');
@@ -1815,6 +1835,9 @@ function ver500RenderDraftRouteList(noticeMsg) {
         '</span></div>' +
         '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">' +
         reviewBadge +
+        '<button onclick="event.stopPropagation();ver500PreviewEvidenceByRoute(\'' +
+        escJs(rowId) +
+        '\')">証憑を見る</button>' +
         '<select onclick="event.stopPropagation()" onchange="event.stopPropagation();ver500SetDraftReviewStatus(\'' +
         escJs(rowId) +
         '\', this.value)">' +
@@ -1947,7 +1970,56 @@ function ver500RenderDraftRouteList(noticeMsg) {
     }
     const header =
       '<div class="row ok"><span>OCR読取候補一覧（' + filteredRows.length + '件）' + (noticeMsg ? ' / ' + esc(noticeMsg) : '') + '</span><span class="badge">一覧</span></div>';
-    box.innerHTML = summaryHtml + toolbarHtml + header + contentHtml;
+    let previewHtml = '';
+    const previewRouteId = String(window.__ver500EvidencePreviewRouteId || '');
+    if (previewRouteId) {
+      const previewRow = rows.find((x) => String((x && x.id) || '') === previewRouteId);
+      const evidenceUrl = previewRow ? String(previewRow.evidence_url || '') : '';
+      const evidenceType = detectEvidenceType(evidenceUrl);
+      if (!previewRow) {
+        previewHtml =
+          '<div class="row warn"><span>証憑プレビュー: 対象候補が見つかりません</span><span class="badge"><button onclick="ver500CloseEvidencePreview()">閉じる</button></span></div>';
+      } else if (!evidenceUrl) {
+        previewHtml =
+          '<div class="row warn"><span>証憑プレビュー / 証憑がありません</span><span class="badge"><button onclick="ver500CloseEvidencePreview()">閉じる</button></span></div>';
+      } else if (evidenceType === 'image') {
+        previewHtml =
+          '<div class="row ok"><span>証憑プレビュー</span><span class="badge"><button onclick="ver500CloseEvidencePreview()">閉じる</button></span></div>' +
+          '<div class="row ok"><span style="display:block;width:100%;">' +
+          '<a href="' +
+          esc(evidenceUrl) +
+          '" target="_blank" rel="noopener">画像を別タブで表示</a><br />' +
+          '<a href="' +
+          esc(evidenceUrl) +
+          '" target="_blank" rel="noopener">' +
+          '<img src="' +
+          esc(evidenceUrl) +
+          '" alt="証憑画像" style="max-width:100%;max-height:520px;object-fit:contain;border:1px solid #d8dde3;border-radius:8px;margin-top:6px;" />' +
+          '</a></span><span class="badge">画像</span></div>';
+      } else if (evidenceType === 'pdf') {
+        previewHtml =
+          '<div class="row ok"><span>証憑プレビュー</span><span class="badge"><button onclick="ver500CloseEvidencePreview()">閉じる</button></span></div>' +
+          '<div class="row ok"><span style="display:block;width:100%;">' +
+          '<a href="' +
+          esc(evidenceUrl) +
+          '" target="_blank" rel="noopener">PDFを別タブで開く</a>' +
+          '<iframe src="' +
+          esc(evidenceUrl) +
+          '" style="width:100%;height:520px;border:1px solid #d8dde3;border-radius:8px;margin-top:6px;" title="証憑PDFプレビュー"></iframe>' +
+          '<div class="hint">表示できない場合は「PDFを別タブで開く」を押してください。</div>' +
+          '</span><span class="badge">PDF</span></div>';
+      } else {
+        previewHtml =
+          '<div class="row ok"><span>証憑プレビュー</span><span class="badge"><button onclick="ver500CloseEvidencePreview()">閉じる</button></span></div>' +
+          '<div class="row ok"><span style="display:block;width:100%;">' +
+          '<a href="' +
+          esc(evidenceUrl) +
+          '" target="_blank" rel="noopener">証憑URLを別タブで開く</a>' +
+          '<div class="hint">この証憑はリンク形式です。上のリンクから確認してください。</div>' +
+          '</span><span class="badge">URL</span></div>';
+      }
+    }
+    box.innerHTML = summaryHtml + toolbarHtml + header + contentHtml + previewHtml;
   } catch (e) {
     ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
     const box = ver500DraftRoutesContainer();
@@ -3298,6 +3370,8 @@ window.ver500SetDraftReviewStatus = ver500SetDraftReviewStatus;
 window.ver500SetSelectedDraftReviewStatus = ver500SetSelectedDraftReviewStatus;
 window.ver500CurrentStaffName = ver500CurrentStaffName;
 window.ver500SaveCurrentStaff = ver500SaveCurrentStaff;
+window.ver500PreviewEvidenceByRoute = ver500PreviewEvidenceByRoute;
+window.ver500CloseEvidencePreview = ver500CloseEvidencePreview;
 window.ver500DefaultOcrMappingRules = ver500DefaultOcrMappingRules;
 window.ver500NormalizeOcrMappingRules = ver500NormalizeOcrMappingRules;
 window.ver500OcrMappingRules = ver500OcrMappingRules;
