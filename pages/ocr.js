@@ -103,6 +103,115 @@ function ver500RenderConfirmLogs() {
     }))
   );
 }
+function ver500AutoConfirmEnabled() {
+  const raw = localStorage.getItem('ribre_ocr_auto_confirm_enabled_v1');
+  if (raw == null) {
+    try {
+      localStorage.setItem('ribre_ocr_auto_confirm_enabled_v1', '0');
+    } catch (e) {}
+    return false;
+  }
+  return raw === '1';
+}
+function ver500SetAutoConfirmEnabled(enabled) {
+  try {
+    localStorage.setItem('ribre_ocr_auto_confirm_enabled_v1', enabled ? '1' : '0');
+  } catch (e) {}
+}
+function ver500AutoConfirmLogs() {
+  try {
+    const rows = JSON.parse(localStorage.getItem('ribre_ocr_auto_confirm_logs_v1') || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    return [];
+  }
+}
+function ver500SaveAutoConfirmLogs(arr) {
+  const rows = Array.isArray(arr) ? arr.slice(0, 100) : [];
+  const save = (n) => localStorage.setItem('ribre_ocr_auto_confirm_logs_v1', JSON.stringify(n === 0 ? [] : rows.slice(0, n)));
+  try {
+    save(100);
+    return true;
+  } catch (e) {}
+  try {
+    save(50);
+    return true;
+  } catch (e) {}
+  try {
+    save(20);
+    return true;
+  } catch (e) {}
+  try {
+    save(0);
+    return true;
+  } catch (e) {}
+  return false;
+}
+function ver500AddAutoConfirmLog(log) {
+  const src = log && typeof log === 'object' ? log : {};
+  const rows = ver500AutoConfirmLogs();
+  rows.unshift({
+    id: String(src.id || 'ocr_auto_confirm_' + Date.now() + '_' + Math.floor(Math.random() * 1000)),
+    createdAt: String(src.createdAt || new Date().toISOString()),
+    routeId: String(src.routeId || ''),
+    score: Math.max(0, Math.min(100, Number(src.score || 0))),
+    sourceType: String(src.sourceType || 'unknown'),
+    category: String(src.category || 'unknown'),
+    documentType: String(src.documentType || 'unknown'),
+    result: String(src.result || 'unknown'),
+    message: String(src.message || '')
+  });
+  return ver500SaveAutoConfirmLogs(rows);
+}
+function ver500OcrConfidenceScore(result) {
+  const x = result && typeof result === 'object' ? result : {};
+  const hasAmount = ver500Num(x.amount || 0) > 0;
+  const hasDate = !!String(x.date || '').trim();
+  const hasStore = !!String(x.storeName || x.partner || '').trim();
+  const sourceType = String(x.sourceType || 'unknown');
+  const category = String(x.category || 'unknown');
+  const documentType = String(x.documentType || 'unknown');
+  const matchedBy = String(x.documentMatchedBy || 'unknown');
+  let score = 0;
+  if (documentType !== 'unknown') score += 15;
+  if (matchedBy === 'learning' || matchedBy === 'keyword') score += 15;
+  if (x.profileApplied) score += 10;
+  if (x.learnedMapped) score += 10;
+  if (hasAmount) score += 10;
+  if (hasDate) score += 10;
+  if (hasStore) score += 10;
+  if (sourceType !== 'unknown') score += 10;
+  if (category !== 'unknown') score += 10;
+  if (!hasAmount) score -= 20;
+  if (!hasDate) score -= 15;
+  if (!hasStore) score -= 15;
+  if (sourceType === 'unknown') score -= 20;
+  if (category === 'unknown') score -= 20;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+function ver500CanAutoConfirm(row, score) {
+  const x = row && typeof row === 'object' ? row : {};
+  const sourceType = String(x.sourceType || 'unknown');
+  const category = String(x.category || 'unknown');
+  if (!['sale', 'purchase', 'shipping', 'receipt'].includes(sourceType)) return false;
+  if (sourceType === 'unknown') return false;
+  if (category === 'unknown') return false;
+  if (score < 80) return false;
+  if ((sourceType === 'sale' || sourceType === 'purchase') && ver500Num(x.amount || 0) <= 0) return false;
+  if (sourceType === 'shipping' && !ver500NormalizeTracking(x.trackingNumber || x.slip || '')) return false;
+  return true;
+}
+function ver500AutoConfirmBlockReason(row, score) {
+  const x = row && typeof row === 'object' ? row : {};
+  const sourceType = String(x.sourceType || 'unknown');
+  const category = String(x.category || 'unknown');
+  if (!['sale', 'purchase', 'shipping', 'receipt'].includes(sourceType)) return '未分類のため自動確定できません';
+  if (category === 'unknown') return '分類不明のため自動確定できません';
+  if (score < 80) return '信頼度不足のため確認が必要です';
+  if ((sourceType === 'sale' || sourceType === 'purchase') && ver500Num(x.amount || 0) <= 0) return '金額0のため自動確定できません';
+  if (sourceType === 'shipping' && !ver500NormalizeTracking(x.trackingNumber || x.slip || '')) return '追跡番号なしのため自動確定できません';
+  return '確認が必要です';
+}
 function ver500LearningLogs() {
   try {
     const rows = JSON.parse(localStorage.getItem('ribre_ocr_learning_v1') || '[]');
@@ -1003,6 +1112,8 @@ function ver500NormalizeRouteEntry(x) {
     learnedFields: Array.isArray(src.learnedFields) ? src.learnedFields.map((v) => String(v || '')).filter(Boolean).slice(0, 8) : [],
     profileApplied: !!src.profileApplied,
     profileFields: Array.isArray(src.profileFields) ? src.profileFields.map((v) => String(v || '')).filter(Boolean).slice(0, 8) : [],
+    confidenceScore: Math.max(0, Math.min(100, Number(src.confidenceScore || 0))),
+    autoConfirmed: !!src.autoConfirmed,
     status: normStatus(src.status),
     evidence_url: String(src.evidence_url || ''),
     note: String(src.note || '')
@@ -1055,6 +1166,8 @@ function ver500CreateDraftRouteFromCandidate(candidate) {
     learnedFields: Array.isArray(c.learnedFields) ? c.learnedFields : [],
     profileApplied: !!c.profileApplied,
     profileFields: Array.isArray(c.profileFields) ? c.profileFields : [],
+    confidenceScore: Math.max(0, Math.min(100, Number(c.confidenceScore || 0))),
+    autoConfirmed: !!c.autoConfirmed,
     status: 'draft',
     evidence_url: c.evidence_url || '',
     note: c.memo || ''
@@ -1093,6 +1206,8 @@ function ver500BuildFallbackDraftFromForm() {
     learnedFields: [],
     profileApplied: false,
     profileFields: [],
+    confidenceScore: 0,
+    autoConfirmed: false,
     evidence_url: String((document.getElementById('ver500EvidenceUrl') || {}).value || ''),
     memo: 'fallback draft route'
   };
@@ -1106,6 +1221,64 @@ function ver500SaveDraftRoute(result) {
   } catch (e) {
     ver500Render([{ type: '仮登録', level: 'warn', msg: '仮登録保存に失敗しました' }]);
     return null;
+  }
+}
+function ver500MaybeAutoConfirmRoute(route) {
+  try {
+    const fallback = ver500CreateDraftRouteFromCandidate(ver500BuildFallbackDraftFromForm());
+    let row = ver500NormalizeRouteEntry(route || fallback);
+    const score = ver500OcrConfidenceScore(row);
+    row.confidenceScore = score;
+    if (row.id) row = ver500UpsertDraftRoute(row);
+    const enabled = ver500AutoConfirmEnabled();
+    if (!enabled) {
+      ver500AddAutoConfirmLog({
+        routeId: row.id,
+        score,
+        sourceType: row.sourceType,
+        category: row.category,
+        documentType: row.documentType,
+        result: 'disabled',
+        message: '高信頼なら自動確定: OFF'
+      });
+      return { autoConfirmed: false, score, reason: 'disabled', route: row };
+    }
+    if (!ver500CanAutoConfirm(row, score)) {
+      const blockMessage = ver500AutoConfirmBlockReason(row, score);
+      ver500AddAutoConfirmLog({
+        routeId: row.id,
+        score,
+        sourceType: row.sourceType,
+        category: row.category,
+        documentType: row.documentType,
+        result: 'needs_review',
+        message: blockMessage
+      });
+      return { autoConfirmed: false, score, reason: 'needs_review', message: blockMessage, route: row };
+    }
+    ver500ConfirmSelectedDraft(row.id, { auto: true, source: 'auto_confirm' });
+    const confirmedRow = ver500DraftRoutes().find((x) => String(x.id || '') === String(row.id || '')) || row;
+    ver500AddAutoConfirmLog({
+      routeId: row.id,
+      score,
+      sourceType: row.sourceType,
+      category: row.category,
+      documentType: row.documentType,
+      result: 'auto_confirmed',
+      message: '高信頼のため自動確定しました'
+    });
+    return { autoConfirmed: true, score, reason: 'auto_confirmed', route: confirmedRow };
+  } catch (e) {
+    ver500AddAutoConfirmLog({
+      routeId: '',
+      score: 0,
+      sourceType: 'unknown',
+      category: 'unknown',
+      documentType: 'unknown',
+      result: 'error',
+      message: '自動確定処理に失敗しました'
+    });
+    return { autoConfirmed: false, score: 0, reason: 'error', route: null };
   }
 }
 function ver500DraftRoutesContainer() {
@@ -1271,6 +1444,9 @@ function ver500RenderDraftRouteList(noticeMsg) {
       const status = esc(ver500DraftStatusBadgeLabel(x.status || 'draft'));
       const learned = x.learnedMapped ? '<span class="badge">[学習ルール適用]</span>' : '';
       const profiled = x.profileApplied ? '<span class="badge">[専用ルール適用]</span>' : '';
+      const score = Math.max(0, Math.min(100, Number(x.confidenceScore || ver500OcrConfidenceScore(x))));
+      const autoBadge = x.autoConfirmed ? '<span class="badge">[自動確定]</span>' : '';
+      const reviewText = !x.autoConfirmed && score < 80 ? ' / 確認が必要' : '';
       return (
         '<div class="row ok"><span>' +
         esc(x.date || '') +
@@ -1284,11 +1460,15 @@ function ver500RenderDraftRouteList(noticeMsg) {
         esc(x.amount || 0) +
         '円 / 専用ルール適用:' +
         (x.profileApplied ? 'あり' : 'なし') +
+        ' / 信頼度:' +
+        score +
+        reviewText +
         '</span><span class="badge">[' +
         status +
         ']</span>' +
         learned +
         profiled +
+        autoBadge +
         '</div>'
       );
     });
@@ -1349,6 +1529,26 @@ function ver500EnsureDraftButtons() {
         learningBtn.textContent = '学習履歴';
         learningBtn.onclick = () => ver500RenderLearningLogs();
         controls.appendChild(learningBtn);
+      }
+      if (!document.getElementById('ver500AutoConfirmToggle')) {
+        const label = document.createElement('label');
+        label.id = 'ver500AutoConfirmLabel';
+        label.style.display = 'inline-flex';
+        label.style.gap = '6px';
+        label.style.alignItems = 'center';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.id = 'ver500AutoConfirmToggle';
+        cb.checked = ver500AutoConfirmEnabled();
+        cb.onchange = () => {
+          ver500SetAutoConfirmEnabled(!!cb.checked);
+          ver500Render([{ type: '自動確定', msg: cb.checked ? '高信頼なら自動確定: ON' : '高信頼なら自動確定: OFF' }]);
+        };
+        const span = document.createElement('span');
+        span.textContent = '高信頼なら自動確定';
+        label.appendChild(cb);
+        label.appendChild(span);
+        controls.appendChild(label);
       }
       if (!document.getElementById('ver500DraftFilterLegacy')) {
         const filter = document.createElement('select');
@@ -1435,6 +1635,23 @@ function ver500EnsureDraftButtons() {
   learningBtn.id = 'ver500LearningLogsBtn';
   learningBtn.textContent = '学習履歴';
   learningBtn.onclick = () => ver500RenderLearningLogs();
+  const autoConfirmLabel = document.createElement('label');
+  autoConfirmLabel.id = 'ver500AutoConfirmLabel';
+  autoConfirmLabel.style.display = 'inline-flex';
+  autoConfirmLabel.style.gap = '6px';
+  autoConfirmLabel.style.alignItems = 'center';
+  const autoConfirmToggle = document.createElement('input');
+  autoConfirmToggle.type = 'checkbox';
+  autoConfirmToggle.id = 'ver500AutoConfirmToggle';
+  autoConfirmToggle.checked = ver500AutoConfirmEnabled();
+  autoConfirmToggle.onchange = () => {
+    ver500SetAutoConfirmEnabled(!!autoConfirmToggle.checked);
+    ver500Render([{ type: '自動確定', msg: autoConfirmToggle.checked ? '高信頼なら自動確定: ON' : '高信頼なら自動確定: OFF' }]);
+  };
+  const autoConfirmText = document.createElement('span');
+  autoConfirmText.textContent = '高信頼なら自動確定';
+  autoConfirmLabel.appendChild(autoConfirmToggle);
+  autoConfirmLabel.appendChild(autoConfirmText);
   const confirmBtn = document.createElement('button');
   confirmBtn.id = 'ver500ConfirmDraftBtn';
   confirmBtn.textContent = '選んだ候補を登録確定';
@@ -1477,6 +1694,7 @@ function ver500EnsureDraftButtons() {
     controls.appendChild(mappingSaveBtn);
     controls.appendChild(historyBtn);
     controls.appendChild(learningBtn);
+    controls.appendChild(autoConfirmLabel);
     controls.appendChild(confirmBtn);
     controls.appendChild(select);
     controls.appendChild(filter);
@@ -1499,6 +1717,7 @@ function ver500EnsureDraftButtons() {
   fallback.appendChild(mappingSaveBtn);
   fallback.appendChild(historyBtn);
   fallback.appendChild(learningBtn);
+  fallback.appendChild(autoConfirmLabel);
   fallback.appendChild(confirmBtn);
   fallback.appendChild(select);
   fallback.appendChild(filter);
@@ -2018,6 +2237,8 @@ async function ver500AnalyzeEvidence() {
         fileName: cacheMeta.fileName
       });
       const route = ver500SaveDraftRoute(ai);
+      const autoResult = ver500MaybeAutoConfirmRoute(route);
+      const routeView = (autoResult && autoResult.route) || route;
       document.getElementById('ver500Kind').value = ai.kind || 'auto';
       document.getElementById('ver500Date').value = ai.date || '';
       document.getElementById('ver500Partner').value = ai.partner || '';
@@ -2034,8 +2255,9 @@ async function ver500AnalyzeEvidence() {
       const cacheRows = [
         { type: 'AI', msg: 'キャッシュ結果を使用しました' },
         { type: '分類', msg: 'AIで読み取り：' + (ai.kind || '不明') },
-        { type: '仮登録', msg: '登録先: ' + ver500RouteLabel((route && route.sourceType) || 'unknown') },
-        { type: '仮登録', msg: '状態: ' + ((route && route.status) || 'draft') },
+        { type: '仮登録', msg: '登録先: ' + ver500RouteLabel((routeView && routeView.sourceType) || 'unknown') },
+        { type: '仮登録', msg: '状態: ' + ((routeView && routeView.status) || 'draft') },
+        { type: '仮登録', msg: '信頼度: ' + ((autoResult && autoResult.score) || ver500OcrConfidenceScore(routeView || ai)) },
         { type: '日付', msg: ai.date || '' },
         { type: '相手先', msg: ai.partner || '' },
         { type: '内容', msg: ai.item || '' },
@@ -2046,6 +2268,8 @@ async function ver500AnalyzeEvidence() {
       if (ai.sourceType) cacheRows.push({ type: '分類', msg: '登録種別: ' + ai.sourceType });
       if (ai.documentType) cacheRows.push({ type: '分類', msg: '帳票タイプ: ' + ai.documentType + ' (' + (ai.documentMatchedBy || 'unknown') + ')' });
       if (ai.profileApplied) cacheRows.push({ type: '分類', msg: '専用ルール適用: あり / ' + ver500UiFieldLabels(ai.profileFields || []) });
+      if (autoResult && autoResult.autoConfirmed) cacheRows.push({ type: '仮登録', msg: '高信頼のため自動確定しました' });
+      if (autoResult && !autoResult.autoConfirmed && autoResult.reason === 'needs_review') cacheRows.push({ type: '仮登録', msg: autoResult.message || '確認が必要です' });
       ver500Render(cacheRows);
       return;
     }
@@ -2092,6 +2316,8 @@ async function ver500AnalyzeEvidence() {
     fileName: file ? file.name : ver500LatestStorage()?.name || ''
   });
   const route = ver500SaveDraftRoute(ai);
+  const autoResult = ver500MaybeAutoConfirmRoute(route);
+  const routeView = (autoResult && autoResult.route) || route;
   if (cacheKey && typeof window.ribreOcrSaveCachedResult === 'function') {
     window.ribreOcrSaveCachedResult({
       cacheKey,
@@ -2120,8 +2346,9 @@ async function ver500AnalyzeEvidence() {
 
   const rows = [
     { type: '分類', msg: 'AIで読み取り：' + ai.kind },
-    { type: '仮登録', msg: '登録先: ' + ver500RouteLabel((route && route.sourceType) || 'unknown') },
-    { type: '仮登録', msg: '状態: ' + ((route && route.status) || 'draft') },
+    { type: '仮登録', msg: '登録先: ' + ver500RouteLabel((routeView && routeView.sourceType) || 'unknown') },
+    { type: '仮登録', msg: '状態: ' + ((routeView && routeView.status) || 'draft') },
+    { type: '仮登録', msg: '信頼度: ' + ((autoResult && autoResult.score) || ver500OcrConfidenceScore(routeView || ai)) },
     { type: '日付', msg: ai.date || '' },
     { type: '相手先', msg: ai.partner || '' },
     { type: '内容', msg: ai.item || '' },
@@ -2132,9 +2359,11 @@ async function ver500AnalyzeEvidence() {
   if (ai.sourceType) rows.push({ type: '分類', msg: '登録種別: ' + ai.sourceType });
   if (ai.documentType) rows.push({ type: '分類', msg: '帳票タイプ: ' + ai.documentType + ' (' + (ai.documentMatchedBy || 'unknown') + ')' });
   if (ai.profileApplied) rows.push({ type: '分類', msg: '専用ルール適用: あり / ' + ver500UiFieldLabels(ai.profileFields || []) });
+  if (autoResult && autoResult.autoConfirmed) rows.push({ type: '仮登録', msg: '高信頼のため自動確定しました' });
+  if (autoResult && !autoResult.autoConfirmed && autoResult.reason === 'needs_review') rows.push({ type: '仮登録', msg: autoResult.message || '確認が必要です' });
   ver500Render(rows);
 }
-function ver500ConfirmSelectedDraft() {
+function ver500ConfirmSelectedDraft(routeId, options = {}) {
   const logBase = (row, target, message) => {
     const r = row && typeof row === 'object' ? row : {};
     ver500AddConfirmLog({
@@ -2150,7 +2379,7 @@ function ver500ConfirmSelectedDraft() {
     });
   };
   const select = document.getElementById('ver500DraftSelect');
-  const targetId = select && select.value ? select.value : '';
+  const targetId = String(routeId || (select && select.value ? select.value : ''));
   const rows = ver500DraftRoutes();
   const row = rows.find((x) => String(x.id || '') === targetId) || rows.find((x) => x.status === 'draft');
   if (!row) {
@@ -2172,7 +2401,7 @@ function ver500ConfirmSelectedDraft() {
     return;
   }
   if (row.sourceType === 'receipt') {
-    const updated = Object.assign({}, row, { status: 'confirmed' });
+    const updated = Object.assign({}, row, { status: 'confirmed', autoConfirmed: !!options.auto, confidenceScore: ver500OcrConfidenceScore(row) });
     ver500UpsertDraftRoute(updated);
     const learningCandidate = ver500BuildLearningCandidate(row);
     const learningResult = ver500LearnFromCandidate(learningCandidate, { source: 'draft_confirm', routeId: row.id || '' });
@@ -2183,7 +2412,7 @@ function ver500ConfirmSelectedDraft() {
   }
   if (row.sourceType === 'shipping') {
     const linked = ver500LinkOcrToShippingCandidate(row, true);
-    const updated = Object.assign({}, row, { status: 'confirmed' });
+    const updated = Object.assign({}, row, { status: 'confirmed', autoConfirmed: !!options.auto, confidenceScore: ver500OcrConfidenceScore(row) });
     ver500UpsertDraftRoute(updated);
     const learningCandidate = ver500BuildLearningCandidate(row);
     const learningResult = ver500LearnFromCandidate(learningCandidate, { source: 'draft_confirm', routeId: row.id || '' });
@@ -2225,7 +2454,7 @@ function ver500ConfirmSelectedDraft() {
     learningRouteId: row.id || ''
   });
   const linked = ver500LinkOcrToShippingCandidate(row, false);
-  const updated = Object.assign({}, row, { status: 'confirmed' });
+  const updated = Object.assign({}, row, { status: 'confirmed', autoConfirmed: !!options.auto, confidenceScore: ver500OcrConfidenceScore(row) });
   ver500UpsertDraftRoute(updated);
   if (row.sourceType === 'sale') {
     if (linked.added) {
@@ -2560,6 +2789,8 @@ window.ver500Candidates = ver500Candidates;
 window.ver500DraftRoutes = ver500DraftRoutes;
 window.ver500SaveDraftRoutes = ver500SaveDraftRoutes;
 window.ver500SaveDraftRoute = ver500SaveDraftRoute;
+window.ver500MaybeAutoConfirmRoute = ver500MaybeAutoConfirmRoute;
+window.ver500OcrConfidenceScore = ver500OcrConfidenceScore;
 window.ver500RenderDraftRouteList = ver500RenderDraftRouteList;
 window.ver500ShowDraftRoutes = ver500ShowDraftRoutes;
 window.ver500DefaultOcrMappingRules = ver500DefaultOcrMappingRules;
