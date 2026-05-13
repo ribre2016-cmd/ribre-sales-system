@@ -20,6 +20,14 @@ function ver500Set(id, v) {
   const el = document.getElementById(id);
   if (el) el.textContent = v;
 }
+function ver500SafeString(v) {
+  if (v == null) return '';
+  return String(v);
+}
+function ver500SafeNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 function ver500Candidates() {
   try {
     return JSON.parse(localStorage.getItem('ribre_ai_auto_candidates500') || '[]');
@@ -1717,20 +1725,49 @@ function ver500CleanupOldDraftRoutes() {
 }
 function ver500RenderDraftRouteList(noticeMsg) {
   try {
-    const rows = ver500DraftRoutes();
+    let rows = ver500DraftRoutes();
+    if (!Array.isArray(rows)) rows = [];
+    const draftListIsToday = (v) => {
+      const d = v ? new Date(v) : null;
+      if (!d || Number.isNaN(d.getTime())) return false;
+      const now = new Date();
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    };
+    const draftListMissingItems = (x) => {
+      const miss = [];
+      if (!ver500SafeString(x && x.date).trim()) miss.push('日付');
+      if (ver500Num((x && x.amount) || 0) <= 0) miss.push('金額');
+      if (!ver500SafeString(x && x.storeName).trim()) miss.push('相手先');
+      if (!ver500NormalizeTracking(ver500SafeString((x && (x.trackingNumber || x.slip)) || ''))) miss.push('伝票番号');
+      return miss;
+    };
+    const draftListMissingText = (miss) => (miss.length ? '要確認: ' + miss.join('・') + 'が未入力' : '');
+    const draftListDetectEvidenceType = (url) => {
+      const u = ver500SafeString(url).trim();
+      if (!u) return 'none';
+      if (/^data:image\//i.test(u)) return 'image';
+      if (/^data:application\/pdf/i.test(u)) return 'pdf';
+      if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(u)) return 'image';
+      if (/\.pdf(\?|#|$)/i.test(u)) return 'pdf';
+      if (/^https?:\/\//i.test(u) || /^blob:/i.test(u)) return 'url';
+      return 'url';
+    };
     const currentFilter = ver500DraftFilterValue();
     const currentViewMode = String(window.__ver500DraftViewMode || 'priority');
     const currentStaff = ver500CurrentStaffName();
     const filterState = ver500ListFilterState();
     window.__ver500DraftMineOnly = !!filterState.mineOnly;
-    const queryWord = String(filterState.query || '').trim().toLowerCase();
-    const minAmount = String(filterState.minAmount || '').trim() === '' ? null : ver500Num(filterState.minAmount);
-    const maxAmount = String(filterState.maxAmount || '').trim() === '' ? null : ver500Num(filterState.maxAmount);
+    const queryWord = ver500SafeString(filterState.query).trim().toLowerCase();
+    const minRaw = ver500SafeString(filterState.minAmount).trim();
+    const maxRaw = ver500SafeString(filterState.maxAmount).trim();
+    const minAmount = minRaw === '' ? null : ver500SafeNumber(minRaw);
+    const maxAmount = maxRaw === '' ? null : ver500SafeNumber(maxRaw);
     const baseRows = ver500FilteredDraftRoutes(rows, currentFilter);
-    const filteredRows = baseRows.filter((x) => {
+    const safeBaseRows = Array.isArray(baseRows) ? baseRows : [];
+    const filteredRows = safeBaseRows.filter((x) => {
       const row = x && typeof x === 'object' ? x : {};
       const score = Math.max(0, Math.min(100, Number(row.confidenceScore || ver500OcrConfidenceScore(row))));
-      const miss = missingItems(row);
+      const miss = draftListMissingItems(row);
       const sourceUnknown = String(row.sourceType || 'unknown') === 'unknown';
       const docUnknown = ver500NormalizeDocumentType(row.documentType || 'unknown') === 'unknown';
       const needsReview = miss.length > 0 || score < 70 || sourceUnknown || docUnknown;
@@ -1741,36 +1778,39 @@ function ver500RenderDraftRouteList(noticeMsg) {
       if (filterState.autoConfirmedOnly && !row.autoConfirmed) return false;
       if (filterState.hasEvidenceOnly && !String(row.evidence_url || '').trim()) return false;
       if (filterState.todayProcessedOnly) {
-        const isDoneToday = isToday(row.reviewedAt) || (String(row.status || 'draft') === 'confirmed' && (isToday(row.updatedAt) || isToday(row.createdAt)));
+        const isDoneToday =
+          draftListIsToday(row.reviewedAt) ||
+          (String(row.status || 'draft') === 'confirmed' && (draftListIsToday(row.updatedAt) || draftListIsToday(row.createdAt)));
         if (!isDoneToday) return false;
       }
       if (filterState.mineOnly) {
         if (!currentStaff) return true;
         if (String(row.assignee || '').trim() !== currentStaff) return false;
       }
-      const amount = ver500Num(row.amount || 0);
+      const amount = ver500SafeNumber(row.amount != null ? row.amount : ver500Num(row.amount || 0));
       if (minAmount != null && amount < minAmount) return false;
       if (maxAmount != null && amount > maxAmount) return false;
       if (queryWord) {
         const haystack = [
-          row.storeName,
-          row.itemTitle,
-          row.amount,
-          row.trackingNumber,
-          row.documentType,
-          ver500DocumentTypeLabel(row.documentType || 'unknown'),
-          row.sourceType,
-          ver500RouteLabel(row.sourceType || 'unknown'),
-          row.assignee,
-          row.reviewedBy,
-          row.note
+          ver500SafeString(row.storeName),
+          ver500SafeString(row.itemTitle),
+          ver500SafeString(row.amount),
+          ver500SafeString(row.trackingNumber),
+          ver500SafeString(row.documentType),
+          ver500SafeString(ver500DocumentTypeLabel(row.documentType || 'unknown')),
+          ver500SafeString(row.sourceType),
+          ver500SafeString(ver500RouteLabel(row.sourceType || 'unknown')),
+          ver500SafeString(row.assignee),
+          ver500SafeString(row.reviewedBy),
+          ver500SafeString(row.note)
         ]
-          .map((v) => String(v || '').toLowerCase())
+          .map((v) => ver500SafeString(v).toLowerCase())
           .join(' ');
         if (!haystack.includes(queryWord)) return false;
       }
       return true;
     });
+    const safeFilteredRows = Array.isArray(filteredRows) ? filteredRows : [];
     const box = ver500DraftRoutesContainer();
     const esc = (v) =>
       String(v || '')
@@ -1819,37 +1859,12 @@ function ver500RenderDraftRouteList(noticeMsg) {
       const st = scoreStyle(score);
       return badgeHtml('判定精度: ' + score + '（' + label + '）', st.bg, '#1f2937');
     };
-    const missingItems = (x) => {
-      const miss = [];
-      if (!String((x && x.date) || '').trim()) miss.push('日付');
-      if (ver500Num((x && x.amount) || 0) <= 0) miss.push('金額');
-      if (!String((x && x.storeName) || '').trim()) miss.push('相手先');
-      if (!ver500NormalizeTracking((x && (x.trackingNumber || x.slip)) || '')) miss.push('伝票番号');
-      return miss;
-    };
-    const isToday = (v) => {
-      const d = v ? new Date(v) : null;
-      if (!d || Number.isNaN(d.getTime())) return false;
-      const now = new Date();
-      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-    };
-    const detectEvidenceType = (url) => {
-      const u = String(url || '').trim();
-      if (!u) return 'none';
-      if (/^data:image\//i.test(u)) return 'image';
-      if (/^data:application\/pdf/i.test(u)) return 'pdf';
-      if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(u)) return 'image';
-      if (/\.pdf(\?|#|$)/i.test(u)) return 'pdf';
-      if (/^https?:\/\//i.test(u) || /^blob:/i.test(u)) return 'url';
-      return 'url';
-    };
-    const missingText = (miss) => (miss.length ? '要確認: ' + miss.join('・') + 'が未入力' : '');
     const select = document.getElementById('ver500DraftSelect');
     const prevSelectedId = String((select && select.value) || '');
     if (select) {
       select.innerHTML = '';
       let matched = false;
-      filteredRows.forEach((x) => {
+      safeFilteredRows.forEach((x) => {
         const op = document.createElement('option');
         op.value = x.id;
         const statusLabel = ver500DraftStatusBadgeLabel(x.status || 'draft');
@@ -1896,7 +1911,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
       rows.forEach((r) => {
         const row = r && typeof r === 'object' ? r : {};
         const score = Math.max(0, Math.min(100, Number(row.confidenceScore || ver500OcrConfidenceScore(row))));
-        const miss = missingItems(row);
+        const miss = draftListMissingItems(row);
         const statusRaw = String(row.status || 'draft');
         const reviewStatus = ver500NormalizeReviewStatus(row.reviewStatus || 'none');
         const sourceUnknown = String(row.sourceType || 'unknown') === 'unknown';
@@ -1910,7 +1925,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
         if (reviewStatus === 'later') summary.later += 1;
         if (reviewStatus === 'pending') summary.pending += 1;
         if (currentStaff && String(row.assignee || '').trim() === currentStaff) summary.mine += 1;
-        if (isToday(row.reviewedAt) || (statusRaw === 'confirmed' && (isToday(row.updatedAt) || isToday(row.createdAt)))) summary.doneToday += 1;
+        if (draftListIsToday(row.reviewedAt) || (statusRaw === 'confirmed' && (draftListIsToday(row.updatedAt) || draftListIsToday(row.createdAt)))) summary.doneToday += 1;
       });
       const summaryCard = (label, count, bg, border, color) =>
         '<div style="min-width:120px;flex:1 1 120px;padding:8px 10px;border-radius:10px;background:' +
@@ -2023,7 +2038,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
       ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録フィルタUIの生成に失敗しました' }]);
       toolbarHtml = '<div class="row warn"><span>OCR仮登録フィルタUIの生成に失敗しました</span><span class="badge">error</span></div>';
     }
-    if (!filteredRows.length) {
+    if (!safeFilteredRows.length) {
       ver500SetBulkSelectedIds([]);
       box.innerHTML =
         summaryHtml +
@@ -2035,7 +2050,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
       return;
     }
     const selectedBulkIds = ver500BulkSelectedIds();
-    const cardRows = filteredRows.slice(0, 100).map((x) => {
+    const cardRows = safeFilteredRows.slice(0, 100).map((x) => {
       const rowId = String(x.id || '');
       const selectedId = String((select && select.value) || '');
       const isSelected = rowId && rowId === selectedId;
@@ -2044,8 +2059,8 @@ function ver500RenderDraftRouteList(noticeMsg) {
       const score = Math.max(0, Math.min(100, Number(x.confidenceScore || ver500OcrConfidenceScore(x))));
       const conf = scoreLabel(score);
       const style = scoreStyle(score);
-      const miss = missingItems(x);
-      const missText = missingText(miss);
+      const miss = draftListMissingItems(x);
+      const missText = draftListMissingText(miss);
       const missBadge = missText ? badgeHtml(missText, '#fdecec', '#b33a3a') : '';
       const reviewStatus = ver500NormalizeReviewStatus(x.reviewStatus || 'none');
       const reviewBadge = reviewStatusBadgeHtml(reviewStatus);
@@ -2264,7 +2279,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
     }
     const header =
       '<div class="row ok"><span>OCR読取候補一覧（表示中: ' +
-      filteredRows.length +
+      safeFilteredRows.length +
       '件 / 全体: ' +
       rows.length +
       '件）' +
@@ -2288,7 +2303,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
     if (previewRouteId) {
       const previewRow = rows.find((x) => String((x && x.id) || '') === previewRouteId);
       const evidenceUrl = previewRow ? String(previewRow.evidence_url || '') : '';
-      const evidenceType = detectEvidenceType(evidenceUrl);
+      const evidenceType = draftListDetectEvidenceType(evidenceUrl);
       if (!previewRow) {
         previewHtml =
           '<div class="row warn"><span>証憑プレビュー: 対象候補が見つかりません</span><span class="badge"><button onclick="ver500CloseEvidencePreview()">閉じる</button></span></div>';
