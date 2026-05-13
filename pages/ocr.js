@@ -118,6 +118,63 @@ function ver500SetAutoConfirmEnabled(enabled) {
     localStorage.setItem('ribre_ocr_auto_confirm_enabled_v1', enabled ? '1' : '0');
   } catch (e) {}
 }
+function ver500AutoConfirmStateText(enabled) {
+  return enabled ? '自動確定: ON（高信頼時は自動登録）' : '自動確定: OFF（確認してから登録）';
+}
+function ver500ApplyAutoConfirmUiState(enabled) {
+  const wrap = document.getElementById('ver500AutoConfirmWrap');
+  const status = document.getElementById('ver500AutoConfirmStatus');
+  const toggle = document.getElementById('ver500AutoConfirmToggle');
+  if (toggle) toggle.checked = !!enabled;
+  if (status) status.textContent = ver500AutoConfirmStateText(!!enabled);
+  if (!wrap) return;
+  wrap.style.display = 'inline-flex';
+  wrap.style.flexDirection = 'column';
+  wrap.style.gap = '2px';
+  wrap.style.padding = '6px 10px';
+  wrap.style.borderRadius = '8px';
+  wrap.style.border = '1px solid ' + (enabled ? '#86d39a' : '#c9ced6');
+  wrap.style.background = enabled ? '#edf9f0' : '#f4f5f7';
+}
+function ver500AutoConfirmChangeHandler(toggle) {
+  const enabled = !!(toggle && toggle.checked);
+  ver500SetAutoConfirmEnabled(enabled);
+  ver500ApplyAutoConfirmUiState(enabled);
+  ver500Render([{ type: '自動確定', msg: enabled ? '高信頼なら自動確定: ON' : '高信頼なら自動確定: OFF' }]);
+}
+function ver500CreateAutoConfirmControl() {
+  const enabled = ver500AutoConfirmEnabled();
+  const wrap = document.createElement('div');
+  wrap.id = 'ver500AutoConfirmWrap';
+  const label = document.createElement('label');
+  label.id = 'ver500AutoConfirmLabel';
+  label.style.display = 'inline-flex';
+  label.style.gap = '6px';
+  label.style.alignItems = 'center';
+  label.style.cursor = 'pointer';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.id = 'ver500AutoConfirmToggle';
+  cb.checked = enabled;
+  cb.onchange = () => ver500AutoConfirmChangeHandler(cb);
+  const labelText = document.createElement('span');
+  labelText.textContent = '高信頼なら自動確定';
+  const status = document.createElement('small');
+  status.id = 'ver500AutoConfirmStatus';
+  status.style.fontWeight = '600';
+  const desc = document.createElement('small');
+  desc.id = 'ver500AutoConfirmHelp';
+  desc.style.fontSize = '11px';
+  desc.style.opacity = '0.85';
+  desc.textContent = 'AIが高信頼と判断した場合のみ自動で確定します';
+  label.appendChild(cb);
+  label.appendChild(labelText);
+  wrap.appendChild(label);
+  wrap.appendChild(status);
+  wrap.appendChild(desc);
+  ver500ApplyAutoConfirmUiState(enabled);
+  return wrap;
+}
 function ver500AutoConfirmLogs() {
   try {
     const rows = JSON.parse(localStorage.getItem('ribre_ocr_auto_confirm_logs_v1') || '[]');
@@ -1488,6 +1545,8 @@ function ver500ShowDraftRoutes() {
 function ver500EnsureDraftButtons() {
   if (
     document.getElementById('ver500DraftRoutesBtn') &&
+    document.getElementById('ver500AutoConfirmWrap') &&
+    document.getElementById('ver500AutoConfirmStatus') &&
     document.getElementById('ver500ConfirmLogsBtn') &&
     document.getElementById('ver500LearningLogsBtn') &&
     document.getElementById('ver500MappingRulesBtn') &&
@@ -1530,25 +1589,13 @@ function ver500EnsureDraftButtons() {
         learningBtn.onclick = () => ver500RenderLearningLogs();
         controls.appendChild(learningBtn);
       }
-      if (!document.getElementById('ver500AutoConfirmToggle')) {
-        const label = document.createElement('label');
-        label.id = 'ver500AutoConfirmLabel';
-        label.style.display = 'inline-flex';
-        label.style.gap = '6px';
-        label.style.alignItems = 'center';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.id = 'ver500AutoConfirmToggle';
-        cb.checked = ver500AutoConfirmEnabled();
-        cb.onchange = () => {
-          ver500SetAutoConfirmEnabled(!!cb.checked);
-          ver500Render([{ type: '自動確定', msg: cb.checked ? '高信頼なら自動確定: ON' : '高信頼なら自動確定: OFF' }]);
-        };
-        const span = document.createElement('span');
-        span.textContent = '高信頼なら自動確定';
-        label.appendChild(cb);
-        label.appendChild(span);
-        controls.appendChild(label);
+      const staleLabel = document.getElementById('ver500AutoConfirmLabel');
+      if (staleLabel && staleLabel.parentElement && !document.getElementById('ver500AutoConfirmWrap')) staleLabel.parentElement.removeChild(staleLabel);
+      if (!document.getElementById('ver500AutoConfirmWrap')) {
+        const autoConfirmWrap = ver500CreateAutoConfirmControl();
+        controls.insertBefore(autoConfirmWrap, existingDraftBtn.nextSibling);
+      } else {
+        ver500ApplyAutoConfirmUiState(ver500AutoConfirmEnabled());
       }
       if (!document.getElementById('ver500DraftFilterLegacy')) {
         const filter = document.createElement('select');
@@ -1635,23 +1682,7 @@ function ver500EnsureDraftButtons() {
   learningBtn.id = 'ver500LearningLogsBtn';
   learningBtn.textContent = '学習履歴';
   learningBtn.onclick = () => ver500RenderLearningLogs();
-  const autoConfirmLabel = document.createElement('label');
-  autoConfirmLabel.id = 'ver500AutoConfirmLabel';
-  autoConfirmLabel.style.display = 'inline-flex';
-  autoConfirmLabel.style.gap = '6px';
-  autoConfirmLabel.style.alignItems = 'center';
-  const autoConfirmToggle = document.createElement('input');
-  autoConfirmToggle.type = 'checkbox';
-  autoConfirmToggle.id = 'ver500AutoConfirmToggle';
-  autoConfirmToggle.checked = ver500AutoConfirmEnabled();
-  autoConfirmToggle.onchange = () => {
-    ver500SetAutoConfirmEnabled(!!autoConfirmToggle.checked);
-    ver500Render([{ type: '自動確定', msg: autoConfirmToggle.checked ? '高信頼なら自動確定: ON' : '高信頼なら自動確定: OFF' }]);
-  };
-  const autoConfirmText = document.createElement('span');
-  autoConfirmText.textContent = '高信頼なら自動確定';
-  autoConfirmLabel.appendChild(autoConfirmToggle);
-  autoConfirmLabel.appendChild(autoConfirmText);
+  const autoConfirmWrap = ver500CreateAutoConfirmControl();
   const confirmBtn = document.createElement('button');
   confirmBtn.id = 'ver500ConfirmDraftBtn';
   confirmBtn.textContent = '選んだ候補を登録確定';
@@ -1690,11 +1721,11 @@ function ver500EnsureDraftButtons() {
   mappingArea.value = JSON.stringify(ver500OcrMappingRules(), null, 2);
   if (controls) {
     controls.appendChild(showBtn);
+    controls.appendChild(autoConfirmWrap);
     controls.appendChild(mappingBtn);
     controls.appendChild(mappingSaveBtn);
     controls.appendChild(historyBtn);
     controls.appendChild(learningBtn);
-    controls.appendChild(autoConfirmLabel);
     controls.appendChild(confirmBtn);
     controls.appendChild(select);
     controls.appendChild(filter);
@@ -1713,11 +1744,11 @@ function ver500EnsureDraftButtons() {
   const fallback = document.createElement('div');
   fallback.className = 'controls';
   fallback.appendChild(showBtn);
+  fallback.appendChild(autoConfirmWrap);
   fallback.appendChild(mappingBtn);
   fallback.appendChild(mappingSaveBtn);
   fallback.appendChild(historyBtn);
   fallback.appendChild(learningBtn);
-  fallback.appendChild(autoConfirmLabel);
   fallback.appendChild(confirmBtn);
   fallback.appendChild(select);
   fallback.appendChild(filter);
