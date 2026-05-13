@@ -145,7 +145,7 @@
     <h2>🤖 OCR・証憑</h2>
     <div class="controls">
       <input id="ocrFile" type="file" accept="application/pdf,.pdf,image/*">
-      <select id="ocrKind"><option value="auto">AI判定</option><option value="purchase">仕入</option><option value="sale">売上</option><option value="shipping">送料</option><option value="expense">経費</option></select>
+      <select id="ocrKind"><option value="auto">AIで読み取り</option><option value="purchase">仕入</option><option value="sale">売上</option><option value="shipping">送料</option><option value="expense">経費</option></select>
       <button onclick="registerEvidence()">証憑登録</button>
       <button onclick="runOcr()">OCR自動入力</button>
       <button class="secondary" onclick="saveOcrCandidate()">候補保存</button>
@@ -161,7 +161,7 @@
       <input id="cMemo" placeholder="メモ">
     </div>
     <div class="controls">
-      <button class="green" onclick="ocrAutoRegister()">AI区分で自動登録</button>
+      <button class="green" onclick="ocrAutoRegister()">AI判断で登録</button>
       <button onclick="ocrToSale()">売上へ登録</button>
       <button onclick="ocrToPurchase()">仕入へ登録</button>
     </div>
@@ -835,7 +835,7 @@
     </div>
 
     <div class="grid">
-      <div class="card"><div class="label">AI判定</div><div id="ver500ResultKind" class="value">未実行</div></div>
+      <div class="card"><div class="label">AIで読み取り</div><div id="ver500ResultKind" class="value">未実行</div></div>
       <div class="card"><div class="label">候補件数</div><div id="ver500CandidateCount" class="value">0件</div></div>
       <div class="card"><div class="label">登録先</div><div id="ver500RegisterTarget" class="value">未定</div></div>
       <div class="card"><div class="label">状態</div><div id="ver500Status" class="value">待機</div></div>

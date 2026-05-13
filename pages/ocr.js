@@ -347,6 +347,20 @@ function ver500RouteLabel(sourceType) {
   if (t === 'receipt') return '証憑';
   return '未分類';
 }
+function ver500UiFieldLabel(name) {
+  const k = String(name || '');
+  if (k === 'sourceType') return '登録種別';
+  if (k === 'category') return '分類';
+  if (k === 'shippingCarrier') return '配送会社';
+  if (k === 'salesChannel') return '販売先';
+  if (k === 'supplierName') return '仕入先';
+  if (k === 'genre') return 'ジャンル';
+  if (k === 'documentType') return '帳票タイプ';
+  return k;
+}
+function ver500UiFieldLabels(arr) {
+  return (Array.isArray(arr) ? arr : []).map(ver500UiFieldLabel).join(',');
+}
 function ver500AllowedDocumentTypes() {
   return [
     'minna_market',
@@ -1255,8 +1269,8 @@ function ver500RenderDraftRouteList(noticeMsg) {
     }
     const lines = filteredRows.slice(0, 100).map((x) => {
       const status = esc(ver500DraftStatusBadgeLabel(x.status || 'draft'));
-      const learned = x.learnedMapped ? '<span class="badge">[学習適用]</span>' : '';
-      const profiled = x.profileApplied ? '<span class="badge">[profile適用]</span>' : '';
+      const learned = x.learnedMapped ? '<span class="badge">[学習ルール適用]</span>' : '';
+      const profiled = x.profileApplied ? '<span class="badge">[専用ルール適用]</span>' : '';
       return (
         '<div class="row ok"><span>' +
         esc(x.date || '') +
@@ -1268,7 +1282,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
         esc(x.storeName || '-') +
         ' / ' +
         esc(x.amount || 0) +
-        '円 / profile適用:' +
+        '円 / 専用ルール適用:' +
         (x.profileApplied ? 'あり' : 'なし') +
         '</span><span class="badge">[' +
         status +
@@ -1311,28 +1325,28 @@ function ver500EnsureDraftButtons() {
       if (!document.getElementById('ver500MappingRulesBtn')) {
         const mappingBtn = document.createElement('button');
         mappingBtn.id = 'ver500MappingRulesBtn';
-        mappingBtn.textContent = 'OCRマッピングルール';
+        mappingBtn.textContent = '読取ルール設定';
         mappingBtn.onclick = () => ver500RenderOcrMappingRulesEditor();
         controls.insertBefore(mappingBtn, existingDraftBtn.nextSibling);
       }
       if (!document.getElementById('ver500MappingRulesSaveBtn')) {
         const mappingSaveBtn = document.createElement('button');
         mappingSaveBtn.id = 'ver500MappingRulesSaveBtn';
-        mappingSaveBtn.textContent = 'ルール保存';
+        mappingSaveBtn.textContent = '読取ルールを保存';
         mappingSaveBtn.onclick = () => ver500SaveOcrMappingRulesFromEditor();
         controls.appendChild(mappingSaveBtn);
       }
       if (!document.getElementById('ver500ConfirmLogsBtn')) {
         const historyBtn = document.createElement('button');
         historyBtn.id = 'ver500ConfirmLogsBtn';
-        historyBtn.textContent = 'OCR確定履歴';
+        historyBtn.textContent = '登録履歴';
         historyBtn.onclick = () => ver500RenderConfirmLogs();
         controls.appendChild(historyBtn);
       }
       if (!document.getElementById('ver500LearningLogsBtn')) {
         const learningBtn = document.createElement('button');
         learningBtn.id = 'ver500LearningLogsBtn';
-        learningBtn.textContent = 'OCR学習履歴';
+        learningBtn.textContent = '学習履歴';
         learningBtn.onclick = () => ver500RenderLearningLogs();
         controls.appendChild(learningBtn);
       }
@@ -1372,7 +1386,7 @@ function ver500EnsureDraftButtons() {
         const mappingArea = document.createElement('textarea');
         mappingArea.id = 'ver500MappingRulesJson';
         mappingArea.rows = 10;
-        mappingArea.placeholder = 'OCRマッピングルール(JSON)';
+        mappingArea.placeholder = '読取ルール設定(JSON)';
         mappingArea.style.width = '100%';
         mappingArea.style.marginTop = '8px';
         mappingArea.style.display = 'block';
@@ -1407,19 +1421,19 @@ function ver500EnsureDraftButtons() {
   showBtn.onclick = () => ver500ShowDraftRoutes();
   const mappingBtn = document.createElement('button');
   mappingBtn.id = 'ver500MappingRulesBtn';
-  mappingBtn.textContent = 'OCRマッピングルール';
+  mappingBtn.textContent = '読取ルール設定';
   mappingBtn.onclick = () => ver500RenderOcrMappingRulesEditor();
   const mappingSaveBtn = document.createElement('button');
   mappingSaveBtn.id = 'ver500MappingRulesSaveBtn';
-  mappingSaveBtn.textContent = 'ルール保存';
+  mappingSaveBtn.textContent = '読取ルールを保存';
   mappingSaveBtn.onclick = () => ver500SaveOcrMappingRulesFromEditor();
   const historyBtn = document.createElement('button');
   historyBtn.id = 'ver500ConfirmLogsBtn';
-  historyBtn.textContent = 'OCR確定履歴';
+  historyBtn.textContent = '登録履歴';
   historyBtn.onclick = () => ver500RenderConfirmLogs();
   const learningBtn = document.createElement('button');
   learningBtn.id = 'ver500LearningLogsBtn';
-  learningBtn.textContent = 'OCR学習履歴';
+  learningBtn.textContent = '学習履歴';
   learningBtn.onclick = () => ver500RenderLearningLogs();
   const confirmBtn = document.createElement('button');
   confirmBtn.id = 'ver500ConfirmDraftBtn';
@@ -1452,7 +1466,7 @@ function ver500EnsureDraftButtons() {
   const mappingArea = document.createElement('textarea');
   mappingArea.id = 'ver500MappingRulesJson';
   mappingArea.rows = 10;
-  mappingArea.placeholder = 'OCRマッピングルール(JSON)';
+  mappingArea.placeholder = '読取ルール設定(JSON)';
   mappingArea.style.width = '100%';
   mappingArea.style.marginTop = '8px';
   mappingArea.style.display = 'block';
@@ -2019,7 +2033,7 @@ async function ver500AnalyzeEvidence() {
       ver500Set('ver500Status', 'キャッシュ使用');
       const cacheRows = [
         { type: 'AI', msg: 'キャッシュ結果を使用しました' },
-        { type: '分類', msg: 'AI判定：' + (ai.kind || '不明') },
+        { type: '分類', msg: 'AIで読み取り：' + (ai.kind || '不明') },
         { type: '仮登録', msg: '登録先: ' + ver500RouteLabel((route && route.sourceType) || 'unknown') },
         { type: '仮登録', msg: '状態: ' + ((route && route.status) || 'draft') },
         { type: '日付', msg: ai.date || '' },
@@ -2028,10 +2042,10 @@ async function ver500AnalyzeEvidence() {
         { type: '金額', msg: String(ai.amount || 0) + '円' },
         { type: '証憑', msg: ai.evidence_url || 'なし' }
       ];
-      if (ai.category) cacheRows.push({ type: '分類', msg: 'category: ' + ai.category });
-      if (ai.sourceType) cacheRows.push({ type: '分類', msg: 'sourceType: ' + ai.sourceType });
-      if (ai.documentType) cacheRows.push({ type: '分類', msg: 'documentType: ' + ai.documentType + ' (' + (ai.documentMatchedBy || 'unknown') + ')' });
-      if (ai.profileApplied) cacheRows.push({ type: '分類', msg: 'profileApplied: true / ' + (ai.profileFields || []).join(',') });
+      if (ai.category) cacheRows.push({ type: '分類', msg: '分類: ' + ai.category });
+      if (ai.sourceType) cacheRows.push({ type: '分類', msg: '登録種別: ' + ai.sourceType });
+      if (ai.documentType) cacheRows.push({ type: '分類', msg: '帳票タイプ: ' + ai.documentType + ' (' + (ai.documentMatchedBy || 'unknown') + ')' });
+      if (ai.profileApplied) cacheRows.push({ type: '分類', msg: '専用ルール適用: あり / ' + ver500UiFieldLabels(ai.profileFields || []) });
       ver500Render(cacheRows);
       return;
     }
@@ -2105,7 +2119,7 @@ async function ver500AnalyzeEvidence() {
   ver500Set('ver500Status', '解析OK');
 
   const rows = [
-    { type: '分類', msg: 'AI判定：' + ai.kind },
+    { type: '分類', msg: 'AIで読み取り：' + ai.kind },
     { type: '仮登録', msg: '登録先: ' + ver500RouteLabel((route && route.sourceType) || 'unknown') },
     { type: '仮登録', msg: '状態: ' + ((route && route.status) || 'draft') },
     { type: '日付', msg: ai.date || '' },
@@ -2114,10 +2128,10 @@ async function ver500AnalyzeEvidence() {
     { type: '金額', msg: String(ai.amount || 0) + '円' },
     { type: '証憑', msg: ai.evidence_url || 'なし' }
   ];
-  if (ai.category) rows.push({ type: '分類', msg: 'category: ' + ai.category });
-  if (ai.sourceType) rows.push({ type: '分類', msg: 'sourceType: ' + ai.sourceType });
-  if (ai.documentType) rows.push({ type: '分類', msg: 'documentType: ' + ai.documentType + ' (' + (ai.documentMatchedBy || 'unknown') + ')' });
-  if (ai.profileApplied) rows.push({ type: '分類', msg: 'profileApplied: true / ' + (ai.profileFields || []).join(',') });
+  if (ai.category) rows.push({ type: '分類', msg: '分類: ' + ai.category });
+  if (ai.sourceType) rows.push({ type: '分類', msg: '登録種別: ' + ai.sourceType });
+  if (ai.documentType) rows.push({ type: '分類', msg: '帳票タイプ: ' + ai.documentType + ' (' + (ai.documentMatchedBy || 'unknown') + ')' });
+  if (ai.profileApplied) rows.push({ type: '分類', msg: '専用ルール適用: あり / ' + ver500UiFieldLabels(ai.profileFields || []) });
   ver500Render(rows);
 }
 function ver500ConfirmSelectedDraft() {
