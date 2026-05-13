@@ -103,6 +103,96 @@ function ver500RenderConfirmLogs() {
     }))
   );
 }
+function ver500AuditLogs() {
+  try {
+    const rows = JSON.parse(localStorage.getItem('ribre_ocr_audit_logs_v1') || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    return [];
+  }
+}
+function ver500AuditActor() {
+  const staff = String(localStorage.getItem('ribre_ocr_current_staff_v1') || '').trim();
+  if (staff) return staff;
+  const email = String(ver500Email() || '').trim();
+  if (email) return email;
+  return 'unknown';
+}
+function ver500SaveAuditLogs(arr) {
+  const rows = Array.isArray(arr) ? arr.slice(0, 300) : [];
+  const save = (n) => localStorage.setItem('ribre_ocr_audit_logs_v1', JSON.stringify(n === 0 ? [] : rows.slice(0, n)));
+  try {
+    save(300);
+    return true;
+  } catch (e) {}
+  try {
+    save(150);
+    return true;
+  } catch (e) {}
+  try {
+    save(50);
+    return true;
+  } catch (e) {}
+  try {
+    save(0);
+    return true;
+  } catch (e) {}
+  return false;
+}
+function ver500AddAuditLog(log) {
+  try {
+    const src = log && typeof log === 'object' ? log : {};
+    const rows = ver500AuditLogs();
+    rows.unshift({
+      id: String(src.id || 'ocr_audit_' + Date.now() + '_' + Math.floor(Math.random() * 1000)),
+      createdAt: String(src.createdAt || new Date().toISOString()),
+      actor: String(src.actor || ver500AuditActor()),
+      action: String(src.action || 'unknown'),
+      routeId: String(src.routeId || ''),
+      target: String(src.target || ''),
+      before: src.before && typeof src.before === 'object' ? src.before : {},
+      after: src.after && typeof src.after === 'object' ? src.after : {},
+      message: String(src.message || '')
+    });
+    return ver500SaveAuditLogs(rows);
+  } catch (e) {
+    return false;
+  }
+}
+function ver500AuditActionLabel(action) {
+  const a = String(action || '');
+  if (a === 'ocr_done') return 'OCR解析完了';
+  if (a === 'draft_saved') return '仮登録保存';
+  if (a === 'confirmed') return '登録確定';
+  if (a === 'deleted') return '候補削除';
+  if (a === 'review_changed') return '処理状態変更';
+  if (a === 'assignee_changed') return '担当者変更';
+  if (a === 'evidence_preview') return '証憑プレビュー表示';
+  if (a === 'auto_confirmed') return '自動確定';
+  if (a === 'learning_saved') return '学習保存';
+  if (a === 'rule_added') return 'ルール追加';
+  return a || '不明';
+}
+function ver500RenderAuditLogs() {
+  const rows = ver500AuditLogs().slice(0, 50);
+  if (!rows.length) {
+    ver500Render([{ type: '作業履歴', level: 'warn', msg: 'OCR作業履歴はありません' }]);
+    return;
+  }
+  ver500Render(
+    rows.map((x) => ({
+      type: '作業履歴',
+      msg:
+        (x.createdAt || '') +
+        ' / ' +
+        (x.actor || 'unknown') +
+        ' / ' +
+        ver500AuditActionLabel(x.action) +
+        (x.routeId ? ' / route:' + x.routeId : '') +
+        (x.message ? ' / ' + x.message : '')
+    }))
+  );
+}
 function ver500AutoConfirmEnabled() {
   const raw = localStorage.getItem('ribre_ocr_auto_confirm_enabled_v1');
   if (raw == null) {
@@ -511,6 +601,16 @@ function ver500LearnFromCandidate(candidate, meta = {}) {
     } catch (e) {
       failed = true;
     }
+  }
+  if (logs.length) {
+    ver500AddAuditLog({
+      action: 'learning_saved',
+      routeId,
+      target: source || 'ocr',
+      before: {},
+      after: { logsAdded: logs.length },
+      message: 'OCR学習を保存しました'
+    });
   }
   return { ok: !failed, logsAdded: logs.length };
 }
@@ -1045,6 +1145,13 @@ function ver500AddMappingRuleFromForm() {
     if (area) area.value = JSON.stringify(normalized, null, 2);
     if (keywordEl) keywordEl.value = '';
     if (valueEl) valueEl.value = '';
+    ver500AddAuditLog({
+      action: 'rule_added',
+      target: type,
+      before: {},
+      after: { type, keyword, value },
+      message: 'OCRマッピングルールを追加しました'
+    });
     ver500Render([{ type: 'ルール', msg: 'ルールを追加しました' }]);
   } catch (e) {
     if (e && e.name === 'QuotaExceededError') {
@@ -1355,7 +1462,16 @@ function ver500SaveDraftRoute(result) {
     const source = result && typeof result === 'object' ? Object.assign({}, result) : ver500BuildFallbackDraftFromForm();
     source.status = 'draft';
     const route = ver500CreateDraftRouteFromCandidate(source);
-    return ver500UpsertDraftRoute(route);
+    const saved = ver500UpsertDraftRoute(route);
+    ver500AddAuditLog({
+      action: 'draft_saved',
+      routeId: saved && saved.id ? saved.id : '',
+      target: saved && saved.sourceType ? saved.sourceType : '',
+      before: {},
+      after: { status: saved && saved.status ? saved.status : 'draft' },
+      message: 'OCR候補を仮登録保存しました'
+    });
+    return saved;
   } catch (e) {
     ver500Render([{ type: '仮登録', level: 'warn', msg: '仮登録保存に失敗しました' }]);
     return null;
@@ -1396,6 +1512,14 @@ function ver500MaybeAutoConfirmRoute(route) {
     }
     ver500ConfirmSelectedDraft(row.id, { auto: true, source: 'auto_confirm' });
     const confirmedRow = ver500DraftRoutes().find((x) => String(x.id || '') === String(row.id || '')) || row;
+    ver500AddAuditLog({
+      action: 'auto_confirmed',
+      routeId: row.id,
+      target: row.sourceType || 'unknown',
+      before: { status: row.status || 'draft' },
+      after: { status: 'confirmed', score },
+      message: '高信頼のため自動確定しました'
+    });
     ver500AddAutoConfirmLog({
       routeId: row.id,
       score,
@@ -1480,12 +1604,30 @@ function ver500FormatReviewedAt(v) {
 }
 function ver500SaveCurrentStaff() {
   const input = document.getElementById('ver500CurrentStaffInput');
+  const before = ver500CurrentStaffName();
   const name = ver500SetCurrentStaffName((input && input.value) || '');
+  ver500AddAuditLog({
+    action: 'assignee_changed',
+    target: 'current_staff',
+    before: { assignee: before || '' },
+    after: { assignee: name || '' },
+    message: '現在担当者を更新しました'
+  });
   ver500RenderDraftRouteList(name ? '現在の担当者を保存しました' : '担当者設定をクリアしました');
   return true;
 }
 function ver500PreviewEvidenceByRoute(routeId) {
-  window.__ver500EvidencePreviewRouteId = String(routeId || '');
+  const targetId = String(routeId || '');
+  const row = ver500DraftRoutes().find((x) => String((x && x.id) || '') === targetId);
+  ver500AddAuditLog({
+    action: 'evidence_preview',
+    routeId: targetId,
+    target: row && row.evidence_url ? row.evidence_url : '',
+    before: {},
+    after: {},
+    message: row && row.evidence_url ? '証憑プレビューを表示しました' : '証憑なし候補を開きました'
+  });
+  window.__ver500EvidencePreviewRouteId = targetId;
   ver500RenderDraftRouteList();
   return true;
 }
@@ -1516,12 +1658,21 @@ function ver500DeleteSelectedDraftRoute() {
       return;
     }
     const rows = ver500DraftRoutes();
+    const deletedRow = rows.find((x) => String((x && x.id) || '') === targetId) || null;
     const next = rows.filter((x) => String((x && x.id) || '') !== targetId);
     if (next.length === rows.length) {
       ver500RenderDraftRouteList('選択候補が見つかりません');
       return;
     }
     ver500SaveDraftRoutes(next);
+    ver500AddAuditLog({
+      action: 'deleted',
+      routeId: targetId,
+      target: deletedRow ? deletedRow.sourceType || '' : '',
+      before: deletedRow || {},
+      after: {},
+      message: 'OCR候補を削除しました'
+    });
     ver500RenderDraftRouteList('選択候補を削除しました');
   } catch (e) {
     ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
@@ -2060,6 +2211,8 @@ function ver500SetDraftReviewStatus(routeId, reviewStatus) {
     const nextStatus = ver500NormalizeReviewStatus(reviewStatus);
     const staffName = ver500CurrentStaffName();
     const current = rows[idx] || {};
+    const beforeReview = ver500NormalizeReviewStatus(current.reviewStatus || 'none');
+    const beforeAssignee = String(current.assignee || '').trim();
     const updated = Object.assign({}, current, {
       reviewStatus: nextStatus,
       reviewedBy: staffName || String(current.reviewedBy || ''),
@@ -2068,6 +2221,24 @@ function ver500SetDraftReviewStatus(routeId, reviewStatus) {
     });
     rows[idx] = ver500NormalizeRouteEntry(updated);
     ver500SaveDraftRoutes(rows);
+    ver500AddAuditLog({
+      action: 'review_changed',
+      routeId: id,
+      target: 'reviewStatus',
+      before: { reviewStatus: beforeReview },
+      after: { reviewStatus: nextStatus },
+      message: '処理状態を更新しました'
+    });
+    if (beforeAssignee !== String(updated.assignee || '').trim()) {
+      ver500AddAuditLog({
+        action: 'assignee_changed',
+        routeId: id,
+        target: 'assignee',
+        before: { assignee: beforeAssignee || '' },
+        after: { assignee: String(updated.assignee || '') },
+        message: '担当者を更新しました'
+      });
+    }
     ver500RenderDraftRouteList('処理状態を更新しました');
     return true;
   } catch (e) {
@@ -2089,6 +2260,7 @@ function ver500EnsureDraftButtons() {
     document.getElementById('ver500AutoConfirmWrap') &&
     document.getElementById('ver500AutoConfirmStatus') &&
     document.getElementById('ver500ConfirmLogsBtn') &&
+    document.getElementById('ver500AuditLogsBtn') &&
     document.getElementById('ver500LearningLogsBtn') &&
     document.getElementById('ver500MappingRulesBtn') &&
     document.getElementById('ver500MappingRulesSaveBtn') &&
@@ -2129,6 +2301,13 @@ function ver500EnsureDraftButtons() {
         learningBtn.textContent = '学習履歴';
         learningBtn.onclick = () => ver500RenderLearningLogs();
         controls.appendChild(learningBtn);
+      }
+      if (!document.getElementById('ver500AuditLogsBtn')) {
+        const auditBtn = document.createElement('button');
+        auditBtn.id = 'ver500AuditLogsBtn';
+        auditBtn.textContent = 'OCR作業履歴';
+        auditBtn.onclick = () => ver500RenderAuditLogs();
+        controls.appendChild(auditBtn);
       }
       const staleLabel = document.getElementById('ver500AutoConfirmLabel');
       if (staleLabel && staleLabel.parentElement && !document.getElementById('ver500AutoConfirmWrap')) staleLabel.parentElement.removeChild(staleLabel);
@@ -2223,6 +2402,10 @@ function ver500EnsureDraftButtons() {
   learningBtn.id = 'ver500LearningLogsBtn';
   learningBtn.textContent = '学習履歴';
   learningBtn.onclick = () => ver500RenderLearningLogs();
+  const auditBtn = document.createElement('button');
+  auditBtn.id = 'ver500AuditLogsBtn';
+  auditBtn.textContent = 'OCR作業履歴';
+  auditBtn.onclick = () => ver500RenderAuditLogs();
   const autoConfirmWrap = ver500CreateAutoConfirmControl();
   const confirmBtn = document.createElement('button');
   confirmBtn.id = 'ver500ConfirmDraftBtn';
@@ -2267,6 +2450,7 @@ function ver500EnsureDraftButtons() {
     controls.appendChild(mappingSaveBtn);
     controls.appendChild(historyBtn);
     controls.appendChild(learningBtn);
+    controls.appendChild(auditBtn);
     controls.appendChild(confirmBtn);
     controls.appendChild(select);
     controls.appendChild(filter);
@@ -2290,6 +2474,7 @@ function ver500EnsureDraftButtons() {
   fallback.appendChild(mappingSaveBtn);
   fallback.appendChild(historyBtn);
   fallback.appendChild(learningBtn);
+  fallback.appendChild(auditBtn);
   fallback.appendChild(confirmBtn);
   fallback.appendChild(select);
   fallback.appendChild(filter);
@@ -2811,6 +2996,17 @@ async function ver500AnalyzeEvidence() {
       const route = ver500SaveDraftRoute(ai);
       const autoResult = ver500MaybeAutoConfirmRoute(route);
       const routeView = (autoResult && autoResult.route) || route;
+      ver500AddAuditLog({
+        action: 'ocr_done',
+        routeId: routeView && routeView.id ? routeView.id : '',
+        target: 'cache',
+        before: {},
+        after: {
+          sourceType: routeView && routeView.sourceType ? routeView.sourceType : 'unknown',
+          documentType: routeView && routeView.documentType ? routeView.documentType : 'unknown'
+        },
+        message: 'OCR解析完了（キャッシュ結果）'
+      });
       document.getElementById('ver500Kind').value = ai.kind || 'auto';
       document.getElementById('ver500Date').value = ai.date || '';
       document.getElementById('ver500Partner').value = ai.partner || '';
@@ -2890,6 +3086,17 @@ async function ver500AnalyzeEvidence() {
   const route = ver500SaveDraftRoute(ai);
   const autoResult = ver500MaybeAutoConfirmRoute(route);
   const routeView = (autoResult && autoResult.route) || route;
+  ver500AddAuditLog({
+    action: 'ocr_done',
+    routeId: routeView && routeView.id ? routeView.id : '',
+    target: 'analyze',
+    before: {},
+    after: {
+      sourceType: routeView && routeView.sourceType ? routeView.sourceType : 'unknown',
+      documentType: routeView && routeView.documentType ? routeView.documentType : 'unknown'
+    },
+    message: 'OCR解析完了'
+  });
   if (cacheKey && typeof window.ribreOcrSaveCachedResult === 'function') {
     window.ribreOcrSaveCachedResult({
       cacheKey,
@@ -2950,6 +3157,17 @@ function ver500ConfirmSelectedDraft(routeId, options = {}) {
       itemTitle: r.itemTitle || ''
     });
   };
+  const auditConfirmed = (row, target, message) => {
+    const r = row && typeof row === 'object' ? row : {};
+    ver500AddAuditLog({
+      action: 'confirmed',
+      routeId: r.id || '',
+      target: target || 'unknown',
+      before: { status: r.status || 'draft' },
+      after: { status: 'confirmed' },
+      message: message || '候補を確定しました'
+    });
+  };
   const select = document.getElementById('ver500DraftSelect');
   const targetId = String(routeId || (select && select.value ? select.value : ''));
   const rows = ver500DraftRoutes();
@@ -2975,6 +3193,7 @@ function ver500ConfirmSelectedDraft(routeId, options = {}) {
   if (row.sourceType === 'receipt') {
     const updated = Object.assign({}, row, { status: 'confirmed', autoConfirmed: !!options.auto, confidenceScore: ver500OcrConfidenceScore(row) });
     ver500UpsertDraftRoute(updated);
+    auditConfirmed(row, 'receipt', '証憑候補として確定しました');
     const learningCandidate = ver500BuildLearningCandidate(row);
     const learningResult = ver500LearnFromCandidate(learningCandidate, { source: 'draft_confirm', routeId: row.id || '' });
     ver500HandleLearningResult(learningResult, { showSuccess: true });
@@ -2986,6 +3205,7 @@ function ver500ConfirmSelectedDraft(routeId, options = {}) {
     const linked = ver500LinkOcrToShippingCandidate(row, true);
     const updated = Object.assign({}, row, { status: 'confirmed', autoConfirmed: !!options.auto, confidenceScore: ver500OcrConfidenceScore(row) });
     ver500UpsertDraftRoute(updated);
+    auditConfirmed(row, 'shipping', linked.added ? '配送候補へ連携して確定しました' : '配送候補として確定しました');
     const learningCandidate = ver500BuildLearningCandidate(row);
     const learningResult = ver500LearnFromCandidate(learningCandidate, { source: 'draft_confirm', routeId: row.id || '' });
     ver500HandleLearningResult(learningResult, { showSuccess: true });
@@ -3028,6 +3248,7 @@ function ver500ConfirmSelectedDraft(routeId, options = {}) {
   const linked = ver500LinkOcrToShippingCandidate(row, false);
   const updated = Object.assign({}, row, { status: 'confirmed', autoConfirmed: !!options.auto, confidenceScore: ver500OcrConfidenceScore(row) });
   ver500UpsertDraftRoute(updated);
+  auditConfirmed(row, row.sourceType || 'unknown', '候補を確定しました');
   if (row.sourceType === 'sale') {
     if (linked.added) {
       logBase(row, 'sales+shipping', '売上へ登録しました / 配送候補へ連携しました');
@@ -3380,6 +3601,8 @@ window.ver500SaveOcrMappingRulesFromEditor = ver500SaveOcrMappingRulesFromEditor
 window.ver500AddMappingRuleFromForm = ver500AddMappingRuleFromForm;
 window.ver500ConfirmLogs = ver500ConfirmLogs;
 window.ver500RenderConfirmLogs = ver500RenderConfirmLogs;
+window.ver500AuditLogs = ver500AuditLogs;
+window.ver500RenderAuditLogs = ver500RenderAuditLogs;
 window.ver500LearningLogs = ver500LearningLogs;
 window.ver500OcrLearningRows = ver500OcrLearningRows;
 window.ver500RenderLearningLogs = ver500RenderLearningLogs;
