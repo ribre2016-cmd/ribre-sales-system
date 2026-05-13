@@ -123,18 +123,50 @@ function ver500AutoConfirmStateText(enabled) {
 }
 function ver500ApplyAutoConfirmUiState(enabled) {
   const wrap = document.getElementById('ver500AutoConfirmWrap');
+  const title = document.getElementById('ver500AutoConfirmTitle');
   const status = document.getElementById('ver500AutoConfirmStatus');
+  const badge = document.getElementById('ver500AutoConfirmBadge');
   const toggle = document.getElementById('ver500AutoConfirmToggle');
+  const switchTrack = document.getElementById('ver500AutoConfirmSwitch');
+  const switchKnob = document.getElementById('ver500AutoConfirmKnob');
   if (toggle) toggle.checked = !!enabled;
   if (status) status.textContent = ver500AutoConfirmStateText(!!enabled);
+  if (badge) {
+    badge.textContent = enabled ? 'ON' : 'OFF';
+    badge.style.background = enabled ? '#2f9e44' : '#6b7280';
+    badge.style.color = '#fff';
+  }
+  if (switchTrack) {
+    switchTrack.style.width = '56px';
+    switchTrack.style.height = '32px';
+    switchTrack.style.borderRadius = '16px';
+    switchTrack.style.border = '1px solid ' + (enabled ? '#2f9e44' : '#9aa1ab');
+    switchTrack.style.background = enabled ? '#79d58f' : '#d5d9df';
+    switchTrack.style.position = 'relative';
+    switchTrack.style.transition = 'all 120ms ease';
+  }
+  if (switchKnob) {
+    switchKnob.style.width = '26px';
+    switchKnob.style.height = '26px';
+    switchKnob.style.borderRadius = '50%';
+    switchKnob.style.position = 'absolute';
+    switchKnob.style.top = '2px';
+    switchKnob.style.left = enabled ? '28px' : '2px';
+    switchKnob.style.background = '#fff';
+    switchKnob.style.border = '1px solid ' + (enabled ? '#2f9e44' : '#9aa1ab');
+    switchKnob.style.boxSizing = 'border-box';
+    switchKnob.style.transition = 'left 120ms ease';
+  }
   if (!wrap) return;
   wrap.style.display = 'inline-flex';
   wrap.style.flexDirection = 'column';
-  wrap.style.gap = '2px';
-  wrap.style.padding = '6px 10px';
-  wrap.style.borderRadius = '8px';
-  wrap.style.border = '1px solid ' + (enabled ? '#86d39a' : '#c9ced6');
-  wrap.style.background = enabled ? '#edf9f0' : '#f4f5f7';
+  wrap.style.gap = '4px';
+  wrap.style.padding = '10px 12px';
+  wrap.style.borderRadius = '12px';
+  wrap.style.border = '1px solid ' + (enabled ? '#6fca85' : '#bfc6d0');
+  wrap.style.background = enabled ? '#eaf8ee' : '#f2f4f7';
+  wrap.style.minWidth = '300px';
+  if (title) title.style.fontWeight = '700';
 }
 function ver500AutoConfirmChangeHandler(toggle) {
   const enabled = !!(toggle && toggle.checked);
@@ -146,30 +178,53 @@ function ver500CreateAutoConfirmControl() {
   const enabled = ver500AutoConfirmEnabled();
   const wrap = document.createElement('div');
   wrap.id = 'ver500AutoConfirmWrap';
-  const label = document.createElement('label');
-  label.id = 'ver500AutoConfirmLabel';
-  label.style.display = 'inline-flex';
-  label.style.gap = '6px';
-  label.style.alignItems = 'center';
-  label.style.cursor = 'pointer';
+  const top = document.createElement('label');
+  top.id = 'ver500AutoConfirmLabel';
+  top.style.display = 'flex';
+  top.style.gap = '10px';
+  top.style.alignItems = 'center';
+  top.style.justifyContent = 'space-between';
+  top.style.cursor = 'pointer';
   const cb = document.createElement('input');
   cb.type = 'checkbox';
   cb.id = 'ver500AutoConfirmToggle';
   cb.checked = enabled;
+  cb.style.display = 'none';
   cb.onchange = () => ver500AutoConfirmChangeHandler(cb);
-  const labelText = document.createElement('span');
-  labelText.textContent = '高信頼なら自動確定';
+  const title = document.createElement('div');
+  title.id = 'ver500AutoConfirmTitle';
+  title.textContent = '高信頼なら自動確定';
+  const right = document.createElement('div');
+  right.style.display = 'inline-flex';
+  right.style.gap = '8px';
+  right.style.alignItems = 'center';
+  const badge = document.createElement('span');
+  badge.id = 'ver500AutoConfirmBadge';
+  badge.style.fontSize = '11px';
+  badge.style.fontWeight = '700';
+  badge.style.padding = '2px 8px';
+  badge.style.borderRadius = '10px';
+  const switchTrack = document.createElement('span');
+  switchTrack.id = 'ver500AutoConfirmSwitch';
+  const switchKnob = document.createElement('span');
+  switchKnob.id = 'ver500AutoConfirmKnob';
+  switchTrack.appendChild(switchKnob);
+  right.appendChild(badge);
+  right.appendChild(switchTrack);
   const status = document.createElement('small');
   status.id = 'ver500AutoConfirmStatus';
   status.style.fontWeight = '600';
+  status.style.display = 'block';
+  status.style.fontSize = '12px';
   const desc = document.createElement('small');
   desc.id = 'ver500AutoConfirmHelp';
   desc.style.fontSize = '11px';
   desc.style.opacity = '0.85';
   desc.textContent = 'AIが高信頼と判断した場合のみ自動で確定します';
-  label.appendChild(cb);
-  label.appendChild(labelText);
-  wrap.appendChild(label);
+  top.appendChild(cb);
+  top.appendChild(title);
+  top.appendChild(right);
+  wrap.appendChild(top);
   wrap.appendChild(status);
   wrap.appendChild(desc);
   ver500ApplyAutoConfirmUiState(enabled);
@@ -511,6 +566,20 @@ function ver500RouteLabel(sourceType) {
   if (t === 'purchase') return '仕入';
   if (t === 'shipping') return '配送';
   if (t === 'receipt') return '証憑';
+  return '未分類';
+}
+function ver500DocumentTypeLabel(documentType) {
+  const t = ver500NormalizeDocumentType(documentType);
+  if (t === 'minna_market') return 'みんなの市場';
+  if (t === 'auction_shiki') return 'オークション志木';
+  if (t === 'yamato') return 'ヤマト';
+  if (t === 'sagawa') return '佐川';
+  if (t === 'surugaya') return '駿河屋';
+  if (t === 'bookoff') return 'BOOKOFF';
+  if (t === 'mercari') return 'メルカリ';
+  if (t === 'yahoo') return 'ヤフオク';
+  if (t === 'receipt') return '領収書';
+  if (t === 'invoice') return '請求書';
   return '未分類';
 }
 function ver500UiFieldLabel(name) {
@@ -1437,15 +1506,51 @@ function ver500RenderDraftRouteList(noticeMsg) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    const scoreLabel = (score) => {
+      if (score >= 90) return '高信頼';
+      if (score >= 70) return '確認推奨';
+      if (score >= 50) return '要確認';
+      return '低信頼';
+    };
+    const scoreStyle = (score) => {
+      if (score >= 80) return { bg: '#edf9ef', bar: '#48a868' };
+      if (score >= 50) return { bg: '#fff9e8', bar: '#d1a233' };
+      return { bg: '#fff0f0', bar: '#d45a5a' };
+    };
+    const badgeHtml = (text, bg, color = '#1f2937') =>
+      '<span class="badge" style="background:' +
+      bg +
+      ';color:' +
+      color +
+      ';border:1px solid ' +
+      bg +
+      ';margin-left:4px;">' +
+      esc(text) +
+      '</span>';
+    const statusBadgeHtml = (statusText, statusRaw) => {
+      const s = String(statusRaw || 'draft');
+      if (s === 'confirmed') return badgeHtml('[' + statusText + ']', '#e8f7ec', '#1f7a34');
+      if (s === 'ignored') return badgeHtml('[' + statusText + ']', '#fdecec', '#b33a3a');
+      return badgeHtml('[' + statusText + ']', '#eceff3', '#4b5563');
+    };
+    const missingItems = (x) => {
+      const miss = [];
+      if (!String((x && x.date) || '').trim()) miss.push('日付');
+      if (ver500Num((x && x.amount) || 0) <= 0) miss.push('金額');
+      if (!String((x && x.storeName) || '').trim()) miss.push('相手先');
+      if (!ver500NormalizeTracking((x && (x.trackingNumber || x.slip)) || '')) miss.push('伝票番号');
+      return miss;
+    };
     const select = document.getElementById('ver500DraftSelect');
     if (select) {
       select.innerHTML = '';
       filteredRows.forEach((x) => {
         const op = document.createElement('option');
         op.value = x.id;
+        const statusLabel = ver500DraftStatusBadgeLabel(x.status || 'draft');
         op.textContent =
           '[' +
-          (x.status || 'draft') +
+          statusLabel +
           '] ' +
           (x.date || '日付不明') +
           ' / ' +
@@ -1498,31 +1603,38 @@ function ver500RenderDraftRouteList(noticeMsg) {
       return;
     }
     const lines = filteredRows.slice(0, 100).map((x) => {
-      const status = esc(ver500DraftStatusBadgeLabel(x.status || 'draft'));
-      const learned = x.learnedMapped ? '<span class="badge">[学習ルール適用]</span>' : '';
-      const profiled = x.profileApplied ? '<span class="badge">[専用ルール適用]</span>' : '';
+      const status = ver500DraftStatusBadgeLabel(x.status || 'draft');
       const score = Math.max(0, Math.min(100, Number(x.confidenceScore || ver500OcrConfidenceScore(x))));
-      const autoBadge = x.autoConfirmed ? '<span class="badge">[自動確定]</span>' : '';
-      const reviewText = !x.autoConfirmed && score < 80 ? ' / 確認が必要' : '';
+      const conf = scoreLabel(score);
+      const style = scoreStyle(score);
+      const miss = missingItems(x);
+      const missText = miss.length ? ' / 不足: ' + miss.join('・') : '';
+      const learned = x.learnedMapped ? badgeHtml('[AI学習済み]', '#e8f2ff', '#1d4ed8') : '';
+      const profiled = x.profileApplied ? badgeHtml('[帳票ルール適用]', '#f2ecff', '#6d28d9') : '';
+      const autoBadge = x.autoConfirmed ? badgeHtml('[自動確定]', '#eaf2ff', '#1e40af') : '';
       return (
-        '<div class="row ok"><span>' +
+        '<div class="row ok" style="background:' +
+        style.bg +
+        ';border-left:4px solid ' +
+        style.bar +
+        ';padding-left:8px;"><span>' +
         esc(x.date || '') +
         ' / ' +
         esc(ver500RouteLabel(x.sourceType)) +
         ' / ' +
-        esc(x.documentType || 'unknown') +
+        esc(ver500DocumentTypeLabel(x.documentType || 'unknown')) +
         ' / ' +
         esc(x.storeName || '-') +
         ' / ' +
         esc(x.amount || 0) +
-        '円 / 専用ルール適用:' +
-        (x.profileApplied ? 'あり' : 'なし') +
-        ' / 信頼度:' +
+        '円 / 判定精度: ' +
         score +
-        reviewText +
-        '</span><span class="badge">[' +
-        status +
-        ']</span>' +
+        '（' +
+        conf +
+        '）' +
+        missText +
+        '</span>' +
+        statusBadgeHtml(status, x.status || 'draft') +
         learned +
         profiled +
         autoBadge +
