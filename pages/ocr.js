@@ -1215,6 +1215,11 @@ function ver500NormalizeRouteEntry(x) {
     if (s === 'confirmed' || s === 'ignored') return s;
     return 'draft';
   };
+  const normReviewStatus = (v) => {
+    const s = String(v || 'none');
+    if (s === 'later' || s === 'pending' || s === 'ignored' || s === 'done') return s;
+    return 'none';
+  };
   return {
     id: String(src.id || 'route_' + Date.now()),
     createdAt: String(src.createdAt || new Date().toISOString()),
@@ -1241,6 +1246,7 @@ function ver500NormalizeRouteEntry(x) {
     confidenceScore: Math.max(0, Math.min(100, Number(src.confidenceScore || 0))),
     autoConfirmed: !!src.autoConfirmed,
     status: normStatus(src.status),
+    reviewStatus: normReviewStatus(src.reviewStatus),
     evidence_url: String(src.evidence_url || ''),
     note: String(src.note || '')
   };
@@ -1429,6 +1435,19 @@ function ver500DraftStatusBadgeLabel(status) {
   if (s === 'ignored') return '除外済み';
   return '未確定';
 }
+function ver500ReviewStatusLabel(reviewStatus) {
+  const s = String(reviewStatus || 'none');
+  if (s === 'later') return 'あとで確認';
+  if (s === 'pending') return '保留';
+  if (s === 'ignored') return '無視';
+  if (s === 'done') return '処理済み';
+  return '未設定';
+}
+function ver500NormalizeReviewStatus(reviewStatus) {
+  const s = String(reviewStatus || 'none');
+  if (s === 'later' || s === 'pending' || s === 'ignored' || s === 'done') return s;
+  return 'none';
+}
 function ver500FilteredDraftRoutes(rows, filterOverride) {
   const all = Array.isArray(rows) ? rows : [];
   const filter = String(filterOverride || ver500DraftFilterValue() || 'draft');
@@ -1535,6 +1554,14 @@ function ver500RenderDraftRouteList(noticeMsg) {
       if (s === 'ignored') return badgeHtml('[' + statusText + ']', '#fdecec', '#b33a3a');
       return badgeHtml('[' + statusText + ']', '#eceff3', '#4b5563');
     };
+    const reviewStatusBadgeHtml = (reviewStatus) => {
+      const s = ver500NormalizeReviewStatus(reviewStatus);
+      if (s === 'later') return badgeHtml('[あとで確認]', '#fff9e8', '#8a6a00');
+      if (s === 'pending') return badgeHtml('[保留]', '#eaf2ff', '#1e40af');
+      if (s === 'ignored') return badgeHtml('[無視]', '#eceff3', '#4b5563');
+      if (s === 'done') return badgeHtml('[処理済み]', '#e8f7ec', '#1f7a34');
+      return '';
+    };
     const scoreBadgeHtml = (score, label) => {
       const st = scoreStyle(score);
       return badgeHtml('判定精度: ' + score + '（' + label + '）', st.bg, '#1f2937');
@@ -1615,6 +1642,9 @@ function ver500RenderDraftRouteList(noticeMsg) {
         '>状態別</option>' +
         '</select> ' +
         '<button id="ver500DeleteDraftBtn" onclick="ver500DeleteSelectedDraftRoute()">選んだ候補を削除</button> ' +
+        '<button id="ver500ReviewLaterBtn" onclick="ver500SetSelectedDraftReviewStatus(\'later\')">選択候補をあとで確認</button> ' +
+        '<button id="ver500ReviewPendingBtn" onclick="ver500SetSelectedDraftReviewStatus(\'pending\')">選択候補を保留</button> ' +
+        '<button id="ver500ReviewDoneBtn" onclick="ver500SetSelectedDraftReviewStatus(\'done\')">選択候補を処理済み</button> ' +
         '<button id="ver500HideConfirmedBtn" onclick="ver500HideConfirmedDraftRoutes()">確定済みを隠す</button> ' +
         '<button id="ver500CleanupDraftBtn" onclick="ver500CleanupOldDraftRoutes()">古い候補を整理</button>' +
         '</span><span class="badge">操作</span></div>';
@@ -1640,6 +1670,8 @@ function ver500RenderDraftRouteList(noticeMsg) {
       const miss = missingItems(x);
       const missText = missingText(miss);
       const missBadge = missText ? badgeHtml(missText, '#fdecec', '#b33a3a') : '';
+      const reviewStatus = ver500NormalizeReviewStatus(x.reviewStatus || 'none');
+      const reviewBadge = reviewStatusBadgeHtml(reviewStatus);
       const learned = x.learnedMapped ? badgeHtml('[AI学習済み]', '#e8f2ff', '#1d4ed8') : '';
       const profiled = x.profileApplied ? badgeHtml('[帳票ルール適用]', '#f2ecff', '#6d28d9') : '';
       const autoBadge = x.autoConfirmed ? badgeHtml('[自動確定]', '#eaf2ff', '#1e40af') : '';
@@ -1654,6 +1686,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
         escJs(rowId) +
         '\')">' +
         '<div style="display:flex;flex-direction:column;gap:7px;width:100%;">' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">' +
         '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
         statusBadgeHtml(status, x.status || 'draft') +
         '<span>' +
@@ -1663,6 +1696,27 @@ function ver500RenderDraftRouteList(noticeMsg) {
         '</span><span>' +
         esc(ver500DocumentTypeLabel(x.documentType || 'unknown')) +
         '</span></div>' +
+        '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">' +
+        reviewBadge +
+        '<select onclick="event.stopPropagation()" onchange="event.stopPropagation();ver500SetDraftReviewStatus(\'' +
+        escJs(rowId) +
+        '\', this.value)">' +
+        '<option value="none"' +
+        (reviewStatus === 'none' ? ' selected' : '') +
+        '>未設定</option>' +
+        '<option value="later"' +
+        (reviewStatus === 'later' ? ' selected' : '') +
+        '>あとで確認</option>' +
+        '<option value="pending"' +
+        (reviewStatus === 'pending' ? ' selected' : '') +
+        '>保留</option>' +
+        '<option value="ignored"' +
+        (reviewStatus === 'ignored' ? ' selected' : '') +
+        '>無視</option>' +
+        '<option value="done"' +
+        (reviewStatus === 'done' ? ' selected' : '') +
+        '>処理済み</option>' +
+        '</select></div></div>' +
         '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
         '<span>相手先: ' +
         esc(x.storeName || '-') +
@@ -1708,6 +1762,9 @@ function ver500RenderDraftRouteList(noticeMsg) {
       '</div></details>';
     const priorityMeta = (entry) => {
       const x = entry.row || {};
+      const reviewStatus = ver500NormalizeReviewStatus(x.reviewStatus || 'none');
+      if (reviewStatus === 'later') return { key: 'later', label: '🟠 あとで確認', bg: '#fff9e8', open: true };
+      if (reviewStatus === 'pending') return { key: 'pending', label: '🟣 保留', bg: '#efeaff', open: true };
       const sourceUnknown = String(x.sourceType || 'unknown') === 'unknown';
       const docUnknown = ver500NormalizeDocumentType(x.documentType || 'unknown') === 'unknown';
       const needsNow = entry.miss.length > 0 || entry.score < 70 || sourceUnknown || docUnknown;
@@ -1761,7 +1818,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
         })
         .join('');
     } else {
-      contentHtml = buildGroupedHtml(cardRows, priorityMeta, ['urgent', 'draft', 'auto_confirmed', 'confirmed', 'ignored']);
+      contentHtml = buildGroupedHtml(cardRows, priorityMeta, ['later', 'pending', 'urgent', 'draft', 'auto_confirmed', 'confirmed', 'ignored']);
     }
     const header =
       '<div class="row ok"><span>OCR読取候補一覧（' + filteredRows.length + '件）' + (noticeMsg ? ' / ' + esc(noticeMsg) : '') + '</span><span class="badge">一覧</span></div>';
@@ -1795,6 +1852,32 @@ function ver500SelectDraftRouteCard(routeId) {
   } catch (e) {
     return false;
   }
+}
+function ver500SetDraftReviewStatus(routeId, reviewStatus) {
+  try {
+    const id = String(routeId || '');
+    if (!id) return false;
+    const rows = ver500DraftRoutes();
+    const idx = rows.findIndex((x) => String((x && x.id) || '') === id);
+    if (idx < 0) return false;
+    const nextStatus = ver500NormalizeReviewStatus(reviewStatus);
+    const updated = Object.assign({}, rows[idx], { reviewStatus: nextStatus });
+    rows[idx] = ver500NormalizeRouteEntry(updated);
+    ver500SaveDraftRoutes(rows);
+    ver500RenderDraftRouteList('処理状態を更新しました');
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+function ver500SetSelectedDraftReviewStatus(reviewStatus) {
+  const select = document.getElementById('ver500DraftSelect');
+  const targetId = String((select && select.value) || '');
+  if (!targetId) {
+    ver500RenderDraftRouteList('候補を選択してください');
+    return false;
+  }
+  return ver500SetDraftReviewStatus(targetId, reviewStatus);
 }
 function ver500EnsureDraftButtons() {
   if (
@@ -3079,6 +3162,8 @@ window.ver500OcrConfidenceScore = ver500OcrConfidenceScore;
 window.ver500RenderDraftRouteList = ver500RenderDraftRouteList;
 window.ver500ShowDraftRoutes = ver500ShowDraftRoutes;
 window.ver500SelectDraftRouteCard = ver500SelectDraftRouteCard;
+window.ver500SetDraftReviewStatus = ver500SetDraftReviewStatus;
+window.ver500SetSelectedDraftReviewStatus = ver500SetSelectedDraftReviewStatus;
 window.ver500DefaultOcrMappingRules = ver500DefaultOcrMappingRules;
 window.ver500NormalizeOcrMappingRules = ver500NormalizeOcrMappingRules;
 window.ver500OcrMappingRules = ver500OcrMappingRules;
