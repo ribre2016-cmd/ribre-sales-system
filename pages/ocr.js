@@ -1497,6 +1497,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
   try {
     const rows = ver500DraftRoutes();
     const currentFilter = ver500DraftFilterValue();
+    const currentViewMode = String(window.__ver500DraftViewMode || 'priority');
     const filteredRows = ver500FilteredDraftRoutes(rows, currentFilter);
     const box = ver500DraftRoutesContainer();
     const esc = (v) =>
@@ -1583,6 +1584,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
     let toolbarHtml = '';
     try {
       const selected = (v) => (currentFilter === v ? ' selected' : '');
+      const selectedMode = (v) => (currentViewMode === v ? ' selected' : '');
       toolbarHtml =
         '<div class="row ok"><span>' +
         '<label for="ver500DraftFilter">フィルタ:</label> ' +
@@ -1600,6 +1602,18 @@ function ver500RenderDraftRouteList(noticeMsg) {
         selected('ignored') +
         '>除外済みのみ</option>' +
         '</select> ' +
+        '<label for="ver500DraftViewMode">表示:</label> ' +
+        '<select id="ver500DraftViewMode" onchange="window.__ver500DraftViewMode=this.value;ver500RenderDraftRouteList()">' +
+        '<option value="priority"' +
+        selectedMode('priority') +
+        '>対応優先順</option>' +
+        '<option value="doctype"' +
+        selectedMode('doctype') +
+        '>帳票タイプ別</option>' +
+        '<option value="status"' +
+        selectedMode('status') +
+        '>状態別</option>' +
+        '</select> ' +
         '<button id="ver500DeleteDraftBtn" onclick="ver500DeleteSelectedDraftRoute()">選んだ候補を削除</button> ' +
         '<button id="ver500HideConfirmedBtn" onclick="ver500HideConfirmedDraftRoutes()">確定済みを隠す</button> ' +
         '<button id="ver500CleanupDraftBtn" onclick="ver500CleanupOldDraftRoutes()">古い候補を整理</button>' +
@@ -1615,17 +1629,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
         '<div class="row warn"><span>仮登録はありません</span><span class="badge">0件</span></div>';
       return;
     }
-    const subgroupMeta = (x, miss) => {
-      const statusRaw = String((x && x.status) || 'draft');
-      if (miss.length) return { key: 'review', label: '要確認あり', bg: '#fdecec', open: true };
-      if (x && x.autoConfirmed) return { key: 'auto_confirmed', label: '自動確定', bg: '#eaf2ff', open: false };
-      if (statusRaw === 'confirmed') return { key: 'confirmed', label: '確定済み', bg: '#e8f7ec', open: false };
-      if (statusRaw === 'ignored') return { key: 'ignored', label: '除外済み', bg: '#f7f1f1', open: false };
-      return { key: 'draft', label: '未確定', bg: '#f1f3f5', open: true };
-    };
-    const subgroupOrder = ['review', 'draft', 'auto_confirmed', 'confirmed', 'ignored'];
-    const grouped = {};
-    filteredRows.slice(0, 100).forEach((x) => {
+    const cardRows = filteredRows.slice(0, 100).map((x) => {
       const rowId = String(x.id || '');
       const selectedId = String((select && select.value) || '');
       const isSelected = rowId && rowId === selectedId;
@@ -1675,49 +1679,93 @@ function ver500RenderDraftRouteList(noticeMsg) {
         autoBadge +
         '</div></div>' +
         '</div>';
-      const docLabel = ver500DocumentTypeLabel(x.documentType || 'unknown');
-      const subgroup = subgroupMeta(x, miss);
-      if (!grouped[docLabel]) grouped[docLabel] = { total: 0, subs: {} };
-      grouped[docLabel].total += 1;
-      if (!grouped[docLabel].subs[subgroup.key]) grouped[docLabel].subs[subgroup.key] = { meta: subgroup, cards: [] };
-      grouped[docLabel].subs[subgroup.key].cards.push(cardHtml);
+      return {
+        row: x,
+        score,
+        miss,
+        cardHtml
+      };
     });
-    const docGroupsHtml = Object.keys(grouped)
-      .map((docLabel) => {
-        const doc = grouped[docLabel];
-        const subHtml = subgroupOrder
-          .filter((k) => doc.subs[k] && doc.subs[k].cards.length)
-          .map((k) => {
-            const sub = doc.subs[k];
-            return (
-              '<details style="margin:6px 0;"' +
-              (sub.meta.open ? ' open' : '') +
-              '><summary style="cursor:pointer;padding:6px 10px;border-radius:8px;background:' +
-              sub.meta.bg +
-              ';font-weight:600;">' +
-              esc(sub.meta.label) +
-              '（' +
-              sub.cards.length +
-              '件）</summary><div style="padding:6px 2px 2px 2px;">' +
-              sub.cards.join('') +
-              '</div></details>'
-            );
-          })
-          .join('');
-        return (
-          '<details open style="margin:8px 0;"><summary style="cursor:pointer;padding:7px 10px;border-radius:8px;background:#f5f7fb;font-weight:700;">' +
-          esc(docLabel) +
-          '（' +
-          doc.total +
-          '件）</summary><div style="padding-top:6px;">' +
-          subHtml +
-          '</div></details>'
-        );
-      })
-      .join('');
+    const renderSubGroup = (meta, cards) =>
+      '<details style="margin:6px 0;"' +
+      (meta.open ? ' open' : '') +
+      '><summary style="cursor:pointer;padding:6px 10px;border-radius:8px;background:' +
+      meta.bg +
+      ';font-weight:600;">' +
+      esc(meta.label) +
+      '（' +
+      cards.length +
+      '件）</summary><div style="padding:6px 2px 2px 2px;">' +
+      cards.map((x) => x.cardHtml).join('') +
+      '</div></details>';
+    const renderTopGroup = (label, cards, bodyHtml) =>
+      '<details open style="margin:8px 0;"><summary style="cursor:pointer;padding:7px 10px;border-radius:8px;background:#f5f7fb;font-weight:700;">' +
+      esc(label) +
+      '（' +
+      cards.length +
+      '件）</summary><div style="padding-top:6px;">' +
+      bodyHtml +
+      '</div></details>';
+    const priorityMeta = (entry) => {
+      const x = entry.row || {};
+      const sourceUnknown = String(x.sourceType || 'unknown') === 'unknown';
+      const docUnknown = ver500NormalizeDocumentType(x.documentType || 'unknown') === 'unknown';
+      const needsNow = entry.miss.length > 0 || entry.score < 70 || sourceUnknown || docUnknown;
+      if (needsNow) return { key: 'urgent', label: '🔴 今すぐ確認が必要', bg: '#fdecec', open: true };
+      if (String(x.status || 'draft') === 'ignored') return { key: 'ignored', label: '⚪ 除外済み', bg: '#f7f1f1', open: false };
+      if (x.autoConfirmed) return { key: 'auto_confirmed', label: '🔵 自動確定済み', bg: '#eaf2ff', open: false };
+      if (String(x.status || 'draft') === 'confirmed') return { key: 'confirmed', label: '🟢 確定済み', bg: '#e8f7ec', open: false };
+      return { key: 'draft', label: '🟡 未確定', bg: '#f1f3f5', open: true };
+    };
+    const docSubtypeMeta = (entry) => {
+      const x = entry.row || {};
+      if (entry.miss.length) return { key: 'review', label: '要確認あり', bg: '#fdecec', open: true };
+      if (x.autoConfirmed) return { key: 'auto_confirmed', label: '自動確定', bg: '#eaf2ff', open: false };
+      if (String(x.status || 'draft') === 'confirmed') return { key: 'confirmed', label: '確定済み', bg: '#e8f7ec', open: false };
+      if (String(x.status || 'draft') === 'ignored') return { key: 'ignored', label: '除外済み', bg: '#f7f1f1', open: false };
+      return { key: 'draft', label: '未確定', bg: '#f1f3f5', open: true };
+    };
+    const statusOnlyMeta = (entry) => {
+      const s = String((entry.row && entry.row.status) || 'draft');
+      if (s === 'confirmed') return { key: 'confirmed', label: '確定済み', bg: '#e8f7ec', open: false };
+      if (s === 'ignored') return { key: 'ignored', label: '除外済み', bg: '#f7f1f1', open: false };
+      return { key: 'draft', label: '未確定', bg: '#f1f3f5', open: true };
+    };
+    const buildGroupedHtml = (entries, groupBy, orderKeys) => {
+      const grouped = {};
+      entries.forEach((e) => {
+        const meta = groupBy(e);
+        if (!grouped[meta.key]) grouped[meta.key] = { meta, cards: [] };
+        grouped[meta.key].cards.push(e);
+      });
+      return orderKeys
+        .filter((k) => grouped[k] && grouped[k].cards.length)
+        .map((k) => renderSubGroup(grouped[k].meta, grouped[k].cards))
+        .join('');
+    };
+    let contentHtml = '';
+    if (currentViewMode === 'status') {
+      contentHtml = buildGroupedHtml(cardRows, statusOnlyMeta, ['draft', 'confirmed', 'ignored']);
+    } else if (currentViewMode === 'doctype') {
+      const docs = {};
+      cardRows.forEach((e) => {
+        const docLabel = ver500DocumentTypeLabel((e.row && e.row.documentType) || 'unknown');
+        if (!docs[docLabel]) docs[docLabel] = [];
+        docs[docLabel].push(e);
+      });
+      contentHtml = Object.keys(docs)
+        .map((docLabel) => {
+          const rowsByDoc = docs[docLabel];
+          const body = buildGroupedHtml(rowsByDoc, docSubtypeMeta, ['review', 'draft', 'auto_confirmed', 'confirmed', 'ignored']);
+          return renderTopGroup(docLabel, rowsByDoc, body);
+        })
+        .join('');
+    } else {
+      contentHtml = buildGroupedHtml(cardRows, priorityMeta, ['urgent', 'draft', 'auto_confirmed', 'confirmed', 'ignored']);
+    }
     const header =
       '<div class="row ok"><span>OCR読取候補一覧（' + filteredRows.length + '件）' + (noticeMsg ? ' / ' + esc(noticeMsg) : '') + '</span><span class="badge">一覧</span></div>';
-    box.innerHTML = toolbarHtml + header + docGroupsHtml;
+    box.innerHTML = toolbarHtml + header + contentHtml;
   } catch (e) {
     ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
     const box = ver500DraftRoutesContainer();
