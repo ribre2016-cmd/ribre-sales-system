@@ -1615,7 +1615,17 @@ function ver500RenderDraftRouteList(noticeMsg) {
         '<div class="row warn"><span>仮登録はありません</span><span class="badge">0件</span></div>';
       return;
     }
-    const lines = filteredRows.slice(0, 100).map((x) => {
+    const subgroupMeta = (x, miss) => {
+      const statusRaw = String((x && x.status) || 'draft');
+      if (miss.length) return { key: 'review', label: '要確認あり', bg: '#fdecec', open: true };
+      if (x && x.autoConfirmed) return { key: 'auto_confirmed', label: '自動確定', bg: '#eaf2ff', open: false };
+      if (statusRaw === 'confirmed') return { key: 'confirmed', label: '確定済み', bg: '#e8f7ec', open: false };
+      if (statusRaw === 'ignored') return { key: 'ignored', label: '除外済み', bg: '#f7f1f1', open: false };
+      return { key: 'draft', label: '未確定', bg: '#f1f3f5', open: true };
+    };
+    const subgroupOrder = ['review', 'draft', 'auto_confirmed', 'confirmed', 'ignored'];
+    const grouped = {};
+    filteredRows.slice(0, 100).forEach((x) => {
       const rowId = String(x.id || '');
       const selectedId = String((select && select.value) || '');
       const isSelected = rowId && rowId === selectedId;
@@ -1629,7 +1639,7 @@ function ver500RenderDraftRouteList(noticeMsg) {
       const learned = x.learnedMapped ? badgeHtml('[AI学習済み]', '#e8f2ff', '#1d4ed8') : '';
       const profiled = x.profileApplied ? badgeHtml('[帳票ルール適用]', '#f2ecff', '#6d28d9') : '';
       const autoBadge = x.autoConfirmed ? badgeHtml('[自動確定]', '#eaf2ff', '#1e40af') : '';
-      return (
+      const cardHtml =
         '<div class="row ok" style="background:' +
         style.bg +
         ';border-left:4px solid ' +
@@ -1664,12 +1674,50 @@ function ver500RenderDraftRouteList(noticeMsg) {
         profiled +
         autoBadge +
         '</div></div>' +
-        '</div>'
-      );
+        '</div>';
+      const docLabel = ver500DocumentTypeLabel(x.documentType || 'unknown');
+      const subgroup = subgroupMeta(x, miss);
+      if (!grouped[docLabel]) grouped[docLabel] = { total: 0, subs: {} };
+      grouped[docLabel].total += 1;
+      if (!grouped[docLabel].subs[subgroup.key]) grouped[docLabel].subs[subgroup.key] = { meta: subgroup, cards: [] };
+      grouped[docLabel].subs[subgroup.key].cards.push(cardHtml);
     });
+    const docGroupsHtml = Object.keys(grouped)
+      .map((docLabel) => {
+        const doc = grouped[docLabel];
+        const subHtml = subgroupOrder
+          .filter((k) => doc.subs[k] && doc.subs[k].cards.length)
+          .map((k) => {
+            const sub = doc.subs[k];
+            return (
+              '<details style="margin:6px 0;"' +
+              (sub.meta.open ? ' open' : '') +
+              '><summary style="cursor:pointer;padding:6px 10px;border-radius:8px;background:' +
+              sub.meta.bg +
+              ';font-weight:600;">' +
+              esc(sub.meta.label) +
+              '（' +
+              sub.cards.length +
+              '件）</summary><div style="padding:6px 2px 2px 2px;">' +
+              sub.cards.join('') +
+              '</div></details>'
+            );
+          })
+          .join('');
+        return (
+          '<details open style="margin:8px 0;"><summary style="cursor:pointer;padding:7px 10px;border-radius:8px;background:#f5f7fb;font-weight:700;">' +
+          esc(docLabel) +
+          '（' +
+          doc.total +
+          '件）</summary><div style="padding-top:6px;">' +
+          subHtml +
+          '</div></details>'
+        );
+      })
+      .join('');
     const header =
       '<div class="row ok"><span>OCR読取候補一覧（' + filteredRows.length + '件）' + (noticeMsg ? ' / ' + esc(noticeMsg) : '') + '</span><span class="badge">一覧</span></div>';
-    box.innerHTML = toolbarHtml + header + lines.join('');
+    box.innerHTML = toolbarHtml + header + docGroupsHtml;
   } catch (e) {
     ver500Render([{ type: '仮登録', level: 'warn', msg: 'OCR仮登録一覧の表示に失敗しました' }]);
     const box = ver500DraftRoutesContainer();
