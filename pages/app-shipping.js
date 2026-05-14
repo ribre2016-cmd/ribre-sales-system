@@ -379,8 +379,7 @@ function importYahooSalesCsv() {
 
       const old = yRows();
       const seen = new Set(old.map((x) => x.itemId));
-      let imported = 0,
-        skipped = 0;
+      let imported = 0, skipped = 0, patched = 0;
       const added = [];
 
       rows.slice(1).forEach((r, i) => {
@@ -400,6 +399,24 @@ function importYahooSalesCsv() {
           return;
         }
         if (seen.has(itemId)) {
+          const existing = old.find((x) => x.itemId === itemId);
+          if (existing) {
+            const csvFee = yNum(r[idxFee]);
+            const csvShipping = yNum(r[idxShip]);
+            const csvSettleAmount = yNum(r[idxAmount]);
+            let touched = false;
+            if (!Number(existing.fee) && csvFee) { existing.fee = csvFee; touched = true; }
+            if (!Number(existing.shipping) && csvShipping) {
+              existing.shipping = csvShipping;
+              existing.ship = csvShipping;
+              touched = true;
+            }
+            if (!Number(existing.settleAmount) && csvSettleAmount) { existing.settleAmount = csvSettleAmount; touched = true; }
+            if (touched) {
+              existing.profit = Number(existing.amount || existing.price || 0) - Number(existing.fee || 0) - Number(existing.shipping || 0);
+              patched++;
+            }
+          }
           skipped++;
           return;
         }
@@ -435,10 +452,20 @@ function importYahooSalesCsv() {
       const merged = old.concat(added);
       ySave(merged);
       refreshAll();
-      ySet('yahooSalesCount', merged.length + '件');
+      const totalSales = merged.length;
+      const matchedSales = merged.filter((x) => {
+        if (Number(x.shipping || 0) > 0) return true;
+        if (x.matchStatus === '配送一致' || x.matchStatus === '手入力') return true;
+        const s = [x.slip, x.invoiceNo, x.memo, x.deliveryCompany, x.matchStatus].map((v) => String(v || '')).join(' ');
+        return s.includes('匿名配送') || s.includes('匿名');
+      }).length;
+      ySet('yahooSalesCount', totalSales + '件');
+      ySet('yahooMatchCount', matchedSales + '件');
+      ySet('yahooUnmatchCount', (totalSales - matchedSales) + '件');
       ySet('yahooStatus', '取込OK');
       yRender([
         { type: '取込', level: 'ok', msg: '取込：' + imported + '件' },
+        { type: '補完', level: 'ok', msg: '補完更新：' + patched + '件' },
         { type: '除外', level: 'warn', msg: '除外/重複：' + skipped + '件' },
         ...added.slice(0, 80).map((x) => ({ type: x.shop, level: 'ok', msg: x.itemId + ' / ' + x.name + ' / ' + yNum(x.amount).toLocaleString() + '円' }))
       ]);
