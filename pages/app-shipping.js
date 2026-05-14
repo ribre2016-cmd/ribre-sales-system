@@ -238,6 +238,9 @@ function matchShipping() {
   refreshAll();
   shipSet('shipMatchCount', matched + '件');
   shipSet('shipUnmatchCount', unmatched + '件');
+  shipSet('shipSalesCount', s.length + '件');
+  shipSet('shipSalesUnmatched', (s.length - matched) + '件');
+  shipSet('shipMatchRate', s.length > 0 ? Math.round(matched / s.length * 100) + '%' : '—');
   shipSet('shipStatus', '照合完了');
   shipRender(
     results

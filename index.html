@@ -98,6 +98,9 @@
   user-select: none;
 }
 .csv-advanced summary:hover { color: #2563eb; }
+/* 配送照合 一致サマリー強調 */
+.ship-hl { border-color: #93c5fd; background: #eff6ff; }
+.ship-hl .label { color: #1d4ed8; }
 </style>
 </head>
 <body>
@@ -279,9 +282,12 @@
     </div>
 
     <div class="grid">
-      <div class="card"><div class="label">配送CSV</div><div id="shipCsvCount" class="value">0件</div></div>
-      <div class="card"><div class="label">一致</div><div id="shipMatchCount" class="value">0件</div></div>
-      <div class="card"><div class="label">未一致</div><div id="shipUnmatchCount" class="value">0件</div></div>
+      <div class="card ship-hl"><div class="label">売上商品数</div><div id="shipSalesCount" class="value">—</div></div>
+      <div class="card ship-hl"><div class="label">配送一致数</div><div id="shipMatchCount" class="value">0件</div></div>
+      <div class="card ship-hl"><div class="label">未一致（売上比）</div><div id="shipSalesUnmatched" class="value">—</div></div>
+      <div class="card ship-hl"><div class="label">一致率</div><div id="shipMatchRate" class="value">—</div></div>
+      <div class="card"><div class="label">配送CSV取込数</div><div id="shipCsvCount" class="value">0件</div></div>
+      <div class="card"><div class="label">CSV未一致</div><div id="shipUnmatchCount" class="value">0件</div></div>
       <div class="card"><div class="label">状態</div><div id="shipStatus" class="value">待機</div></div>
     </div>
 
