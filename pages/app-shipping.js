@@ -886,7 +886,7 @@ function shipRenderEditable(rows) {
     const level = r.status === '一致' || r.status === '手入力' ? 'ok' : 'warn';
     const safeId = String(r.itemId || '').replace(/['"<>&]/g, '');
     const inputHtml = safeId
-      ? '<input type="number" class="ship-edit-input" value="' + (r.shipping || 0) + '" min="0" data-id="' + safeId + '" onchange="manualShipping(this.dataset.id,this.value)" title="送料を手入力（Enter/タブで確定）">'
+      ? '<input type="number" class="ship-edit-input" value="' + (r.shipping || 0) + '" min="0" data-id="' + safeId + '" onchange="manualShipping(this.dataset.id,this.value)" onkeydown="if(event.key===\'Enter\'){manualShipping(this.dataset.id,this.value);event.target.blur();}" title="送料を手入力（Enter/タブで確定）">'
       : '';
     return '<div class="row ' + level + '"><span class="ship-row-msg">' + (r.msg || '') + '</span>' + inputHtml + '<span class="badge">' + r.status + '</span></div>';
   }).join('');
@@ -908,6 +908,7 @@ function manualShipping(itemId, val) {
   s[idx].profit = num(s[idx].amount || s[idx].price || 0) - num(s[idx].fee || 0) - v;
   s[idx].matchStatus = '手入力';
   setLS(LS.sales, s);
+  refreshAll();
   const results = shipResults();
   const ri = results.findIndex(r => String(r.itemId || '') === String(itemId));
   if (ri >= 0) {
