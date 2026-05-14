@@ -234,22 +234,39 @@ function matchShipping() {
     }
   });
   setLS(LS.sales, s);
-  saveShipResults(results);
   refreshAll();
-  const salesMatched = s.filter(x => x.matchStatus === '配送CSV一致' && Number(x.shipping || 0) > 0).length;
+  const salesResults = [];
+  s.forEach(x => {
+    const shipped = Number(x.shipping || 0) > 0;
+    const csvMatched = x.matchStatus === '配送CSV一致' && shipped;
+    const status = csvMatched ? '一致' : (shipped ? '匿名配送' : '未一致');
+    salesResults.push({
+      status,
+      company: x.deliveryCompany || '',
+      itemId: x.itemId || x.id || '',
+      slip: x.slip || '',
+      shipping: x.shipping || 0,
+      name: x.name || '',
+      msg: status + ': ' + (x.name || '') + ' / 送料:' + (x.shipping || 0) + (x.deliveryCompany ? ' / ' + x.deliveryCompany : '')
+    });
+  });
+  saveShipResults(salesResults);
+  const salesMatched   = salesResults.filter(r => r.status === '一致').length;
+  const salesAnon      = salesResults.filter(r => r.status === '匿名配送').length;
+  const salesUnmatched = salesResults.filter(r => r.status === '未一致').length;
   shipSet('shipSalesCount', s.length + '件');
   shipSet('shipMatchCount', salesMatched + '件');
-  shipSet('shipSalesUnmatched', (s.length - salesMatched) + '件');
+  shipSet('shipSalesUnmatched', salesUnmatched + '件');
   shipSet('shipMatchRate', s.length > 0 ? Math.round(salesMatched / s.length * 100) + '%' : '—');
-  shipSet('shipUnmatchCount', unmatched + '件');
+  shipSet('shipUnmatchCount', salesAnon + '件');
   shipSet('shipStatus', '照合完了');
   shipRender(
-    results
+    salesResults
       .slice(0, 120)
-      .map((r) => ({
+      .map(r => ({
         type: r.status,
         level: r.status === '一致' ? 'ok' : 'warn',
-        msg: r.msg + ' / 送料:' + r.shipping + ' / ' + r.company + shipSourceTag(r) + shipOcrLightMeta(r)
+        msg: r.msg
       }))
   );
 }
