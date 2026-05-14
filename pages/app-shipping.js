@@ -346,6 +346,7 @@ function yDate(v) {
 function importYahooSalesCsv() {
   const file = document.getElementById('yahooCsvFile').files[0];
   const account = document.getElementById('yahooAccount').value;
+  const isYahoo = account.startsWith('ヤフオク');
   if (!file) {
     alert('ヤフオク売上CSVを選択してください');
     return;
@@ -363,11 +364,12 @@ function importYahooSalesCsv() {
       }
       const h = rows[0];
 
-      const idxId = yFindIndex(h, ['商品ID', 'オークションID', '管理番号'], 0);
-      const idxDate = yFindIndex(h, ['完了日', '落札日', '終了日時', '取扱日'], 1);
+      const idxId = isYahoo
+        ? yFindIndex(h, ['商品ID', 'オークションID', '管理番号'], 0)
+        : yFindIndex(h, ['注文番号', '商品ID', '管理番号'], 0);
+      const idxDate = yFindIndex(h, ['完了日', '落札日', '終了日時', '取扱日', '売上移転日'], 1);
       const idxName = yFindIndex(h, ['商品名', 'タイトル', '取扱内容'], 2);
-      const idxAmount = yFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計'], 3);
-      const isYahoo = account.startsWith('ヤフオク');
+      const idxAmount = yFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計', '売上（税込）'], 3);
       const idxFee = isYahoo
         ? yFindIndex(h, ['落札システム利用料', '手数料'], 4)
         : account === 'メルカリShops'
@@ -383,7 +385,8 @@ function importYahooSalesCsv() {
       const added = [];
 
       rows.slice(1).forEach((r, i) => {
-        const itemId = yItemId(r[idxId] || r.join(' '));
+        const rawId = String(r[idxId] || '').trim();
+        const itemId = isYahoo ? yItemId(r[idxId] || r.join(' ')) : (rawId || yItemId(r.join(' ')));
         if (!itemId) {
           skipped++;
           return;
@@ -440,7 +443,7 @@ function importYahooSalesCsv() {
           slip: '',
           deliveryCompany: '',
           matchStatus: '売上CSV取込',
-          memo: 'ヤフオク売上CSV / ' + file.name,
+          memo: (isYahoo ? 'ヤフオク売上CSV' : account + '売上CSV') + ' / ' + file.name,
           source: 'YahooCSV Ver60.0',
           order: old.length + added.length + i + 1
         };
@@ -475,7 +478,7 @@ function importYahooSalesCsv() {
     }
   };
   rd.onerror = () => yRender([{ type: 'ERROR', level: 'danger', msg: 'CSVを読み込めませんでした' }]);
-  rd.readAsText(file, 'Shift_JIS');
+  rd.readAsText(file, isYahoo ? 'Shift_JIS' : 'UTF-8');
 }
 function autoMatchShippingFromYahoo() {
   const ships = shipRows();
