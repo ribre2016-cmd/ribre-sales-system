@@ -115,11 +115,11 @@ function importShippingCsv() {
         } else if (type === 'yamato2') {
           obj.company = 'ヤマト';
           obj.slip = normalizeSlip(r[4] || '');
-          obj.shipping = num(r[11] || 0);
+          obj.shipping = Math.round(num(r[11] || 0) * 1.1);
         } else {
           obj.company = '佐川急便';
           obj.itemId = extractItemId(r[4] || '');
-          obj.shipping = num(r[10] || 0);
+          obj.shipping = Math.round(num(r[10] || 0) * 1.1);
         }
 
         if (obj.itemId || obj.slip || obj.shipping) mapped.push(obj);
@@ -260,15 +260,7 @@ function matchShipping() {
   shipSet('shipMatchRate', s.length > 0 ? Math.round(salesMatched / s.length * 100) + '%' : '—');
   shipSet('shipUnmatchCount', salesAnon + '件');
   shipSet('shipStatus', '照合完了');
-  shipRender(
-    salesResults
-      .slice(0, 120)
-      .map(r => ({
-        type: r.status,
-        level: r.status === '一致' ? 'ok' : 'warn',
-        msg: r.msg
-      }))
-  );
+  shipRenderEditable(salesResults);
 }
 function exportShippingReport() {
   const rows = [['状態', '会社', '商品ID', '伝票番号', '送料', '商品名']];
@@ -887,6 +879,47 @@ function ver270ExportDiagnosis() {
   csvDownload(csvRows, 'unmatched_diagnosis_Ver27_0.csv');
 }
 
+function shipRenderEditable(rows) {
+  const box = document.getElementById('shippingList');
+  if (!box) return;
+  box.innerHTML = (rows || []).slice(0, 200).map(r => {
+    const level = r.status === '一致' || r.status === '手入力' ? 'ok' : 'warn';
+    const safeId = String(r.itemId || '').replace(/['"<>&]/g, '');
+    const inputHtml = safeId
+      ? '<input type="number" class="ship-edit-input" value="' + (r.shipping || 0) + '" min="0" data-id="' + safeId + '" onchange="manualShipping(this.dataset.id,this.value)" title="送料を手入力（Enter/タブで確定）">'
+      : '';
+    return '<div class="row ' + level + '"><span class="ship-row-msg">' + (r.msg || '') + '</span>' + inputHtml + '<span class="badge">' + r.status + '</span></div>';
+  }).join('');
+}
+function sortUnmatchedFirst() {
+  const rows = shipResults();
+  if (!rows.length) { alert('先に「売上と照合」を実行してください'); return; }
+  const order = { '未一致': 0 };
+  const sorted = rows.slice().sort((a, b) => (order[a.status] ?? 1) - (order[b.status] ?? 1));
+  shipRenderEditable(sorted);
+}
+function manualShipping(itemId, val) {
+  const v = Math.round(Number(val) || 0);
+  const s = sales();
+  const idx = s.findIndex(x => String(x.itemId || x.id || '') === String(itemId));
+  if (idx < 0) return;
+  s[idx].shipping = v;
+  s[idx].ship = v;
+  s[idx].profit = num(s[idx].amount || s[idx].price || 0) - num(s[idx].fee || 0) - v;
+  s[idx].matchStatus = '手入力';
+  setLS(LS.sales, s);
+  const results = shipResults();
+  const ri = results.findIndex(r => String(r.itemId || '') === String(itemId));
+  if (ri >= 0) {
+    results[ri].status = '手入力';
+    results[ri].shipping = v;
+    results[ri].msg = '手入力: ' + (results[ri].name || '') + ' / 送料:' + v;
+    saveShipResults(results);
+  }
+}
+window.shipRenderEditable = shipRenderEditable;
+window.sortUnmatchedFirst = sortUnmatchedFirst;
+window.manualShipping = manualShipping;
 window.shipRows = shipRows;
 window.saveShipRows = saveShipRows;
 window.shipResults = shipResults;

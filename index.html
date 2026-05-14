@@ -101,6 +101,9 @@
 /* 配送照合 一致サマリー強調 */
 .ship-hl { border-color: #93c5fd; background: #eff6ff; }
 .ship-hl .label { color: #1d4ed8; }
+/* 配送照合 手入力欄 */
+.ship-edit-input { width: 80px; min-width: unset !important; padding: 4px 6px !important; border-radius: 6px !important; font-size: 13px !important; }
+.ship-row-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -279,6 +282,7 @@
       <button onclick="importShippingCsv()">配送CSV取込</button>
       <button onclick="matchShipping()">売上と照合</button>
       <button onclick="exportShippingReport()" class="secondary">照合結果CSV</button>
+      <button onclick="sortUnmatchedFirst()" class="secondary">未一致を上に並べる</button>
     </div>
 
     <div class="grid">
