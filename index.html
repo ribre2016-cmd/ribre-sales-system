@@ -217,6 +217,23 @@
       <button onclick="addSale()">売上追加</button>
       <button class="secondary" onclick="exportSalesCsv()">売上CSV</button>
     </div>
+    <div class="controls" style="margin-top:8px">
+      <label>販売先フィルタ：</label>
+      <select id="salesShopFilter" onchange="renderSales()">
+        <option value="">すべて</option>
+        <option value="ヤフオク1">ヤフオク1</option>
+        <option value="ヤフオク2">ヤフオク2</option>
+        <option value="ヤフオク3">ヤフオク3</option>
+        <option value="ヤフオク4">ヤフオク4</option>
+        <option value="ヤフオク5">ヤフオク5</option>
+        <option value="ヤフオク6">ヤフオク6</option>
+        <option value="ヤフオク7">ヤフオク7</option>
+        <option value="ヤフオク8">ヤフオク8</option>
+        <option value="メルカリ">メルカリ</option>
+        <option value="メルカリShops">メルカリShops</option>
+        <option value="ラクマ">ラクマ</option>
+      </select>
+    </div>
     <div id="salesTable"></div>
   </div>
 </section>

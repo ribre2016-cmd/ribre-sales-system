@@ -367,7 +367,12 @@ function importYahooSalesCsv() {
       const idxDate = yFindIndex(h, ['完了日', '落札日', '終了日時', '取扱日'], 1);
       const idxName = yFindIndex(h, ['商品名', 'タイトル', '取扱内容'], 2);
       const idxAmount = yFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計'], 3);
-      const idxFee = yFindIndex(h, ['手数料', '落札システム利用料'], 4);
+      const isYahoo = account.startsWith('ヤフオク');
+      const idxFee = isYahoo
+        ? yFindIndex(h, ['落札システム利用料', '手数料'], 4)
+        : account === 'メルカリShops'
+        ? yFindIndex(h, ['販売手数料（税込）', '手数料'], 15)
+        : yFindIndex(h, ['手数料'], 4);
       const idxShip = yFindIndex(h, ['送料'], 5);
       const idxStatus = yFindIndex(h, ['状態', 'ステータス'], 6);
       const idxPay = yFindIndex(h, ['支払方法', '決済方法'], 7);

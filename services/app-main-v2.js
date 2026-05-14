@@ -101,7 +101,10 @@ function renderSales() {
     'ヤフオク7': 'shop-yahoo7', 'ヤフオク8': 'shop-yahoo8',
     'メルカリ': 'shop-mercari', 'メルカリShops': 'shop-mercari-shops', 'ラクマ': 'shop-rakuma'
   };
-  const rows = data.slice(0, 200).map((x, i) => {
+  const filterEl = document.getElementById('salesShopFilter');
+  const filterVal = filterEl ? filterEl.value : '';
+  const filtered = filterVal ? data.filter((x) => x.shop === filterVal) : data;
+  const rows = filtered.slice(0, 200).map((x, i) => {
     const cls = shopClsMap[x.shop] || '';
     const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
     return '<tr class="' + cls + '">' +
