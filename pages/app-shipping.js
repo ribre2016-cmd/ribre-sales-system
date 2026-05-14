@@ -236,11 +236,12 @@ function matchShipping() {
   setLS(LS.sales, s);
   saveShipResults(results);
   refreshAll();
-  shipSet('shipMatchCount', matched + '件');
-  shipSet('shipUnmatchCount', unmatched + '件');
+  const salesMatched = s.filter(x => x.matchStatus === '配送CSV一致' && Number(x.shipping || 0) > 0).length;
   shipSet('shipSalesCount', s.length + '件');
-  shipSet('shipSalesUnmatched', (s.length - matched) + '件');
-  shipSet('shipMatchRate', s.length > 0 ? Math.round(matched / s.length * 100) + '%' : '—');
+  shipSet('shipMatchCount', salesMatched + '件');
+  shipSet('shipSalesUnmatched', (s.length - salesMatched) + '件');
+  shipSet('shipMatchRate', s.length > 0 ? Math.round(salesMatched / s.length * 100) + '%' : '—');
+  shipSet('shipUnmatchCount', unmatched + '件');
   shipSet('shipStatus', '照合完了');
   shipRender(
     results
