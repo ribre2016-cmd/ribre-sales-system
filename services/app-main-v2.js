@@ -104,7 +104,7 @@ function renderSales() {
   const filterEl = document.getElementById('salesShopFilter');
   const filterVal = filterEl ? filterEl.value : '';
   const filtered = filterVal ? data.filter((x) => x.shop === filterVal) : data;
-  const rows = filtered.slice(0, 200).map((x, i) => {
+  const rows = filtered.map((x, i) => {
     const cls = shopClsMap[x.shop] || '';
     const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
     return '<tr class="' + cls + '">' +
