@@ -35,6 +35,44 @@
   color: #1d4ed8 !important;
   border-color: #dbeafe !important;
 }
+/* ダッシュボード ヒーローエリア */
+.dash-hero {
+  text-align: center;
+  padding: 22px 18px 20px;
+  margin-bottom: 12px;
+}
+.dash-guide-label {
+  font-size: 13px;
+  font-weight: 900;
+  color: #2563eb;
+  letter-spacing: .07em;
+  margin-bottom: 16px;
+}
+.dash-cta {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto 14px;
+  padding: 22px 0;
+  font-size: 20px;
+  font-weight: 900;
+  border-radius: 18px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  box-shadow: 0 6px 22px rgba(37,99,235,.38);
+  letter-spacing: .04em;
+  transition: all .15s ease;
+}
+.dash-cta:hover {
+  background: #1d4ed8;
+  box-shadow: 0 10px 30px rgba(37,99,235,.48);
+  transform: translateY(-2px);
+}
+.dash-hint {
+  font-size: 13px;
+  color: #64748b;
+}
 </style>
 </head>
 <body>
@@ -63,16 +101,19 @@
 
 <main>
 <section id="dash" class="section active">
+  <div class="panel dash-hero">
+    <div class="dash-guide-label">📌 まずはここから</div>
+    <button class="dash-cta" onclick="showSec('sales', document.querySelectorAll('nav > button')[1])">＋ 売上を入れる</button>
+    <div class="dash-hint">CSVで一括登録したい場合は「CSVを取り込む」へ</div>
+  </div>
   <div class="panel">
-    <h2>📊 ダッシュボード</h2>
     <div class="grid">
+      <div class="card"><div class="label">今月の売上合計</div><div id="dashSalesTotal" class="value">0円</div></div>
       <div class="card"><div class="label">売上件数</div><div id="dashSalesCount" class="value">0件</div></div>
-      <div class="card"><div class="label">仕入件数</div><div id="dashPurchaseCount" class="value">0件</div></div>
-      <div class="card"><div class="label">売上合計</div><div id="dashSalesTotal" class="value">0円</div></div>
-      <div class="card"><div class="label">利益目安</div><div id="dashProfit" class="value">0円</div></div>
     </div>
+    <div style="display:none"><span id="dashPurchaseCount"></span><span id="dashProfit"></span></div>
     <div class="controls">
-      <button onclick="window.refreshAll()">再集計</button>
+      <button class="secondary" onclick="window.refreshAll()">再集計</button>
       <button class="secondary" onclick="window.monthlySummary()">月別集計</button>
     </div>
     <div id="dashList" class="list"></div>
