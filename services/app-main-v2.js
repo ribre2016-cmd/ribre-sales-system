@@ -95,26 +95,34 @@ function saveOpenAI() {
 }
 function renderSales() {
   const data = sales();
+  const shopClsMap = {
+    'ヤフオク1': 'shop-yahoo1', 'ヤフオク2': 'shop-yahoo2', 'ヤフオク3': 'shop-yahoo3',
+    'ヤフオク4': 'shop-yahoo4', 'ヤフオク5': 'shop-yahoo5', 'ヤフオク6': 'shop-yahoo6',
+    'ヤフオク7': 'shop-yahoo7', 'ヤフオク8': 'shop-yahoo8',
+    'メルカリ': 'shop-mercari', 'メルカリShops': 'shop-mercari-shops', 'ラクマ': 'shop-rakuma'
+  };
+  const rows = data.slice(0, 200).map((x, i) => {
+    const cls = shopClsMap[x.shop] || '';
+    const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
+    return '<tr class="' + cls + '">' +
+      '<td>' + (i + 1) + '</td>' +
+      '<td>' + (x.date || '') + '</td>' +
+      '<td>' + (x.shop || '') + '</td>' +
+      '<td>' + (x.itemId || '') + '</td>' +
+      '<td>' + (x.name || '') + '</td>' +
+      '<td>' + yen(x.fee || 0) + '</td>' +
+      '<td>' + yen(x.shipping || 0) + '</td>' +
+      '<td>' + yen(profit) + '</td>' +
+      '<td>' + yen(x.amount || 0) + '</td>' +
+      '<td>' + yen(x.price || x.amount || 0) + '</td>' +
+      '<td>' + (x.memo || '') + '</td>' +
+      '</tr>';
+  }).join('');
   document.getElementById('salesTable').innerHTML =
-    '<table><tr><th>日付</th><th>販売先</th><th>内容</th><th>金額</th><th>メモ</th></tr>' +
-    data
-      .slice(0, 200)
-      .map(
-        (x) =>
-          '<tr><td>' +
-          x.date +
-          '</td><td>' +
-          x.shop +
-          '</td><td>' +
-          x.name +
-          '</td><td>' +
-          yen(x.amount) +
-          '</td><td>' +
-          x.memo +
-          '</td></tr>'
-      )
-      .join('') +
-    '</table>';
+    '<div class="sales-table-wrap"><table class="sales-tbl">' +
+    '<tr><th>連番</th><th>日付</th><th>販売先</th><th>商品ID</th><th>内容</th>' +
+    '<th>手数料</th><th>送料</th><th>利益</th><th>決済金額</th><th>金額</th><th>メモ</th></tr>' +
+    rows + '</table></div>';
 }
 function renderPurchases() {
   const data = purchases();
@@ -174,8 +182,11 @@ function addPurchase() {
 function exportSalesCsv() {
   csvDownload(
     [
-      ['日付', '販売先', '内容', '金額', 'メモ'],
-      ...sales().map((x) => [x.date, x.shop, x.name, x.amount, x.memo])
+      ['日付', '販売先', '商品ID', '内容', '手数料', '送料', '利益', '決済金額', '金額', 'メモ'],
+      ...sales().map((x) => {
+        const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
+        return [x.date, x.shop, x.itemId || '', x.name, x.fee || 0, x.shipping || 0, profit, x.amount || 0, x.price || x.amount || 0, x.memo];
+      })
     ],
     'sales_Ver22_1.csv'
   );
