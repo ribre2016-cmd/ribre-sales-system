@@ -368,17 +368,15 @@ function importYahooSalesCsv() {
       }
       const h = rows[0];
 
+      const isMercariShops = account === 'メルカリShops';
       const idxId = isYahoo
         ? yFindIndex(h, ['商品ID', 'オークションID', '管理番号'], 0)
+        : isMercariShops
+        ? 0
         : yFindIndex(h, ['注文番号', '商品ID', '管理番号'], 0);
-      const isMercariShops = account === 'メルカリShops';
-      const idxDate = isMercariShops
-        ? yFindIndex(h, ['売上移転日', '取扱日'], 6)
-        : yFindIndex(h, ['完了日', '落札日', '終了日時', '取扱日'], 1);
+      const idxDate = isMercariShops ? 6 : yFindIndex(h, ['完了日', '落札日', '終了日時', '取扱日'], 1);
       const idxName = yFindIndex(h, ['商品名', 'タイトル', '取扱内容'], 2);
-      const idxAmount = isMercariShops
-        ? yFindIndex(h, ['売上（税込）', '売上金額'], 12)
-        : yFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計'], 3);
+      const idxAmount = isMercariShops ? 12 : yFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計'], 3);
       const idxFee = isYahoo
         ? yFindIndex(h, ['落札システム利用料', '手数料'], 4)
         : account === 'メルカリShops'
@@ -446,11 +444,15 @@ function importYahooSalesCsv() {
         const amount = yNum(r[idxAmount]);
         const fee = yNum(r[idxFee]);
         const shipping = yNum(r[idxShip]);
+        const rawDateVal = String(r[idxDate] || '');
+        const dateStr = (isMercariShops && !/\d{4}[\/\-年]\d{1,2}/.test(rawDateVal))
+          ? today()
+          : yDate(rawDateVal);
         const row = {
           id: itemId,
           itemId: itemId,
-          date: yDate(r[idxDate]),
-          month: yDate(r[idxDate]).slice(0, 7),
+          date: dateStr,
+          month: dateStr.slice(0, 7),
           shop: account,
           name: r[idxName] || '',
           amount: amount,
