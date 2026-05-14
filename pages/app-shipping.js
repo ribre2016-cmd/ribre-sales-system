@@ -521,7 +521,7 @@ function autoMatchShippingFromYahoo() {
   const ships = shipRows();
   const ys = yRows();
   if (!ys.length) {
-    alert('先にヤフオク売上CSVを取込してください');
+    alert('先に売上CSVを取込してください');
     return;
   }
   if (!ships.length) {
@@ -657,7 +657,7 @@ function ver250ShipRowsEnhanced() {
 function ver250ImproveUnmatched() {
   const ys = yRows();
   if (!ys.length) {
-    alert('先にヤフオク売上CSVを取込してください');
+    alert('先に売上CSVを取込してください');
     return;
   }
   const ships = ver250ShipRowsEnhanced();
@@ -998,6 +998,13 @@ function manualShipping(itemId, val) {
   s[idx].profit = num(s[idx].amount || s[idx].price || 0) - num(s[idx].fee || 0) - v;
   s[idx].matchStatus = '手入力';
   setLS(LS.sales, s);
+  const ys = yRows();
+  const yi = ys.findIndex(x => String(x.itemId || x.id || '') === String(itemId));
+  if (yi >= 0) {
+    ys[yi].shipping = v; ys[yi].ship = v;
+    ys[yi].profit = s[idx].profit; ys[yi].matchStatus = '手入力';
+    localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(ys.slice(0, 20000)));
+  }
   refreshAll();
   const results = shipResults();
   const ri = results.findIndex(r => String(r.itemId || '') === String(itemId));
