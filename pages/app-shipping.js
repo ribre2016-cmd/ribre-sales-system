@@ -371,9 +371,14 @@ function importYahooSalesCsv() {
       const idxId = isYahoo
         ? yFindIndex(h, ['商品ID', 'オークションID', '管理番号'], 0)
         : yFindIndex(h, ['注文番号', '商品ID', '管理番号'], 0);
-      const idxDate = yFindIndex(h, ['完了日', '落札日', '終了日時', '取扱日', '売上移転日'], 1);
+      const isMercariShops = account === 'メルカリShops';
+      const idxDate = isMercariShops
+        ? yFindIndex(h, ['売上移転日', '取扱日'], 6)
+        : yFindIndex(h, ['完了日', '落札日', '終了日時', '取扱日'], 1);
       const idxName = yFindIndex(h, ['商品名', 'タイトル', '取扱内容'], 2);
-      const idxAmount = yFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計', '売上（税込）'], 3);
+      const idxAmount = isMercariShops
+        ? yFindIndex(h, ['売上（税込）', '売上金額'], 12)
+        : yFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計'], 3);
       const idxFee = isYahoo
         ? yFindIndex(h, ['落札システム利用料', '手数料'], 4)
         : account === 'メルカリShops'
@@ -512,6 +517,13 @@ function autoMatchShippingFromYahoo() {
   ships.forEach((sh) => {
     let target = null;
     if (sh.itemId) target = ys.find((x) => String(x.itemId || x.id || '') === String(sh.itemId));
+    if (!target && sh.itemId && sh.itemId.length >= 8) {
+      const sId = String(sh.itemId);
+      target = ys.find((x) => {
+        const xId = String(x.itemId || x.id || '');
+        return xId.length >= 8 && (xId.startsWith(sId) || sId.startsWith(xId));
+      });
+    }
     if (!target && sh.slip) target = ys.find((x) => normalizeSlip(x.slip || '') === sh.slip);
     if (target) {
       if (sh.slip) target.slip = sh.slip;
@@ -641,6 +653,13 @@ function ver250ImproveUnmatched() {
     let target = null;
     if (sh.itemId) {
       target = ys.find((x) => String(x.itemId || x.id || '') === String(sh.itemId));
+    }
+    if (!target && sh.itemId && sh.itemId.length >= 8) {
+      const sId = String(sh.itemId);
+      target = ys.find((x) => {
+        const xId = String(x.itemId || x.id || '');
+        return xId.length >= 8 && (xId.startsWith(sId) || sId.startsWith(xId));
+      });
     }
     if (!target && sh.itemId) {
       target = ys.find((x) => String(x.name || '').includes(sh.itemId) || String(x.memo || '').includes(sh.itemId));
