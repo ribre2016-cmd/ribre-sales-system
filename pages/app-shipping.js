@@ -357,12 +357,10 @@ function importYahooSalesCsv() {
   const rd = new FileReader();
   rd.onload = () => {
     try {
-      let csvText;
-      try {
-        csvText = new TextDecoder('utf-8', { fatal: true }).decode(rd.result);
-      } catch (e) {
-        csvText = new TextDecoder('shift_jis').decode(rd.result);
-      }
+      const utf8Attempt = new TextDecoder('utf-8').decode(rd.result);
+      const csvText = utf8Attempt.includes('�') || utf8Attempt.includes('□')
+        ? new TextDecoder('shift_jis').decode(rd.result)
+        : utf8Attempt;
       const rows = yParseCsv(csvText);
       if (!rows.length) {
         alert('CSVが空です');
@@ -389,6 +387,10 @@ function importYahooSalesCsv() {
       const seen = new Set(old.map((x) => x.itemId));
       let imported = 0, skipped = 0, patched = 0;
       const added = [];
+      const isGarbled = (s) => {
+        const v = String(s || '');
+        return !v || v.includes('�') || v.includes('□');
+      };
 
       rows.slice(1).forEach((r, i) => {
         const rawId = String(r[idxId] || '').trim();
@@ -413,6 +415,7 @@ function importYahooSalesCsv() {
             const csvFee = yNum(r[idxFee]);
             const csvShipping = yNum(r[idxShip]);
             const csvSettleAmount = yNum(r[idxAmount]);
+            const csvName = r[idxName] || '';
             let touched = false;
             if (!Number(existing.fee) && csvFee) { existing.fee = csvFee; touched = true; }
             if (!Number(existing.shipping) && csvShipping) {
@@ -421,6 +424,11 @@ function importYahooSalesCsv() {
               touched = true;
             }
             if (!Number(existing.settleAmount) && csvSettleAmount) { existing.settleAmount = csvSettleAmount; touched = true; }
+            if (csvName && isGarbled(existing.name)) { existing.name = csvName; touched = true; }
+            if (isGarbled(existing.memo)) {
+              existing.memo = (isYahoo ? 'ヤフオク売上CSV' : account + '売上CSV') + ' / ' + file.name;
+              touched = true;
+            }
             if (touched) {
               existing.profit = Number(existing.amount || existing.price || 0) - Number(existing.fee || 0) - Number(existing.shipping || 0);
               patched++;
