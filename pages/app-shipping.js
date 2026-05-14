@@ -379,8 +379,8 @@ function importYahooSalesCsv() {
       const idxAmount = isMercariShops ? 12 : yFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計'], 3);
       const idxFee = isYahoo
         ? yFindIndex(h, ['落札システム利用料', '手数料'], 4)
-        : account === 'メルカリShops'
-        ? yFindIndex(h, ['販売手数料（税込）', '手数料'], 15)
+        : isMercariShops
+        ? 15
         : yFindIndex(h, ['手数料'], 4);
       const idxShip = yFindIndex(h, ['送料'], 5);
       const idxStatus = yFindIndex(h, ['状態', 'ステータス'], 6);
