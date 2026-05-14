@@ -416,6 +416,12 @@ function importYahooSalesCsv() {
           skipped++;
           return;
         }
+        const amount = yNum(r[idxAmount]);
+        const rawDateVal = String(r[idxDate] || '');
+        const dateStr = (isMercariShops && !/\d{4}[\/\-年]\d{1,2}/.test(rawDateVal))
+          ? today()
+          : yDate(rawDateVal);
+
         if (seen.has(itemId)) {
           const existing = old.find((x) => x.itemId === itemId);
           if (existing) {
@@ -436,6 +442,17 @@ function importYahooSalesCsv() {
               existing.memo = (isYahoo ? 'ヤフオク売上CSV' : account + '売上CSV') + ' / ' + file.name;
               touched = true;
             }
+            if (isMercariShops) {
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(String(existing.date || ''))) {
+                existing.date = dateStr;
+                existing.month = dateStr.slice(0, 7);
+                touched = true;
+              }
+              if (!Number(existing.amount || 0) && Number(amount)) {
+                existing.amount = amount;
+                touched = true;
+              }
+            }
             if (touched) {
               existing.profit = Number(existing.amount || existing.price || 0) - Number(existing.fee || 0) - Number(existing.shipping || 0);
               patched++;
@@ -445,13 +462,8 @@ function importYahooSalesCsv() {
           return;
         }
 
-        const amount = yNum(r[idxAmount]);
         const fee = yNum(r[idxFee]);
         const shipping = yNum(r[idxShip]);
-        const rawDateVal = String(r[idxDate] || '');
-        const dateStr = (isMercariShops && !/\d{4}[\/\-年]\d{1,2}/.test(rawDateVal))
-          ? today()
-          : yDate(rawDateVal);
         const row = {
           id: itemId,
           itemId: itemId,
