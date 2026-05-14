@@ -73,6 +73,31 @@
   font-size: 13px;
   color: #64748b;
 }
+/* CSV取込 ガイド */
+.csv-guide {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0369a1;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 0 0 10px;
+}
+.csv-advanced {
+  margin-top: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+.csv-advanced summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 700;
+  user-select: none;
+}
+.csv-advanced summary:hover { color: #2563eb; }
 </style>
 </head>
 <body>
@@ -266,43 +291,57 @@
 
 <section id="yahoo" class="section">
   <div class="panel">
-    <h2>🟡 ヤフオク売上CSV取込 Ver60.0</h2>
+    <h2>📥 売上CSV取込</h2>
+    <p class="csv-guide">① 取込元を選ぶ　② CSVファイルを選ぶ　③「売上CSV取込」を押す</p>
 
     <div class="controls">
       <select id="yahooAccount">
-        <option value="ヤフオク1">ヤフオク1</option>
-        <option value="ヤフオク2">ヤフオク2</option>
-        <option value="ヤフオク3">ヤフオク3</option>
-        <option value="ヤフオク4">ヤフオク4</option>
-        <option value="ヤフオク5">ヤフオク5</option>
-        <option value="ヤフオク6">ヤフオク6</option>
-        <option value="ヤフオク7">ヤフオク7</option>
-        <option value="ヤフオク8">ヤフオク8</option>
+        <optgroup label="ヤフオク">
+          <option value="ヤフオク1">ヤフオク1</option>
+          <option value="ヤフオク2">ヤフオク2</option>
+          <option value="ヤフオク3">ヤフオク3</option>
+          <option value="ヤフオク4">ヤフオク4</option>
+          <option value="ヤフオク5">ヤフオク5</option>
+          <option value="ヤフオク6">ヤフオク6</option>
+          <option value="ヤフオク7">ヤフオク7</option>
+          <option value="ヤフオク8">ヤフオク8</option>
+        </optgroup>
+        <optgroup label="その他モール">
+          <option value="メルカリ">メルカリ</option>
+          <option value="メルカリShops">メルカリShops</option>
+          <option value="ラクマ">ラクマ</option>
+        </optgroup>
       </select>
       <input id="yahooCsvFile" type="file" accept=".csv,text/csv">
       <button onclick="importYahooSalesCsv()">売上CSV取込</button>
-      <button onclick="autoMatchShippingFromYahoo()">配送CSVと自動一致</button>
-      <button onclick="exportYahooSalesCsv()" class="secondary">売上CSV出力</button>
-      <button onclick="ver250ImproveUnmatched()" class="green">未一致自動補完</button>
-      <button onclick="ver250ShowOnlyUnmatched()" class="secondary">未一致だけ表示</button>
-      <button onclick="ver250CompanySummary()" class="secondary">会社別集計</button>
-      <button onclick="ver260SalesBasedUnmatched()" class="green">売上件数ベース未一致</button>
-      <button onclick="ver260ExportRemainingUnmatched()" class="secondary">残未一致CSV</button>
-      <button onclick="ver270DiagnoseUnmatched()" class="green">未一致原因診断</button>
-      <button onclick="ver270ExportDiagnosis()" class="secondary">原因別CSV</button>
       <button onclick="showYahooGuide()" class="secondary">使い方</button>
     </div>
 
-    <div class="grid">
-      <div class="card"><div class="label">ヤフオク売上</div><div id="yahooSalesCount" class="value">0件</div></div>
+    <details class="csv-advanced">
+      <summary>詳細操作（上級者向け）</summary>
+      <div class="controls" style="margin-top:8px">
+        <button onclick="autoMatchShippingFromYahoo()">配送CSVと自動一致</button>
+        <button onclick="exportYahooSalesCsv()" class="secondary">売上CSV出力</button>
+        <button onclick="ver250ImproveUnmatched()" class="green">未一致自動補完</button>
+        <button onclick="ver250ShowOnlyUnmatched()" class="secondary">未一致だけ表示</button>
+        <button onclick="ver250CompanySummary()" class="secondary">会社別集計</button>
+        <button onclick="ver260SalesBasedUnmatched()" class="green">売上件数ベース未一致</button>
+        <button onclick="ver260ExportRemainingUnmatched()" class="secondary">残未一致CSV</button>
+        <button onclick="ver270DiagnoseUnmatched()" class="green">未一致原因診断</button>
+        <button onclick="ver270ExportDiagnosis()" class="secondary">原因別CSV</button>
+      </div>
+    </details>
+
+    <div class="grid" style="margin-top:12px">
+      <div class="card"><div class="label">取込件数</div><div id="yahooSalesCount" class="value">0件</div></div>
       <div class="card"><div class="label">配送一致</div><div id="yahooMatchCount" class="value">0件</div></div>
       <div class="card"><div class="label">配送未一致</div><div id="yahooUnmatchCount" class="value">0件</div></div>
       <div class="card"><div class="label">状態</div><div id="yahooStatus" class="value">待機</div></div>
-      <div class="card"><div class="label">補完一致</div><div id="ver250ImproveCount" class="value">0件</div></div>
-      <div class="card"><div class="label">佐川未一致</div><div id="ver250SagawaUnmatch" class="value">0件</div></div>
-      <div class="card"><div class="label">売上基準 残未一致</div><div id="ver260Remaining" class="value">0件</div></div>
-      <div class="card"><div class="label">送料0件</div><div id="ver260ZeroShipping" class="value">0件</div></div>
-      <div class="card"><div class="label">原因診断</div><div id="ver270DiagnosisCount" class="value">0件</div></div>
+    </div>
+    <div style="display:none">
+      <span id="ver250ImproveCount"></span><span id="ver250SagawaUnmatch"></span>
+      <span id="ver260Remaining"></span><span id="ver260ZeroShipping"></span>
+      <span id="ver270DiagnosisCount"></span>
     </div>
 
     <div id="yahooList" class="list"></div>
