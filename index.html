@@ -148,17 +148,43 @@ body.dev-mode .dev-only { display: block !important; }
   <button class="active" onclick="showSec('dash',this)">ホーム</button>
   <button onclick="showSec('sales',this)">売上を入れる</button>
   <button onclick="showSec('yahoo',this)">CSVを取り込む</button>
-  <button class="dev-only" onclick="showSec('shipping',this)">配送照合</button>
+  <button onclick="showSec('shipping',this)">配送照合</button>
   <button onclick="showSec('analytics',this)">集計を見る</button>
   <div class="other-wrapper">
     <button id="btnOther" onclick="toggleOtherMenu()">☰ その他</button>
     <div id="otherMenu" class="other-menu hidden">
       <button onclick="showOther('purchases')">仕入を入れる</button>
       <button onclick="showOther('templates')">テンプレート</button>
-      <button class="dev-only" onclick="showOther('search')">検索・絞込</button>
-      <button class="dev-only" onclick="showOther('datacheck')">データ確認</button>
-      <button class="dev-only" onclick="showOther('backup')">バックアップ</button>
+      <button onclick="showOther('search')">検索・絞込</button>
+      <button onclick="showOther('datacheck')">データ確認</button>
+      <button onclick="showOther('backup')">バックアップ</button>
       <button onclick="showOther('settings')">設定・ログイン</button>
+      <button class="dev-only" onclick="showOther('ocr')">OCR・証憑</button>
+      <button class="dev-only" onclick="showOther('cloud')">クラウド保存</button>
+      <button class="dev-only" onclick="showOther('permissions')">権限・ロック</button>
+      <button class="dev-only" onclick="showOther('autosync')">自動同期</button>
+      <button class="dev-only" onclick="showOther('aiclassify')">AI分類</button>
+      <button class="dev-only" onclick="showOther('fixtasks')">修正タスク</button>
+      <button class="dev-only" onclick="showOther('monthclose')">月締め</button>
+      <button class="dev-only" onclick="showOther('accounting')">会計出力</button>
+      <button class="dev-only" onclick="showOther('evidencecloud')">証憑クラウド</button>
+      <button class="dev-only" onclick="showOther('dashboard42')">経営分析</button>
+      <button class="dev-only" onclick="showOther('schema43')">本番設計</button>
+      <button class="dev-only" onclick="showOther('migration44')">本番移行</button>
+      <button class="dev-only" onclick="showOther('dedupe45')">重複防止</button>
+      <button class="dev-only" onclick="showOther('realtime46')">リアルタイム</button>
+      <button class="dev-only" onclick="showOther('staff47')">スタッフ運用</button>
+      <button class="dev-only" onclick="showOther('storage49')">Storage保存</button>
+      <button class="dev-only" onclick="showOther('aiauto50')">AI自動登録</button>
+      <button class="dev-only" onclick="showOther('analytics51')">分析強化</button>
+      <button class="dev-only" onclick="showOther('report52')">日次レポート</button>
+      <button class="dev-only" onclick="showOther('backup53')">本番バックアップ</button>
+      <button class="dev-only" onclick="showOther('audit55')">操作ログ</button>
+      <button class="dev-only" onclick="showOther('organize56')">整理・引継ぎ</button>
+      <button class="dev-only" onclick="showOther('beginner57')">初心者モード</button>
+      <button class="dev-only" onclick="showOther('mobile58')">スマホ最適化</button>
+      <button class="dev-only" onclick="showOther('stable59')">安定化</button>
+      <button class="dev-only" onclick="showOther('product60')">商品化準備</button>
     </div>
   </div>
 </nav>
