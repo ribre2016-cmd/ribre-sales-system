@@ -125,8 +125,21 @@ function importShippingCsv() {
         if (obj.itemId || obj.slip || obj.shipping) mapped.push(obj);
       });
 
-      saveShipRows(mapped);
-      shipSet('shipCsvCount', mapped.length + '件');
+      let finalRows;
+      if (type === 'yamato2') {
+        const prev = shipRows();
+        const nonY2 = prev.filter(r => r.type !== 'yamato2');
+        const slipMap = new Map(prev.filter(r => r.type === 'yamato2' && r.slip).map(r => [r.slip, r]));
+        const noSlipPrev = prev.filter(r => r.type === 'yamato2' && !r.slip);
+        const noSlipNew = [];
+        mapped.forEach(r => { r.slip ? slipMap.set(r.slip, r) : noSlipNew.push(r); });
+        finalRows = nonY2.concat(Array.from(slipMap.values())).concat(noSlipPrev).concat(noSlipNew);
+      } else {
+        const prev = shipRows();
+        finalRows = prev.filter(r => r.type === 'yamato2' || r.type !== type).concat(mapped);
+      }
+      saveShipRows(finalRows);
+      shipSet('shipCsvCount', finalRows.length + '件');
       shipSet('shipStatus', '取込OK');
 
       if (!mapped.length) {
