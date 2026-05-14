@@ -79,9 +79,13 @@ function shipOcrLightMeta(x) {
   return (carrier ? ' / ' + carrier : '') + (tracking ? ' / ' + tracking : '') + (evidence ? ' / 証憑あり' : '');
 }
 function extractItemId(v) {
-  const s = String(v || '');
+  const s = String(v || '').trim();
+  const order = s.match(/order_[A-Za-z0-9]+/);
+  if (order) return order[0];
   const m = s.match(/[a-z]?\d{9,12}/i);
-  return m ? m[0] : '';
+  if (m) return m[0];
+  if (s.length >= 8) return s;
+  return '';
 }
 function importShippingCsv() {
   const input = document.getElementById('shipCsvFile');
@@ -612,9 +616,13 @@ window.addEventListener('load', () => {
 });
 
 function ver250ItemIdFromAny(v) {
-  const s = String(v || '');
+  const s = String(v || '').trim();
+  const order = s.match(/order_[A-Za-z0-9]+/);
+  if (order) return order[0];
   const m = s.match(/[a-z]?\d{9,12}/i);
-  return m ? m[0] : '';
+  if (m) return m[0];
+  if (s.length >= 8) return s;
+  return '';
 }
 function ver250Slip(v) {
   return String(v || '').replace(/[-\s]/g, '').trim();
