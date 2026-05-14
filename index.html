@@ -6,7 +6,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/mobile.css">
-
+<style>
+.other-wrapper { position: relative; }
+.other-menu {
+  position: absolute; top: calc(100% + 6px); left: 0;
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+  padding: 8px; z-index: 1000;
+  display: flex; flex-direction: column; gap: 2px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.14);
+  max-height: 60vh; overflow-y: auto; min-width: 170px;
+}
+.other-menu.hidden { display: none; }
+.other-menu button {
+  border: 1px solid transparent !important;
+  background: none !important;
+  text-align: left !important;
+  padding: 8px 14px !important;
+  border-radius: 6px !important;
+  font-size: 14px !important;
+  white-space: nowrap !important;
+  width: 100% !important;
+  font-weight: 600 !important;
+  color: #0f172a !important;
+  box-shadow: none !important;
+}
+.other-menu button:hover {
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+  border-color: #dbeafe !important;
+}
+</style>
 </head>
 <body>
 <header>
@@ -15,44 +44,21 @@
 </header>
 
 <nav>
-  <button class="active" onclick="showSec('dash',this)">ダッシュボード</button>
-  <button onclick="showSec('settings',this)">設定・ログイン</button>
-  <button onclick="showSec('sales',this)">売上管理</button>
-  <button onclick="showSec('purchases',this)">仕入管理</button>
-  <button onclick="showSec('ocr',this)">OCR・証憑</button>
-  <button onclick="showSec('cloud',this)">クラウド保存</button>
-  <button onclick="showSec('shipping',this)">配送照合</button>
-  <button onclick="showSec('yahoo',this)">ヤフオクCSV</button>
-  <button onclick="showSec('analytics',this)">集計・出力</button>
-  <button onclick="showSec('backup',this)">バックアップ</button>
-  <button onclick="showSec('permissions',this)">権限・ロック</button>
-  <button onclick="showSec('autosync',this)">自動同期</button>
-  <button onclick="showSec('search',this)">検索・絞込</button>
-  <button onclick="showSec('templates',this)">テンプレート</button>
-  <button onclick="showSec('aiclassify',this)">AI分類</button>
-  <button onclick="showSec('datacheck',this)">データ確認</button>
-  <button onclick="showSec('fixtasks',this)">修正タスク</button>
-  <button onclick="showSec('monthclose',this)">月締め</button>
-  <button onclick="showSec('accounting',this)">会計出力</button>
-  <button onclick="showSec('evidencecloud',this)">証憑クラウド</button>
-  <button onclick="showSec('dashboard42',this)">経営分析</button>
-  <button onclick="showSec('schema43',this)">本番設計</button>
-  <button onclick="showSec('migration44',this)">本番移行</button>
-  <button onclick="showSec('dedupe45',this)">重複防止</button>
-  <button onclick="showSec('realtime46',this)">リアルタイム</button>
-  <button onclick="showSec('staff47',this)">スタッフ運用</button>
-  <button onclick="showSec('storage49',this)">Storage保存</button>
-  <button onclick="showSec('aiauto50',this)">AI自動登録</button>
-  <button onclick="showSec('analytics51',this)">分析強化</button>
-  <button onclick="showSec('report52',this)">日次レポート</button>
-  <button onclick="showSec('backup53',this)">本番バックアップ</button>
-  <button onclick="showSec('sync54',this)">自動同期</button>
-  <button onclick="showSec('audit55',this)">操作ログ</button>
-  <button onclick="showSec('organize56',this)">整理・引継ぎ</button>
-  <button onclick="showSec('beginner57',this)">初心者モード</button>
-  <button onclick="showSec('mobile58',this)">スマホ最適化</button>
-  <button onclick="showSec('stable59',this)">安定化</button>
-  <button onclick="showSec('product60',this)">商品化準備</button>
+  <button class="active" onclick="showSec('dash',this)">ホーム</button>
+  <button onclick="showSec('sales',this)">売上を入れる</button>
+  <button onclick="showSec('yahoo',this)">CSVを取り込む</button>
+  <button onclick="showSec('analytics',this)">集計を見る</button>
+  <div class="other-wrapper">
+    <button id="btnOther" onclick="toggleOtherMenu()">☰ その他</button>
+    <div id="otherMenu" class="other-menu hidden">
+      <button onclick="showOther('purchases')">仕入を入れる</button>
+      <button onclick="showOther('templates')">テンプレート</button>
+      <button onclick="showOther('search')">検索・絞込</button>
+      <button onclick="showOther('datacheck')">データ確認</button>
+      <button onclick="showOther('backup')">バックアップ</button>
+      <button onclick="showOther('settings')">設定・ログイン</button>
+    </div>
+  </div>
 </nav>
 
 <main>
@@ -1156,5 +1162,19 @@
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
 
+<script>
+function toggleOtherMenu() {
+  document.getElementById('otherMenu').classList.toggle('hidden');
+}
+function showOther(id) {
+  document.getElementById('otherMenu').classList.add('hidden');
+  showSec(id, document.getElementById('btnOther'));
+}
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#btnOther') && !e.target.closest('#otherMenu')) {
+    document.getElementById('otherMenu').classList.add('hidden');
+  }
+});
+</script>
 </body>
 </html>
