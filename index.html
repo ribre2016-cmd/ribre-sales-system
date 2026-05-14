@@ -124,28 +124,40 @@
 .shop-mercari { background: #fce7f3; }
 .shop-mercari-shops { background: #ede9fe; }
 .shop-rakuma { background: #ecfdf5; }
+/* 開発者モード切替 */
+.dev-only { display: none !important; }
+body.dev-mode .dev-only { display: block !important; }
+#devToggle {
+  font-size: 11px; padding: 4px 10px; border-radius: 12px;
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.25);
+  color: #cbd5e1; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+#devToggle.dev-on { background: #1d4ed8; border-color: #3b82f6; color: #fff; }
 </style>
 </head>
 <body>
 <header>
   <h1>株式会社RIBRE 売上管理 Ver60.0</h1>
-  <div id="topUser">未ログイン</div>
+  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+    <button id="devToggle" onclick="toggleDevMode()">開発者モード</button>
+    <div id="topUser">未ログイン</div>
+  </div>
 </header>
 
 <nav>
   <button class="active" onclick="showSec('dash',this)">ホーム</button>
   <button onclick="showSec('sales',this)">売上を入れる</button>
   <button onclick="showSec('yahoo',this)">CSVを取り込む</button>
-  <button onclick="showSec('shipping',this)">配送照合</button>
+  <button class="dev-only" onclick="showSec('shipping',this)">配送照合</button>
   <button onclick="showSec('analytics',this)">集計を見る</button>
   <div class="other-wrapper">
     <button id="btnOther" onclick="toggleOtherMenu()">☰ その他</button>
     <div id="otherMenu" class="other-menu hidden">
       <button onclick="showOther('purchases')">仕入を入れる</button>
       <button onclick="showOther('templates')">テンプレート</button>
-      <button onclick="showOther('search')">検索・絞込</button>
-      <button onclick="showOther('datacheck')">データ確認</button>
-      <button onclick="showOther('backup')">バックアップ</button>
+      <button class="dev-only" onclick="showOther('search')">検索・絞込</button>
+      <button class="dev-only" onclick="showOther('datacheck')">データ確認</button>
+      <button class="dev-only" onclick="showOther('backup')">バックアップ</button>
       <button onclick="showOther('settings')">設定・ログイン</button>
     </div>
   </div>
@@ -1302,6 +1314,18 @@ document.addEventListener('click', function(e) {
   if (!e.target.closest('#btnOther') && !e.target.closest('#otherMenu')) {
     document.getElementById('otherMenu').classList.add('hidden');
   }
+});
+function toggleDevMode() {
+  const on = document.body.classList.toggle('dev-mode');
+  const btn = document.getElementById('devToggle');
+  btn.classList.toggle('dev-on', on);
+  btn.textContent = on ? '← 初心者モード' : '開発者モード';
+  try { sessionStorage.setItem('ribre_dev_mode', on ? '1' : ''); } catch(e) {}
+}
+window.addEventListener('load', function() {
+  try {
+    if (sessionStorage.getItem('ribre_dev_mode') === '1') toggleDevMode();
+  } catch(e) {}
 });
 </script>
 </body>
