@@ -357,7 +357,13 @@ function importYahooSalesCsv() {
   const rd = new FileReader();
   rd.onload = () => {
     try {
-      const rows = yParseCsv(rd.result);
+      let csvText;
+      try {
+        csvText = new TextDecoder('utf-8', { fatal: true }).decode(rd.result);
+      } catch (e) {
+        csvText = new TextDecoder('shift_jis').decode(rd.result);
+      }
+      const rows = yParseCsv(csvText);
       if (!rows.length) {
         alert('CSVが空です');
         return;
@@ -478,7 +484,7 @@ function importYahooSalesCsv() {
     }
   };
   rd.onerror = () => yRender([{ type: 'ERROR', level: 'danger', msg: 'CSVを読み込めませんでした' }]);
-  rd.readAsText(file, isYahoo ? 'Shift_JIS' : 'UTF-8');
+  rd.readAsArrayBuffer(file);
 }
 function autoMatchShippingFromYahoo() {
   const ships = shipRows();
