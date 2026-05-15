@@ -509,6 +509,33 @@ function renderOpsFixedBar(vm, unmatched, anomaly, closed) {
     + '<span class="ops-chip ' + stateClass + '">状態: ' + stateLabel + '</span>'
     + '</div>';
 }
+function renderEmergencyBanner(unmatched, anomaly, lsWarn) {
+  const el = document.getElementById('emergencyBanner');
+  if (!el) return;
+  const issues = [];
+  let level = '';
+  if (unmatched > 20) {
+    issues.push('未一致 ' + unmatched + '件（20件超）');
+    level = 'alert';
+  }
+  if (anomaly > 10) {
+    issues.push('利益異常 ' + anomaly + '件（10件超）');
+    level = 'alert';
+  }
+  if (lsWarn) {
+    issues.push('localStorage容量警告');
+    if (!level) level = 'warn';
+  }
+  if (issues.length === 0) {
+    el.style.display = 'none';
+    el.className = 'emergency-banner';
+    el.textContent = '';
+    return;
+  }
+  el.className = 'emergency-banner ' + (level || 'warn');
+  el.textContent = '⚠ 緊急確認: ' + issues.join(' / ');
+  el.style.display = 'block';
+}
 function renderStatusPanel() {
   const el = document.getElementById('statusPanel');
   if (!el) return;
@@ -615,6 +642,7 @@ function renderStatusPanel() {
   }
   el.innerHTML = parts.join('') + checklistHtml;
   renderOpsFixedBar(vm, unmatched, anomaly, closed);
+  renderEmergencyBanner(unmatched, anomaly, lsWarn);
   const salesEl = document.getElementById('sales');
   if (salesEl) salesEl.classList.toggle('month-is-closed', closed);
   renderTodayPanel();

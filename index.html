@@ -374,6 +374,31 @@ body:not(.dev-mode) .ops-fixed-bar {
   border-color: #bfdbfe;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
+.emergency-banner {
+  position: sticky;
+  top: 33px;
+  z-index: 840;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 800;
+  display: none;
+}
+.emergency-banner.alert {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+.emergency-banner.warn {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #b45309;
+}
+body:not(.dev-mode) .emergency-banner {
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.12);
+}
 body:not(.dev-mode) #openMonthBtn { display: none; }
 /* モバイル: ダッシュボード最適化 */
 @media (max-width: 600px) {
@@ -393,6 +418,7 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
   .ops-fixed-bar { padding: 5px 8px; margin-bottom: 6px; }
   .ops-fixed-inner { gap: 4px; font-size: 10px; }
   .ops-chip { padding: 2px 7px; }
+  .emergency-banner { top: 30px; padding: 5px 8px; margin-bottom: 6px; font-size: 10px; }
   .panel { margin-bottom: 8px; }
 }
 @media (max-width: 400px) {
@@ -466,6 +492,7 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
     <span class="ops-chip open">状態: --</span>
   </div>
 </div>
+<div id="emergencyBanner" class="emergency-banner"></div>
 <section id="dash" class="section active">
   <div id="dashTodayPanel"></div>
   <div class="panel dash-hero">
