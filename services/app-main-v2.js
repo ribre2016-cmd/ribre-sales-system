@@ -602,11 +602,11 @@ function renderStatusPanel() {
   renderTodayPanel();
 }
 function renderTodayPanel() {
-  const el = document.getElementById('todayPanel');
-  if (!el) return;
+  const targets = [document.getElementById('todayPanel'), document.getElementById('dashTodayPanel')].filter(Boolean);
+  if (targets.length === 0) return;
   const vm = _vmMonth();
   const ms = sales().filter(x => (x.month || String(x.date || '').slice(0, 7)) === vm);
-  if (ms.length === 0) { el.innerHTML = ''; return; }
+  if (ms.length === 0) { targets.forEach(function(t) { t.innerHTML = ''; }); return; }
   const closed = isMonthClosed(vm);
   const locked = ms.filter(x => String(x.memo || '').includes('[LOCK]')).length;
   const lockPct = Math.round(locked / ms.length * 100);
@@ -651,7 +651,8 @@ function renderTodayPanel() {
       body = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">' + chips.join('') + '</div>';
     }
   }
-  el.innerHTML = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:8px 12px;margin-bottom:2px"><span style="font-size:11px;font-weight:900;color:#475569;margin-right:8px">📋 今日やること</span>' + body + '</div>';
+  const html = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:8px 12px;margin-bottom:2px"><span style="font-size:11px;font-weight:900;color:#475569;margin-right:8px">📋 今日やること</span>' + body + '</div>';
+  targets.forEach(function(t) { t.innerHTML = html; });
 }
 function setQuickFilter(qf) {
   window._ribreQuickFilter = qf;
