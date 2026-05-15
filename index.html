@@ -120,6 +120,10 @@
 .sales-tbl td:nth-child(5) { min-width: 110px; font-family: monospace; font-size: 11px; }
 .sales-tbl td:nth-child(6) { min-width: 160px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .sales-tbl td:nth-child(12) { min-width: 100px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+/* クイック絞り込みボタン */
+.qf-btn { font-size:11px; padding:4px 10px; border-radius:20px; border:1px solid #cbd5e1; background:#fff; color:#475569; cursor:pointer; font-weight:700; transition:all 0.1s; }
+.qf-btn.active { background:#2563eb; color:#fff; border-color:#2563eb; }
+.qf-btn:hover:not(.active) { background:#eff6ff; border-color:#93c5fd; color:#1d4ed8; }
 /* ロック行（異常検知より弱め） */
 .sales-tbl tbody tr.sale-locked { background: #f1f5f9; color: #64748b; }
 /* 締め済み月ラベル */
@@ -289,6 +293,15 @@ body.dev-mode .dev-only { display: block !important; }
     <div class="controls">
       <button onclick="addSale()">売上追加</button>
       <button class="secondary" onclick="exportSalesCsv()">売上CSV</button>
+    </div>
+    <div class="controls" style="margin-top:8px;gap:6px;flex-wrap:wrap">
+      <span style="font-size:12px;color:#64748b;align-self:center;font-weight:700">絞り込み:</span>
+      <button class="qf-btn active" data-qf="all" onclick="setQuickFilter('all')">全件</button>
+      <button class="qf-btn" data-qf="unmatched" onclick="setQuickFilter('unmatched')">未一致</button>
+      <button class="qf-btn" data-qf="anomaly" onclick="setQuickFilter('anomaly')">利益異常</button>
+      <button class="qf-btn" data-qf="noship" onclick="setQuickFilter('noship')">送料0</button>
+      <button class="qf-btn" data-qf="locked" onclick="setQuickFilter('locked')">🔒 ロック済</button>
+      <button class="qf-btn" data-qf="memo" onclick="setQuickFilter('memo')">メモあり</button>
     </div>
     <div class="controls" style="margin-top:8px;flex-wrap:wrap;gap:8px">
       <label>販売先フィルタ：</label>

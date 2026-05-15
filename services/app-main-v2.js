@@ -184,13 +184,28 @@ function renderSales() {
         return haystack.includes(searchVal);
       })
     : byShop;
+  const qf = window._ribreQuickFilter || 'all';
+  const quickFiltered = qf === 'all' ? filtered : filtered.filter(({ x }) => {
+    const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
+    const settle = num(x.amount || 0);
+    const ship = num(x.shipping || 0);
+    const ms = String(x.matchStatus || '');
+    const memo = String(x.memo || '');
+    const isAnon = ship > 0 || ms === '手入力' || ms === '匿名配送' || ms === '配送CSV一致' || memo.includes('匿名');
+    if (qf === 'unmatched') return !isAnon && ship === 0;
+    if (qf === 'anomaly') return profit < 0 || settle === 0 || profit === 0;
+    if (qf === 'noship') return ship === 0 && !isAnon;
+    if (qf === 'locked') return memo.includes('[LOCK]');
+    if (qf === 'memo') return !!memo.replace(/\s*\/\s*\[LOCK\]|\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim();
+    return true;
+  });
   const infoEl = document.getElementById('salesFilterInfo');
   if (infoEl) {
-    infoEl.textContent = (filterVal || searchVal)
-      ? filtered.length + '件 / 全' + data.length + '件'
+    infoEl.textContent = (filterVal || searchVal || qf !== 'all')
+      ? quickFiltered.length + '件 / 全' + data.length + '件'
       : '全' + data.length + '件';
   }
-  const rows = filtered.map(({ x, origIdx }, i) => {
+  const rows = quickFiltered.map(({ x, origIdx }, i) => {
     const cls = shopClsMap[x.shop] || '';
     const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
     const settle = num(x.amount || 0);
@@ -459,6 +474,14 @@ window.toggleAllSales = toggleAllSales;
 window.applyBulkMemo = applyBulkMemo;
 window.applyBulkLock = applyBulkLock;
 window.applyBulkUnlock = applyBulkUnlock;
+function setQuickFilter(qf) {
+  window._ribreQuickFilter = qf;
+  document.querySelectorAll('.qf-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.qf === qf);
+  });
+  renderSales();
+}
+window.setQuickFilter = setQuickFilter;
 window.isMonthClosed = isMonthClosed;
 window.closeMonth = closeMonth;
 window.openMonth = openMonth;
