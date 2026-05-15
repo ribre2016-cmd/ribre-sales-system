@@ -119,7 +119,8 @@ function saveOpenAI() {
 }
 function renderSales() {
   const vm = _vmMonth();
-  const data = sales().filter(x => (x.month || String(x.date || '').slice(0, 7)) === vm);
+  const allSales = sales();
+  const indexed = allSales.map((x, origIdx) => ({ x, origIdx }));
   const shopClsMap = {
     'ヤフオク1': 'shop-yahoo1', 'ヤフオク2': 'shop-yahoo2', 'ヤフオク3': 'shop-yahoo3',
     'ヤフオク4': 'shop-yahoo4', 'ヤフオク5': 'shop-yahoo5', 'ヤフオク6': 'shop-yahoo6',
@@ -130,9 +131,10 @@ function renderSales() {
   const filterVal = filterEl ? filterEl.value : '';
   const searchEl = document.getElementById('salesItemIdSearch');
   const searchVal = searchEl ? searchEl.value.trim().toLowerCase() : '';
-  const byShop = filterVal ? data.filter((x) => x.shop === filterVal) : data;
+  const data = indexed.filter(({ x }) => (x.month || String(x.date || '').slice(0, 7)) === vm);
+  const byShop = filterVal ? data.filter(({ x }) => x.shop === filterVal) : data;
   const filtered = searchVal
-    ? byShop.filter((x) => {
+    ? byShop.filter(({ x }) => {
         const haystack = [x.itemId, x.id, x.name, x.title, x.content, x.itemName]
           .filter(Boolean).join(' ').toLowerCase();
         return haystack.includes(searchVal);
@@ -144,7 +146,7 @@ function renderSales() {
       ? filtered.length + '件 / 全' + data.length + '件'
       : '全' + data.length + '件';
   }
-  const rows = filtered.map((x, i) => {
+  const rows = filtered.map(({ x, origIdx }, i) => {
     const cls = shopClsMap[x.shop] || '';
     const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
     const settle = num(x.amount || 0);
@@ -161,7 +163,7 @@ function renderSales() {
       ? '<td class="sale-loss-cell">' + yen(profit) + '</td>'
       : '<td>' + yen(profit) + '</td>';
     return '<tr class="' + cls + (anomaly ? ' ' + anomaly : '') + '">' +
-      '<td><input type="checkbox" class="sales-row-cb" onchange="updateSalesSelectCount()"></td>' +
+      '<td><input type="checkbox" class="sales-row-cb" data-id="' + origIdx + '" onchange="updateSalesSelectCount()"></td>' +
       '<td>' + (i + 1) + '</td>' +
       '<td>' + (x.date || '') + '</td>' +
       '<td>' + (x.shop || '') + '</td>' +
@@ -314,6 +316,29 @@ function toggleAllSales(cb) {
   document.querySelectorAll('.sales-row-cb').forEach(function(el) { el.checked = cb.checked; });
   updateSalesSelectCount();
 }
+function applyBulkMemo() {
+  const memoText = (document.getElementById('bulkMemoInput') || {}).value;
+  if (!memoText || !memoText.trim()) { alert('メモを入力してください'); return; }
+  const text = memoText.trim();
+  const checked = document.querySelectorAll('.sales-row-cb:checked');
+  if (!checked.length) { alert('行を選択してください'); return; }
+  const ids = Array.from(checked).map(function(cb) { return cb.dataset.id; }).filter(Boolean);
+  if (!ids.length) return;
+  const s = sales();
+  let changed = 0;
+  ids.forEach(function(id) {
+    const idx = Number(id);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= s.length) return;
+    const existing = String(s[idx].memo || '').trim();
+    s[idx].memo = existing ? existing + ' / ' + text : text;
+    changed++;
+  });
+  if (changed > 0) {
+    setLS(LS.sales, s);
+    document.getElementById('bulkMemoInput').value = '';
+    refreshAll();
+  }
+}
 window.refreshTop = refreshTop;
 window.refreshAll = refreshAll;
 window.monthlySummary = monthlySummary;
@@ -321,3 +346,4 @@ window.prevMonth = prevMonth;
 window.nextMonth = nextMonth;
 window.updateSalesSelectCount = updateSalesSelectCount;
 window.toggleAllSales = toggleAllSales;
+window.applyBulkMemo = applyBulkMemo;
