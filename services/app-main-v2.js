@@ -12,13 +12,55 @@ function nextMonth() {
   window._ribreViewMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   refreshAll();
 }
+function isMonthClosed(vm) {
+  const rows = sales().filter(x => (x.month || String(x.date || '').slice(0, 7)) === vm);
+  return rows.length > 0 && rows.every(x => String(x.memo || '').includes('[LOCK]'));
+}
+function closeMonth() {
+  const vm = _vmMonth();
+  const p = vm.split('-');
+  const label = p[0] + '年' + Number(p[1]) + '月';
+  if (!confirm(label + 'のデータをすべてロックします。よろしいですか？')) return;
+  const s = sales();
+  let changed = 0;
+  s.forEach(function(x, idx) {
+    if ((x.month || String(x.date || '').slice(0, 7)) !== vm) return;
+    const memo = String(x.memo || '').trim();
+    if (memo.includes('[LOCK]')) return;
+    s[idx].memo = memo ? memo + ' / [LOCK]' : '[LOCK]';
+    changed++;
+  });
+  if (changed > 0) { setLS(LS.sales, s); refreshAll(); }
+  else { alert('対象行がないか、すでにすべてロック済みです。'); }
+}
+function openMonth() {
+  const vm = _vmMonth();
+  const p = vm.split('-');
+  const label = p[0] + '年' + Number(p[1]) + '月';
+  if (!confirm(label + 'の締めを解除します。よろしいですか？')) return;
+  const s = sales();
+  let changed = 0;
+  s.forEach(function(x, idx) {
+    if ((x.month || String(x.date || '').slice(0, 7)) !== vm) return;
+    const memo = String(x.memo || '');
+    if (!memo.includes('[LOCK]')) return;
+    s[idx].memo = memo.replace(/\s*\/\s*\[LOCK\]/g, '').replace(/\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim();
+    changed++;
+  });
+  if (changed > 0) { setLS(LS.sales, s); refreshAll(); }
+  else { alert('ロック済みの行がありません。'); }
+}
 function refreshMonthDisplay() {
   const vm = _vmMonth();
   const p = vm.split('-');
   const label = p[0] + '年' + Number(p[1]) + '月';
+  const closed = isMonthClosed(vm);
+  const suffixed = closed ? label + '【締め済み】' : label;
   ['currentViewMonth', 'currentViewMonthSales'].forEach(function(id) {
     const el = document.getElementById(id);
-    if (el) el.textContent = label;
+    if (!el) return;
+    el.textContent = suffixed;
+    el.classList.toggle('month-closed', closed);
   });
 }
 function refreshTop() {
@@ -386,3 +428,5 @@ window.toggleAllSales = toggleAllSales;
 window.applyBulkMemo = applyBulkMemo;
 window.applyBulkLock = applyBulkLock;
 window.applyBulkUnlock = applyBulkUnlock;
+window.closeMonth = closeMonth;
+window.openMonth = openMonth;
