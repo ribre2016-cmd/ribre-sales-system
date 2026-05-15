@@ -102,6 +102,12 @@
 .dmc-label { font-size: 11px; font-weight: 700; }
 .dmc-value { font-size: 20px; font-weight: 900; margin-top: 2px; line-height: 1.1; }
 .dmc-sub { font-size: 10px; margin-top: 2px; opacity: .8; }
+.dmc-item.dmc-alert { border-left: 4px solid #dc2626; }
+.dmc-item.dmc-caution { border-left: 4px solid #f59e0b; }
+.dmc-item.dmc-ready { border: 2px solid #86efac; }
+body:not(.dev-mode) .dmc-item.dmc-alert .dmc-value { font-size: 26px; }
+body:not(.dev-mode) .dmc-item.dmc-caution .dmc-value { font-size: 22px; }
+.dmc-ok-banner { background: #dcfce7; border: 1px solid #86efac; border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 900; color: #166534; text-align: center; margin-bottom: 8px; }
 /* CSV取込 ガイド */
 .csv-guide {
   font-size: 13px;
