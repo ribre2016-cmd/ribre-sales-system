@@ -536,6 +536,24 @@ function renderEmergencyBanner(unmatched, anomaly, lsWarn) {
   el.textContent = '⚠ 緊急確認: ' + issues.join(' / ');
   el.style.display = 'block';
 }
+function renderRecentOpMini() {
+  const el = document.getElementById('recentOpMini');
+  if (!el) return;
+  try {
+    const logs = JSON.parse(sessionStorage.getItem('ribre_op_log') || '[]');
+    const items = logs
+      .filter(function(x) { return x && x.msg; })
+      .slice(0, 5)
+      .map(function(x) {
+        return '<div class="recent-op-mini-item">・' + x.ts + ' ' + x.msg + '</div>';
+      }).join('');
+    el.innerHTML = '<h3>🕘 最近の操作（ミニ履歴）</h3><div class="recent-op-mini-list">'
+      + (items || '<div class="recent-op-mini-empty">このセッションの操作履歴はまだありません</div>')
+      + '</div>';
+  } catch(e) {
+    el.innerHTML = '<h3>🕘 最近の操作（ミニ履歴）</h3><div class="recent-op-mini-list"><div class="recent-op-mini-empty">履歴の読み込みに失敗しました</div></div>';
+  }
+}
 function renderStatusPanel() {
   const el = document.getElementById('statusPanel');
   if (!el) return;
@@ -643,6 +661,7 @@ function renderStatusPanel() {
   el.innerHTML = parts.join('') + checklistHtml;
   renderOpsFixedBar(vm, unmatched, anomaly, closed);
   renderEmergencyBanner(unmatched, anomaly, lsWarn);
+  renderRecentOpMini();
   const salesEl = document.getElementById('sales');
   if (salesEl) salesEl.classList.toggle('month-is-closed', closed);
   renderTodayPanel();

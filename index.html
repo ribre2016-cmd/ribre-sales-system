@@ -341,6 +341,41 @@ body.dev-mode #dashGuide { display: none; }
   font-weight: 700;
 }
 body.dev-mode .staff-help { display: none; }
+.recent-op-mini {
+  margin-top: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 9px 11px;
+}
+.recent-op-mini h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #334155;
+}
+.recent-op-mini-list {
+  display: grid;
+  gap: 4px;
+}
+.recent-op-mini-item {
+  font-size: 11px;
+  color: #475569;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-op-mini-empty {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 700;
+}
+body:not(.dev-mode) .recent-op-mini {
+  border-color: #cbd5e1;
+  background: #f8fbff;
+}
 .ops-fixed-bar {
   position: sticky;
   top: 0;
@@ -419,6 +454,10 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
   .ops-fixed-inner { gap: 4px; font-size: 10px; }
   .ops-chip { padding: 2px 7px; }
   .emergency-banner { top: 30px; padding: 5px 8px; margin-bottom: 6px; font-size: 10px; }
+  .recent-op-mini { padding: 8px 9px; }
+  .recent-op-mini h3 { font-size: 11px; }
+  .recent-op-mini-item,
+  .recent-op-mini-empty { font-size: 10px; }
   .panel { margin-bottom: 8px; }
 }
 @media (max-width: 400px) {
@@ -582,6 +621,12 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
       <li>困ったら開発者へ連絡</li>
     </ul>
     <div class="readonly">※ 読み取り専用（保存なし）</div>
+  </div>
+  <div id="recentOpMini" class="recent-op-mini">
+    <h3>🕘 最近の操作（ミニ履歴）</h3>
+    <div class="recent-op-mini-list">
+      <div class="recent-op-mini-empty">このセッションの操作履歴はまだありません</div>
+    </div>
   </div>
 </section>
 
