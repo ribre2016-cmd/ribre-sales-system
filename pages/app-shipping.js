@@ -1125,6 +1125,52 @@ function renderCsvImportLog() {
 }
 window.renderCsvImportLog = renderCsvImportLog;
 
+function renderShipUnmatchAnalysis() {
+  const el = document.getElementById('shipUnmatchAnalysis');
+  if (!el) return;
+  const vm = window._ribreViewMonth || '';
+  const all = sales();
+  const s = vm ? all.filter(function(x) { return (x.month || String(x.date || '').slice(0, 7)) === vm; }) : all;
+  if (!s.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  let matchedCount = 0, anonCount = 0, unmatchedCount = 0;
+  let noId = 0, orderFmt = 0, other = 0;
+  s.forEach(function(x) {
+    const ship = Number(x.shipping || 0);
+    const ms = String(x.matchStatus || '');
+    const memo = String(x.memo || '');
+    const id = String(x.itemId || '').trim();
+    const isExplicitAnon = ms.includes('匿名') || memo.includes('匿名');
+    if (ms === '配送CSV一致' || ms === '手入力') { matchedCount++; return; }
+    if (ship > 0 || isExplicitAnon) { anonCount++; return; }
+    unmatchedCount++;
+    if (!id) { noId++; return; }
+    if (id.toLowerCase().includes('order_')) { orderFmt++; return; }
+    other++;
+  });
+  const ships = typeof shipRows === 'function' ? shipRows() : [];
+  const noShipId = ships.filter(function(x) { return !String(x.itemId || '').trim(); }).length;
+  if (unmatchedCount === 0) {
+    el.innerHTML = '<div style="font-size:12px;color:#059669;font-weight:700;padding:4px 0">✓ 未一致なし（' + vm + '）</div>';
+    return;
+  }
+  function card(n, label, color, bg) {
+    const dim = n === 0;
+    return '<div style="background:' + (dim ? '#f8fafc' : bg) + ';border-radius:8px;padding:6px 10px;min-width:100px;border:1px solid #e5e7eb">' +
+      '<div style="font-size:18px;font-weight:900;color:' + (dim ? '#cbd5e1' : color) + '">' + n + '</div>' +
+      '<div style="font-size:11px;color:' + (dim ? '#cbd5e1' : '#64748b') + ';margin-top:2px">' + label + '</div></div>';
+  }
+  el.innerHTML =
+    '<div style="font-size:12px;font-weight:900;color:#475569;margin-bottom:8px">未一致分析（' + vm + '） 計' + unmatchedCount + '件</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+    card(noId, '商品IDなし', '#dc2626', '#fff1f2') +
+    card(orderFmt, 'order_形式のID', '#7c3aed', '#f5f3ff') +
+    card(noShipId, '配送CSV側IDなし', '#b45309', '#fffbeb') +
+    card(other, 'その他未一致', '#475569', '#f1f5f9') +
+    '</div>';
+}
+window.renderShipUnmatchAnalysis = renderShipUnmatchAnalysis;
+
 window.ver250ItemIdFromAny = ver250ItemIdFromAny;
 window.ver250Slip = ver250Slip;
 window.ver250ShipRowsEnhanced = ver250ShipRowsEnhanced;

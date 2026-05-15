@@ -95,6 +95,7 @@ function refreshAll() {
   if (typeof window.monthlySummary === 'function') window.monthlySummary('refresh');
   else monthlySummary('refresh');
   renderOpLog();
+  if (window.renderShipUnmatchAnalysis) window.renderShipUnmatchAnalysis();
 }
 function monthlySummary(mode) {
   const map = {};
