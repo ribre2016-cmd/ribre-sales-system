@@ -245,6 +245,7 @@ function renderSales() {
     '<th>手数料</th><th>送料</th><th>利益</th><th>決済金額</th><th>金額</th><th>メモ</th></tr></thead>' +
     '<tbody>' + rows + '</tbody></table></div>';
   updateSalesSelectCount();
+  renderStatusPanel();
 }
 function renderPurchases() {
   const data = purchases();
@@ -474,6 +475,76 @@ window.toggleAllSales = toggleAllSales;
 window.applyBulkMemo = applyBulkMemo;
 window.applyBulkLock = applyBulkLock;
 window.applyBulkUnlock = applyBulkUnlock;
+function renderStatusPanel() {
+  const el = document.getElementById('statusPanel');
+  if (!el) return;
+  const vm = _vmMonth();
+  const allSales = sales();
+  const ms = allSales.filter(x => (x.month || String(x.date || '').slice(0, 7)) === vm);
+  const locked = ms.filter(x => String(x.memo || '').includes('[LOCK]')).length;
+  const unmatched = ms.filter(x => {
+    const ship = num(x.shipping || 0);
+    const st = String(x.matchStatus || '');
+    const m = String(x.memo || '');
+    const anon = ship > 0 || st === '手入力' || st === '匿名配送' || st === '配送CSV一致' || m.includes('匿名');
+    return !anon && ship === 0;
+  }).length;
+  const anomaly = ms.filter(x => {
+    const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
+    return profit < 0 || num(x.amount || 0) === 0 || profit === 0;
+  }).length;
+  const noship = ms.filter(x => {
+    const ship = num(x.shipping || 0);
+    const st = String(x.matchStatus || '');
+    const m = String(x.memo || '');
+    const anon = ship > 0 || st === '手入力' || st === '匿名配送' || st === '配送CSV一致' || m.includes('匿名');
+    return ship === 0 && !anon;
+  }).length;
+  const memoCount = ms.filter(x =>
+    !!String(x.memo || '').replace(/\s*\/\s*\[LOCK\]|\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim()
+  ).length;
+  let lsBytes = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      lsBytes += (k.length + (localStorage.getItem(k) || '').length) * 2;
+    }
+  } catch(e) {}
+  const lsMB = (lsBytes / 1048576).toFixed(1);
+  const lsWarn = lsBytes > 4 * 1048576;
+  let lastLog = '';
+  try {
+    const logs = JSON.parse(sessionStorage.getItem('ribre_op_log') || '[]');
+    if (logs.length) lastLog = logs[0].ts;
+  } catch(e) {}
+  const qf = window._ribreQuickFilter || 'all';
+  const shopEl = document.getElementById('salesShopFilter');
+  const shopVal = shopEl ? shopEl.value : '';
+  const srchEl = document.getElementById('salesItemIdSearch');
+  const srchVal = srchEl ? srchEl.value.trim() : '';
+  const closed = isMonthClosed(vm);
+  function chip(label, val, level) {
+    const bg = level === 'danger' ? '#fff1f2' : level === 'caution' ? '#fff7ed' : level === 'warn' ? '#fef9c3' : level === 'info' ? '#eff6ff' : '#f1f5f9';
+    const color = level === 'danger' ? '#dc2626' : level === 'caution' ? '#b45309' : level === 'warn' ? '#854d0e' : level === 'info' ? '#2563eb' : '#475569';
+    return '<span style="background:' + bg + ';color:' + color + ';border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">' + label + '&nbsp;<strong>' + val + '</strong></span>';
+  }
+  const parts = [
+    chip('全', allSales.length + '件', ''),
+    chip('今月', ms.length + '件', ''),
+    closed ? '<span style="background:#fef9c3;color:#b45309;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">🔒 締め済み</span>' : '',
+    locked > 0 ? chip('ロック', locked + '件', '') : '',
+    chip('未一致', unmatched + '件', unmatched > 0 ? 'danger' : ''),
+    chip('利益異常', anomaly + '件', anomaly > 0 ? 'caution' : ''),
+    chip('送料0', noship + '件', noship > 0 ? 'caution' : ''),
+    memoCount > 0 ? chip('メモ', memoCount + '件', '') : '',
+    chip('容量', lsMB + 'MB', lsWarn ? 'warn' : ''),
+    lastLog ? '<span style="background:#f1f5f9;color:#64748b;border-radius:20px;padding:3px 10px;font-size:11px;white-space:nowrap">最終操作: ' + lastLog + '</span>' : '',
+    qf !== 'all' ? chip('絞込', qf, 'info') : '',
+    shopVal ? chip('販売先', shopVal, 'info') : '',
+    srchVal ? chip('検索', '&quot;' + srchVal + '&quot;', 'info') : ''
+  ].filter(Boolean);
+  el.innerHTML = parts.join('');
+}
 function setQuickFilter(qf) {
   window._ribreQuickFilter = qf;
   document.querySelectorAll('.qf-btn').forEach(function(btn) {
