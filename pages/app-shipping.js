@@ -370,6 +370,10 @@ function importYahooSalesCsv() {
         alert('CSVが空です');
         return;
       }
+      if (rows.length === 1) {
+        alert('取込できる行がありませんでした（ヘッダー行のみ）。CSV形式を確認してください。');
+        return;
+      }
       const h = rows[0];
 
       const isMercariShops = account === 'メルカリShops';
@@ -489,6 +493,39 @@ function importYahooSalesCsv() {
         imported++;
       });
 
+      if (added.length === 0 && patched === 0) {
+        alert('取込できる行がありませんでした。重複またはCSV形式を確認してください。');
+        if (window.logOp) window.logOp('CSV取込警告（0件）：' + file.name);
+        return;
+      }
+      if (added.length > 0) {
+        const zeroAmt = added.filter(function(r) { return !r.amount; }).length;
+        if (zeroAmt > added.length * 0.5) {
+          if (!confirm('金額が0円の行が多いです（' + zeroAmt + '件）。CSV列がずれている可能性があります。続行しますか？')) {
+            if (window.logOp) window.logOp('CSV取込中止（金額0件多）：' + file.name);
+            return;
+          }
+        }
+      }
+      if (!isMercariShops && added.length > 3) {
+        const todayStr = today();
+        const badDates = added.filter(function(r) { return r.date === todayStr; }).length;
+        if (badDates > added.length * 0.7) {
+          if (!confirm('日付を確認できない行が多いです（' + badDates + '件）。CSV列がずれている可能性があります。続行しますか？')) {
+            if (window.logOp) window.logOp('CSV取込中止（日付不明多）：' + file.name);
+            return;
+          }
+        }
+      }
+      if (added.length > 0 && window.isMonthClosed) {
+        const closedMonths = [...new Set(added.map(function(r) { return r.month; }).filter(function(m) { return m && window.isMonthClosed(m); }))];
+        if (closedMonths.length > 0) {
+          if (!confirm('締め済みの月（' + closedMonths.join(', ') + '）へのデータが含まれています。取り込みを続行しますか？')) {
+            if (window.logOp) window.logOp('CSV取込中止（締め済み月）：' + file.name);
+            return;
+          }
+        }
+      }
       const merged = old.concat(added);
       ySave(merged);
       refreshAll();
@@ -503,6 +540,7 @@ function importYahooSalesCsv() {
       ySet('yahooMatchCount', matchedSales + '件');
       ySet('yahooUnmatchCount', (totalSales - matchedSales) + '件');
       ySet('yahooStatus', '取込OK');
+      if (window.logOp) window.logOp('CSV取込完了（新規' + imported + '件, 補完' + patched + '件）：' + file.name);
       yRender([
         { type: '取込', level: 'ok', msg: '取込：' + imported + '件' },
         { type: '補完', level: 'ok', msg: '補完更新：' + patched + '件' },
