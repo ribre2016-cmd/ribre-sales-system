@@ -134,6 +134,7 @@
 .sales-tbl tbody tr.sale-zp { background: #fefce8 !important; }
 .sales-tbl tbody tr.sale-ns { background: #fffbeb !important; }
 .sales-tbl .sale-loss-cell { color: #dc2626; font-weight: 900; }
+.sales-tbl tbody tr:hover td { box-shadow: inset 0 0 0 9999px rgba(37,99,235,0.06); }
 /* 販売先別行色 */
 .shop-yahoo1 { background: #eff6ff; }
 .shop-yahoo2 { background: #f0fdf4; }
@@ -330,6 +331,8 @@ body.dev-mode .dev-only { display: block !important; }
       <button class="secondary" onclick="applyBulkLock()" style="border-color:#94a3b8">🔒 選択行をロック</button>
       <button class="secondary" onclick="applyBulkUnlock()">ロック解除</button>
     </div>
+    <div id="filterCondLabel" style="font-size:12px;color:#64748b;padding:4px 2px"></div>
+    <div id="selectBar" style="display:none;background:#eff6ff;color:#1d4ed8;border-radius:10px;padding:5px 12px;font-size:12px;font-weight:700;margin-bottom:4px"></div>
     <div id="salesTable"></div>
   </div>
 </section>

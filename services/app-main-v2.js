@@ -199,13 +199,23 @@ function renderSales() {
     if (qf === 'memo') return !!memo.replace(/\s*\/\s*\[LOCK\]|\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim();
     return true;
   });
+  const qfLabels = { unmatched: '未一致', anomaly: '利益異常', noship: '送料0', locked: 'ロック済', memo: 'メモあり' };
+  const condParts = [vm.slice(0, 4) + '年' + vm.slice(5) + '月'];
+  if (filterVal) condParts.push(filterVal);
+  if (searchVal) condParts.push('検索「' + searchVal + '」');
+  if (qf !== 'all') condParts.push(qfLabels[qf] || qf);
+  const condLabelEl = document.getElementById('filterCondLabel');
+  if (condLabelEl) condLabelEl.textContent = '表示条件：' + condParts.join(' / ');
+  window._ribreDisplayedCount = quickFiltered.length;
   const infoEl = document.getElementById('salesFilterInfo');
   if (infoEl) {
     infoEl.textContent = (filterVal || searchVal || qf !== 'all')
       ? quickFiltered.length + '件 / 全' + data.length + '件'
       : '全' + data.length + '件';
   }
-  const rows = quickFiltered.map(({ x, origIdx }, i) => {
+  const rows = quickFiltered.length === 0
+    ? '<tr><td colspan="12" style="text-align:center;padding:24px;color:#94a3b8;font-size:13px">条件に一致する売上がありません</td></tr>'
+    : quickFiltered.map(({ x, origIdx }, i) => {
     const cls = shopClsMap[x.shop] || '';
     const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
     const settle = num(x.amount || 0);
@@ -373,6 +383,15 @@ function updateSalesSelectCount() {
     hdr.indeterminate = checked > 0 && checked < total;
     hdr.checked = total > 0 && checked === total;
   }
+  const bar = document.getElementById('selectBar');
+  if (bar) {
+    if (checked > 0) {
+      bar.textContent = checked + '件選択中 ― メモ適用・ロック・解除が使えます';
+      bar.style.display = 'block';
+    } else {
+      bar.style.display = 'none';
+    }
+  }
 }
 function toggleAllSales(cb) {
   document.querySelectorAll('.sales-row-cb').forEach(function(el) { el.checked = cb.checked; });
@@ -528,9 +547,11 @@ function renderStatusPanel() {
     const color = level === 'danger' ? '#dc2626' : level === 'caution' ? '#b45309' : level === 'warn' ? '#854d0e' : level === 'info' ? '#2563eb' : '#475569';
     return '<span style="background:' + bg + ';color:' + color + ';border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">' + label + '&nbsp;<strong>' + val + '</strong></span>';
   }
+  const dispCount = typeof window._ribreDisplayedCount === 'number' ? window._ribreDisplayedCount : null;
   const parts = [
     chip('全', allSales.length + '件', ''),
     chip('今月', ms.length + '件', ''),
+    dispCount !== null && dispCount !== ms.length ? chip('表示中', dispCount + '件', 'info') : '',
     closed ? '<span style="background:#fef9c3;color:#b45309;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">🔒 締め済み</span>' : '',
     locked > 0 ? chip('ロック', locked + '件', '') : '',
     chip('未一致', unmatched + '件', unmatched > 0 ? 'danger' : ''),
