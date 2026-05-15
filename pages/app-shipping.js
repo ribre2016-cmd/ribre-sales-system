@@ -1052,8 +1052,10 @@ window.showYahooGuide = showYahooGuide;
 function renderCsvImportLog() {
   const box = document.getElementById('csvImportLog');
   if (!box) return;
+  const vm = window._ribreViewMonth || '';
   const map = {};
   sales().forEach(function(x) {
+    if (vm && (x.month || String(x.date || '').slice(0, 7)) !== vm) return;
     const memo = String(x.memo || '');
     const m = memo.match(/^(.+CSV)\s*\/\s*(.+)$/);
     if (!m) return;

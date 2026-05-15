@@ -1,4 +1,26 @@
 /* RIBRE — 本体制御（ダッシュ・設定フォーム・売上/仕入 UI・クラウド月次。index.html から分離。ロジックは同一） */
+function _vmMonth() { return window._ribreViewMonth || today().slice(0, 7); }
+function prevMonth() {
+  const p = _vmMonth().split('-');
+  const d = new Date(Number(p[0]), Number(p[1]) - 2, 1);
+  window._ribreViewMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  refreshAll();
+}
+function nextMonth() {
+  const p = _vmMonth().split('-');
+  const d = new Date(Number(p[0]), Number(p[1]), 1);
+  window._ribreViewMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  refreshAll();
+}
+function refreshMonthDisplay() {
+  const vm = _vmMonth();
+  const p = vm.split('-');
+  const label = p[0] + '年' + Number(p[1]) + '月';
+  ['currentViewMonth', 'currentViewMonthSales'].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = label;
+  });
+}
 function refreshTop() {
   document.getElementById('topUser').textContent = email()
     ? email() + ' / ' + role()
@@ -14,8 +36,10 @@ function refreshTop() {
 }
 function refreshAll() {
   refreshTop();
-  const s = sales(),
-    p = purchases();
+  refreshMonthDisplay();
+  const vm = _vmMonth();
+  const s = sales().filter(x => (x.month || String(x.date || '').slice(0, 7)) === vm);
+  const p = purchases().filter(x => (x.month || String(x.date || '').slice(0, 7)) === vm);
   const st = s.reduce((a, x) => a + num(x.amount), 0);
   const pt = p.reduce((a, x) => a + num(x.total || x.amount), 0);
   document.getElementById('dashSalesCount').textContent = s.length + '件';
@@ -94,7 +118,8 @@ function saveOpenAI() {
   renderList('settingsList', [{ type: 'OK', msg: 'OpenAI APIキーを保存しました' }]);
 }
 function renderSales() {
-  const data = sales();
+  const vm = _vmMonth();
+  const data = sales().filter(x => (x.month || String(x.date || '').slice(0, 7)) === vm);
   const shopClsMap = {
     'ヤフオク1': 'shop-yahoo1', 'ヤフオク2': 'shop-yahoo2', 'ヤフオク3': 'shop-yahoo3',
     'ヤフオク4': 'shop-yahoo4', 'ヤフオク5': 'shop-yahoo5', 'ヤフオク6': 'shop-yahoo6',
@@ -250,6 +275,7 @@ function cloudMonthly() {
   );
 }
 window.addEventListener('load', () => {
+  if (!window._ribreViewMonth) window._ribreViewMonth = today().slice(0, 7);
   const c = sb();
   if (c.url) document.getElementById('sbUrl').value = c.url;
   if (c.key) document.getElementById('sbKey').value = c.key;
@@ -260,3 +286,5 @@ window.addEventListener('load', () => {
 window.refreshTop = refreshTop;
 window.refreshAll = refreshAll;
 window.monthlySummary = monthlySummary;
+window.prevMonth = prevMonth;
+window.nextMonth = nextMonth;
