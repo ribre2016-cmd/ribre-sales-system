@@ -1049,6 +1049,41 @@ window.autoMatchShippingFromYahoo = autoMatchShippingFromYahoo;
 window.exportYahooSalesCsv = exportYahooSalesCsv;
 window.showYahooGuide = showYahooGuide;
 
+function renderCsvImportLog() {
+  const box = document.getElementById('csvImportLog');
+  if (!box) return;
+  const map = {};
+  sales().forEach(function(x) {
+    const memo = String(x.memo || '');
+    const m = memo.match(/^(.+CSV)\s*\/\s*(.+)$/);
+    if (!m) return;
+    const type = m[1].trim();
+    const fname = m[2].trim();
+    const month = x.month || String(x.date || '').slice(0, 7) || '不明';
+    const key = type + '\x00' + fname;
+    if (!map[key]) map[key] = { type: type, fname: fname, months: {}, total: 0 };
+    map[key].months[month] = (map[key].months[month] || 0) + 1;
+    map[key].total++;
+  });
+  const esc = function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  const entries = Object.values(map).sort(function(a, b) {
+    const ma = Object.keys(a.months).sort().reverse()[0] || '';
+    const mb = Object.keys(b.months).sort().reverse()[0] || '';
+    return mb > ma ? 1 : mb < ma ? -1 : 0;
+  });
+  const note = '<div style="font-size:11px;color:#64748b;padding:6px 10px 4px;">※ 売上データの取込履歴のみ表示しています。CSV本文は保存されていません。</div>';
+  box.style.display = 'block';
+  if (!entries.length) {
+    box.innerHTML = note + '<div class="row warn"><span>取込履歴がありません（売上CSVを取り込むと表示されます）</span></div>';
+    return;
+  }
+  box.innerHTML = note + entries.map(function(e) {
+    const monthStr = Object.keys(e.months).sort().reverse().slice(0, 3).join(', ');
+    return '<div class="row ok"><span class="ship-row-msg">' + esc(e.type) + ' / ' + esc(e.fname) + ' — ' + esc(monthStr) + '</span><span class="badge">' + e.total + '件</span></div>';
+  }).join('');
+}
+window.renderCsvImportLog = renderCsvImportLog;
+
 window.ver250ItemIdFromAny = ver250ItemIdFromAny;
 window.ver250Slip = ver250Slip;
 window.ver250ShipRowsEnhanced = ver250ShipRowsEnhanced;
