@@ -599,6 +599,8 @@ function renderStatusPanel() {
     else { hintEl.textContent = ''; }
   }
   el.innerHTML = parts.join('') + checklistHtml;
+  const salesEl = document.getElementById('sales');
+  if (salesEl) salesEl.classList.toggle('month-is-closed', closed);
   renderTodayPanel();
 }
 function renderTodayPanel() {

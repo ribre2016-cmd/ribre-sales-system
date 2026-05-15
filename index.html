@@ -195,6 +195,11 @@ body:not(.dev-mode) #bulkOpsRow { display: none; }
 /* 通常モード最終整理 */
 body:not(.dev-mode) #dashStats .controls { display: none; }
 body:not(.dev-mode) #dashList { display: none; }
+/* 誤操作防止強化 */
+.sales-tbl tbody tr.sale-locked td:first-child { border-left: 3px solid #94a3b8; }
+body:not(.dev-mode) button.red { background: #fff !important; color: #ef4444 !important; border: 1px solid #fca5a5 !important; box-shadow: none !important; }
+body:not(.dev-mode) #sales.month-is-closed .editor { opacity: 0.35; pointer-events: none; }
+body:not(.dev-mode) #sales.month-is-closed #salesAddControls { opacity: 0.35; pointer-events: none; }
 /* 操作ガイド */
 body.dev-mode #dashGuide { display: none; }
 .dash-guide-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
@@ -397,7 +402,7 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
       <input id="saleAmount" placeholder="金額">
       <input id="saleMemo" placeholder="メモ">
     </div>
-    <div class="controls">
+    <div id="salesAddControls" class="controls">
       <button onclick="addSale()">売上追加</button>
       <button class="secondary" onclick="exportSalesCsv()">売上CSV</button>
     </div>
