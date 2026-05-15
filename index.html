@@ -73,6 +73,29 @@
   font-size: 13px;
   color: #64748b;
 }
+.dash-sub-btn { font-size: 13px; font-weight: 900; padding: 10px 18px; min-width: unset; }
+.dash-workflow {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.wf-step {
+  background: #f1f5f9;
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .12s;
+}
+.wf-step:hover { background: #dbeafe; color: #1d4ed8; }
+.wf-arrow { color: #94a3b8; }
 /* CSV取込 ガイド */
 .csv-guide {
   font-size: 13px;
@@ -218,7 +241,20 @@ body:not(.dev-mode) #bulkOpsRow { display: none; }
   <div class="panel dash-hero">
     <div class="dash-guide-label">📌 まずはここから</div>
     <button class="dash-cta" onclick="showSec('sales', document.querySelectorAll('nav > button')[1])">＋ 売上を入れる</button>
-    <div class="dash-hint">CSVで一括登録したい場合は「CSVを取り込む」へ</div>
+    <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="secondary dash-sub-btn" onclick="showSec('yahoo', document.querySelectorAll('nav > button')[2])">📥 CSV取込</button>
+      <button class="secondary dash-sub-btn" onclick="showSec('shipping', document.querySelectorAll('nav > button')[3])">📦 配送照合</button>
+      <button class="secondary dash-sub-btn" onclick="showSec('analytics', document.querySelectorAll('nav > button')[4])">📊 集計を見る</button>
+    </div>
+    <div class="dash-workflow">
+      <span class="wf-step" onclick="showSec('yahoo', document.querySelectorAll('nav > button')[2])">📥 CSV取込</span>
+      <span class="wf-arrow">→</span>
+      <span class="wf-step" onclick="showSec('sales', document.querySelectorAll('nav > button')[1])">🔍 確認</span>
+      <span class="wf-arrow">→</span>
+      <span class="wf-step" onclick="showSec('sales', document.querySelectorAll('nav > button')[1]);setQuickFilter('locked')">🔒 ロック</span>
+      <span class="wf-arrow">→</span>
+      <span class="wf-step" onclick="showSec('sales', document.querySelectorAll('nav > button')[1])">✅ 月締め</span>
+    </div>
   </div>
   <div id="dashTodayPanel"></div>
   <div class="panel" style="padding:14px 18px">
