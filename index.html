@@ -309,6 +309,38 @@ body.dev-mode #dashGuide { display: none; }
   font-weight: 700;
   color: #a16207;
 }
+.staff-help {
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+.staff-help h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #1d4ed8;
+}
+.staff-help ul {
+  margin: 0;
+  padding-left: 17px;
+  display: grid;
+  gap: 3px;
+}
+.staff-help li {
+  font-size: 11px;
+  line-height: 1.4;
+  color: #334155;
+  font-weight: 700;
+}
+.staff-help .readonly {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 700;
+}
+body.dev-mode .staff-help { display: none; }
 body:not(.dev-mode) #openMonthBtn { display: none; }
 /* モバイル: ダッシュボード最適化 */
 @media (max-width: 600px) {
@@ -323,6 +355,8 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
   .dmc-value { font-size: 22px; }
   body:not(.dev-mode) .dmc-item.dmc-alert .dmc-value { font-size: 28px; }
   .dmc-ok-banner { font-size: 13px; padding: 8px 12px; }
+  .staff-help { padding: 9px 10px; }
+  .staff-help li { font-size: 10px; }
   .panel { margin-bottom: 8px; }
 }
 @media (max-width: 400px) {
@@ -466,6 +500,17 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
       <button class="secondary" onclick="window.monthlySummary()">月別集計</button>
     </div>
     <div id="dashList" class="list"></div>
+  </div>
+  <div class="staff-help">
+    <h3>👥 スタッフ向けヘルプ</h3>
+    <ul>
+      <li>未一致が赤なら確認</li>
+      <li>利益異常が橙なら確認</li>
+      <li>確認後はロック</li>
+      <li>月末は締め</li>
+      <li>困ったら開発者へ連絡</li>
+    </ul>
+    <div class="readonly">※ 読み取り専用（保存なし）</div>
   </div>
 </section>
 
