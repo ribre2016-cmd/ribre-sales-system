@@ -147,7 +147,20 @@ function renderSales() {
   const rows = filtered.map((x, i) => {
     const cls = shopClsMap[x.shop] || '';
     const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
-    return '<tr class="' + cls + '">' +
+    const settle = num(x.amount || 0);
+    const ship = num(x.shipping || 0);
+    const ms = x.matchStatus || '';
+    const shipOk = ship > 0 || ms === '手入力' || ms === '匿名配送' || ms === '配送CSV一致'
+                 || String(x.memo || '').includes('匿名');
+    let anomaly = '';
+    if (profit < 0) anomaly = 'sale-al';
+    else if (settle === 0) anomaly = 'sale-az';
+    else if (profit === 0) anomaly = 'sale-zp';
+    else if (!shipOk) anomaly = 'sale-ns';
+    const profitTd = profit < 0
+      ? '<td class="sale-loss-cell">' + yen(profit) + '</td>'
+      : '<td>' + yen(profit) + '</td>';
+    return '<tr class="' + cls + (anomaly ? ' ' + anomaly : '') + '">' +
       '<td>' + (i + 1) + '</td>' +
       '<td>' + (x.date || '') + '</td>' +
       '<td>' + (x.shop || '') + '</td>' +
@@ -155,7 +168,7 @@ function renderSales() {
       '<td>' + (x.name || '') + '</td>' +
       '<td>' + yen(x.fee || 0) + '</td>' +
       '<td>' + yen(x.shipping || 0) + '</td>' +
-      '<td>' + yen(profit) + '</td>' +
+      profitTd +
       '<td>' + yen(x.amount || 0) + '</td>' +
       '<td>' + yen(x.price || x.amount || 0) + '</td>' +
       '<td>' + (x.memo || '') + '</td>' +
