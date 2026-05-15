@@ -973,7 +973,9 @@ function shipRenderEditable(rows) {
   const box = document.getElementById('shippingList');
   if (!box) return;
   box.innerHTML = (rows || []).slice(0, 200).map(r => {
-    const level = r.status === '一致' || r.status === '手入力' ? 'ok' : 'warn';
+    const level = (r.status === '一致' || r.status === '手入力') ? 'ok'
+                : r.status === '未一致' ? 'unmatched'
+                : 'warn';
     const safeId = String(r.itemId || '').replace(/['"<>&]/g, '');
     const inputHtml = safeId
       ? '<input type="number" class="ship-edit-input" value="' + (r.shipping || 0) + '" min="0" data-id="' + safeId + '" onchange="manualShipping(this.dataset.id,this.value)" onkeydown="if(event.key===\'Enter\'){manualShipping(this.dataset.id,this.value);event.target.blur();}" title="送料を手入力（Enter/タブで確定）">'
