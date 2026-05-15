@@ -241,6 +241,28 @@ body:not(.dev-mode) #sales.month-is-closed #salesFilterBar,
 body:not(.dev-mode) #sales.month-is-closed #bulkOpsRow {
   opacity: 0.5;
 }
+body:not(.dev-mode) #sales.month-is-closed #salesTable .sales-table-wrap {
+  position: relative;
+  overflow: hidden;
+}
+body:not(.dev-mode) #sales.month-is-closed #salesTable .sales-table-wrap::after {
+  content: "LOCKED\A締め済み\AREAD ONLY";
+  white-space: pre;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: clamp(26px, 7vw, 56px);
+  font-weight: 900;
+  letter-spacing: .08em;
+  line-height: 1.35;
+  color: rgba(15, 23, 42, 0.08);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  pointer-events: none;
+  z-index: 2;
+}
 body:not(.dev-mode) #sales.month-is-closed #bulkOpsRow {
   pointer-events: none;
 }
@@ -458,6 +480,10 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
   .recent-op-mini h3 { font-size: 11px; }
   .recent-op-mini-item,
   .recent-op-mini-empty { font-size: 10px; }
+  body:not(.dev-mode) #sales.month-is-closed #salesTable .sales-table-wrap::after {
+    font-size: clamp(20px, 8vw, 36px);
+    line-height: 1.4;
+  }
   .panel { margin-bottom: 8px; }
 }
 @media (max-width: 400px) {
