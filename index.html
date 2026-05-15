@@ -195,6 +195,12 @@ body:not(.dev-mode) #bulkOpsRow { display: none; }
 /* 通常モード最終整理 */
 body:not(.dev-mode) #dashStats .controls { display: none; }
 body:not(.dev-mode) #dashList { display: none; }
+/* 操作ガイド */
+body.dev-mode #dashGuide { display: none; }
+.dash-guide-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.dash-guide-step { border-radius: 12px; padding: 10px 12px; }
+.dash-guide-step-num { font-size: 15px; font-weight: 900; margin-bottom: 4px; }
+.dash-guide-step-desc { font-size: 11px; font-weight: 700; line-height: 1.45; }
 body:not(.dev-mode) #openMonthBtn { display: none; }
 /* モバイル: ダッシュボード最適化 */
 @media (max-width: 600px) {
@@ -292,6 +298,27 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
       <span class="wf-step" onclick="showSec('sales', document.querySelectorAll('nav > button')[1]);setQuickFilter('locked')">🔒 ロック</span>
       <span class="wf-arrow">→</span>
       <span class="wf-step" onclick="showSec('sales', document.querySelectorAll('nav > button')[1])">✅ 月締め</span>
+    </div>
+  </div>
+  <div id="dashGuide" class="panel" style="padding:14px 18px;margin-bottom:8px">
+    <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:10px">📖 基本の流れ</div>
+    <div class="dash-guide-steps">
+      <div class="dash-guide-step" style="background:#eff6ff">
+        <div class="dash-guide-step-num" style="color:#2563eb">① CSV取込</div>
+        <div class="dash-guide-step-desc" style="color:#1d4ed8">各プラットフォームの売上CSVをここへ取り込む</div>
+      </div>
+      <div class="dash-guide-step" style="background:#f0fdf4">
+        <div class="dash-guide-step-num" style="color:#166534">② 確認</div>
+        <div class="dash-guide-step-desc" style="color:#166534">未一致・利益異常・送料0をチェックして修正する</div>
+      </div>
+      <div class="dash-guide-step" style="background:#fef9c3">
+        <div class="dash-guide-step-num" style="color:#854d0e">③ ロック</div>
+        <div class="dash-guide-step-desc" style="color:#854d0e">確認済みの行を🔒ロックして誤編集を防ぐ</div>
+      </div>
+      <div class="dash-guide-step" style="background:#dcfce7">
+        <div class="dash-guide-step-num" style="color:#166534">④ 月締め</div>
+        <div class="dash-guide-step-desc" style="color:#166534">全件確認後に月を締めて翌月の準備をする</div>
+      </div>
     </div>
   </div>
   <div id="dashMonthCard"></div>
