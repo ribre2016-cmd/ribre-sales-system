@@ -138,9 +138,9 @@ function renderSales() {
   }).join('');
   document.getElementById('salesTable').innerHTML =
     '<div class="sales-table-wrap"><table class="sales-tbl">' +
-    '<tr><th>連番</th><th>日付</th><th>販売先</th><th>商品ID</th><th>内容</th>' +
-    '<th>手数料</th><th>送料</th><th>利益</th><th>決済金額</th><th>金額</th><th>メモ</th></tr>' +
-    rows + '</table></div>';
+    '<thead><tr><th>連番</th><th>日付</th><th>販売先</th><th>商品ID</th><th>内容</th>' +
+    '<th>手数料</th><th>送料</th><th>利益</th><th>決済金額</th><th>金額</th><th>メモ</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table></div>';
 }
 function renderPurchases() {
   const data = purchases();
