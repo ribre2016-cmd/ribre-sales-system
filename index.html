@@ -120,7 +120,9 @@
 .sales-tbl td:nth-child(5) { min-width: 110px; font-family: monospace; font-size: 11px; }
 .sales-tbl td:nth-child(6) { min-width: 160px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .sales-tbl td:nth-child(12) { min-width: 100px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
-/* 利益異常検知 */
+/* ロック行（異常検知より弱め） */
+.sales-tbl tbody tr.sale-locked { background: #f1f5f9; color: #64748b; }
+/* 利益異常検知（!important で sale-locked より優先） */
 .sales-tbl tbody tr.sale-al { background: #fef2f2 !important; }
 .sales-tbl tbody tr.sale-az { background: #fff7ed !important; }
 .sales-tbl tbody tr.sale-zp { background: #fefce8 !important; }
@@ -307,6 +309,8 @@ body.dev-mode .dev-only { display: block !important; }
     <div class="controls" style="margin-top:6px;flex-wrap:wrap;gap:8px">
       <input id="bulkMemoInput" placeholder="まとめてメモを付ける（選択行へ追記）" style="min-width:240px">
       <button class="secondary" onclick="applyBulkMemo()">選択行へメモ適用</button>
+      <button class="secondary" onclick="applyBulkLock()" style="border-color:#94a3b8">🔒 選択行をロック</button>
+      <button class="secondary" onclick="applyBulkUnlock()">ロック解除</button>
     </div>
     <div id="salesTable"></div>
   </div>

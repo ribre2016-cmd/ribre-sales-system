@@ -159,10 +159,12 @@ function renderSales() {
     else if (settle === 0) anomaly = 'sale-az';
     else if (profit === 0) anomaly = 'sale-zp';
     else if (!shipOk) anomaly = 'sale-ns';
+    const isLocked = String(x.memo || '').includes('[LOCK]');
+    const memoDisplay = String(x.memo || '').replace(/\s*\/\s*\[LOCK\]|\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim();
     const profitTd = profit < 0
       ? '<td class="sale-loss-cell">' + yen(profit) + '</td>'
       : '<td>' + yen(profit) + '</td>';
-    return '<tr class="' + cls + (anomaly ? ' ' + anomaly : '') + '">' +
+    return '<tr class="' + cls + (anomaly ? ' ' + anomaly : '') + (isLocked ? ' sale-locked' : '') + '">' +
       '<td><input type="checkbox" class="sales-row-cb" data-id="' + origIdx + '" onchange="updateSalesSelectCount()"></td>' +
       '<td>' + (i + 1) + '</td>' +
       '<td>' + (x.date || '') + '</td>' +
@@ -174,7 +176,7 @@ function renderSales() {
       profitTd +
       '<td>' + yen(x.amount || 0) + '</td>' +
       '<td>' + yen(x.price || x.amount || 0) + '</td>' +
-      '<td>' + (x.memo || '') + '</td>' +
+      '<td>' + (isLocked ? '🔒 ' : '') + memoDisplay + '</td>' +
       '</tr>';
   }).join('');
   document.getElementById('salesTable').innerHTML =
@@ -339,6 +341,38 @@ function applyBulkMemo() {
     refreshAll();
   }
 }
+function applyBulkLock() {
+  const checked = document.querySelectorAll('.sales-row-cb:checked');
+  if (!checked.length) { alert('行を選択してください'); return; }
+  const ids = Array.from(checked).map(function(cb) { return cb.dataset.id; }).filter(Boolean);
+  const s = sales();
+  let changed = 0;
+  ids.forEach(function(id) {
+    const idx = Number(id);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= s.length) return;
+    const memo = String(s[idx].memo || '').trim();
+    if (memo.includes('[LOCK]')) return;
+    s[idx].memo = memo ? memo + ' / [LOCK]' : '[LOCK]';
+    changed++;
+  });
+  if (changed > 0) { setLS(LS.sales, s); refreshAll(); }
+}
+function applyBulkUnlock() {
+  const checked = document.querySelectorAll('.sales-row-cb:checked');
+  if (!checked.length) { alert('行を選択してください'); return; }
+  const ids = Array.from(checked).map(function(cb) { return cb.dataset.id; }).filter(Boolean);
+  const s = sales();
+  let changed = 0;
+  ids.forEach(function(id) {
+    const idx = Number(id);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= s.length) return;
+    const memo = String(s[idx].memo || '');
+    if (!memo.includes('[LOCK]')) return;
+    s[idx].memo = memo.replace(/\s*\/\s*\[LOCK\]/g, '').replace(/\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim();
+    changed++;
+  });
+  if (changed > 0) { setLS(LS.sales, s); refreshAll(); }
+}
 window.refreshTop = refreshTop;
 window.refreshAll = refreshAll;
 window.monthlySummary = monthlySummary;
@@ -347,3 +381,5 @@ window.nextMonth = nextMonth;
 window.updateSalesSelectCount = updateSalesSelectCount;
 window.toggleAllSales = toggleAllSales;
 window.applyBulkMemo = applyBulkMemo;
+window.applyBulkLock = applyBulkLock;
+window.applyBulkUnlock = applyBulkUnlock;
