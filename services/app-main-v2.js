@@ -328,13 +328,16 @@ function applyBulkMemo() {
   if (!ids.length) return;
   const s = sales();
   let changed = 0;
+  let skipped = 0;
   ids.forEach(function(id) {
     const idx = Number(id);
     if (!Number.isFinite(idx) || idx < 0 || idx >= s.length) return;
+    if (String(s[idx].memo || '').includes('[LOCK]')) { skipped++; return; }
     const existing = String(s[idx].memo || '').trim();
     s[idx].memo = existing ? existing + ' / ' + text : text;
     changed++;
   });
+  if (skipped > 0) alert(ids.length + '件中' + skipped + '件がロック済みのため、' + changed + '件だけ更新しました。');
   if (changed > 0) {
     setLS(LS.sales, s);
     document.getElementById('bulkMemoInput').value = '';

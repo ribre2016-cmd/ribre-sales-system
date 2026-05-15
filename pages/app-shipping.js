@@ -995,6 +995,7 @@ function manualShipping(itemId, val) {
   const s = sales();
   const idx = s.findIndex(x => String(x.itemId || x.id || '') === String(itemId));
   if (idx < 0) return;
+  if (String(s[idx].memo || '').includes('[LOCK]')) { alert('ロック済みのため送料を変更できません。'); return; }
   s[idx].shipping = v;
   s[idx].ship = v;
   s[idx].profit = num(s[idx].amount || s[idx].price || 0) - num(s[idx].fee || 0) - v;
