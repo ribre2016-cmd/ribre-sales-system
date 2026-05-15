@@ -108,8 +108,9 @@ function renderSales() {
   const byShop = filterVal ? data.filter((x) => x.shop === filterVal) : data;
   const filtered = searchVal
     ? byShop.filter((x) => {
-        const id = String(x.itemId || x.id || '').toLowerCase();
-        return id.includes(searchVal);
+        const haystack = [x.itemId, x.id, x.name, x.title, x.content, x.itemName]
+          .filter(Boolean).join(' ').toLowerCase();
+        return haystack.includes(searchVal);
       })
     : byShop;
   const infoEl = document.getElementById('salesFilterInfo');
