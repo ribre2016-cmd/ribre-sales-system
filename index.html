@@ -192,6 +192,27 @@ body:not(.dev-mode) #bulkOpsRow { display: none; }
   color: #cbd5e1; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0;
 }
 #devToggle.dev-on { background: #1d4ed8; border-color: #3b82f6; color: #fff; }
+/* モバイル: ダッシュボード最適化 */
+@media (max-width: 600px) {
+  .dash-hero { padding: 14px 12px 12px; margin-bottom: 8px; }
+  .dash-guide-label { margin-bottom: 10px; }
+  .dash-cta { padding: 16px 0; font-size: 18px; margin-bottom: 10px; max-width: 100%; }
+  .dash-sub-btn { font-size: 14px; padding: 12px 16px; }
+  .wf-step { padding: 6px 14px; font-size: 12px; }
+  .dash-month-card { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .dmc-item.dmc-alert,
+  .dmc-item.dmc-ready { grid-column: 1 / -1; }
+  .dmc-value { font-size: 22px; }
+  body:not(.dev-mode) .dmc-item.dmc-alert .dmc-value { font-size: 28px; }
+  .dmc-ok-banner { font-size: 13px; padding: 8px 12px; }
+  .panel { margin-bottom: 8px; }
+}
+@media (max-width: 400px) {
+  .dash-month-card { grid-template-columns: 1fr; }
+  .dmc-item.dmc-alert,
+  .dmc-item.dmc-ready { grid-column: unset; }
+  .dash-sub-btn { width: 100%; }
+}
 </style>
 </head>
 <body>
