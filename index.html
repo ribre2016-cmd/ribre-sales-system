@@ -399,6 +399,7 @@ body:not(.dev-mode) .recent-op-mini {
   background: #f8fbff;
 }
 .ops-fixed-bar {
+  --ops-fixed-stack-offset: clamp(34px, 5.2vh, 52px);
   position: sticky;
   top: 0;
   z-index: 850;
@@ -433,9 +434,9 @@ body:not(.dev-mode) .ops-fixed-bar {
 }
 .emergency-banner {
   position: sticky;
-  top: 33px;
+  top: calc(env(safe-area-inset-top, 0px) + var(--ops-fixed-stack-offset, 40px));
   z-index: 840;
-  margin: 0 0 8px;
+  margin: 2px 0 8px;
   padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid transparent;
@@ -475,7 +476,8 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
   .ops-fixed-bar { padding: 5px 8px; margin-bottom: 6px; }
   .ops-fixed-inner { gap: 4px; font-size: 10px; }
   .ops-chip { padding: 2px 7px; }
-  .emergency-banner { top: 30px; padding: 5px 8px; margin-bottom: 6px; font-size: 10px; }
+  .ops-fixed-bar { --ops-fixed-stack-offset: clamp(30px, 5.4vh, 44px); }
+  .emergency-banner { top: calc(env(safe-area-inset-top, 0px) + var(--ops-fixed-stack-offset, 36px)); padding: 5px 8px; margin-bottom: 6px; font-size: 10px; }
   .recent-op-mini { padding: 8px 9px; }
   .recent-op-mini h3 { font-size: 11px; }
   .recent-op-mini-item,
