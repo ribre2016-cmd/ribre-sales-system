@@ -96,6 +96,12 @@
 }
 .wf-step:hover { background: #dbeafe; color: #1d4ed8; }
 .wf-arrow { color: #94a3b8; }
+.dash-month-card { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 4px; }
+.dmc-item { border-radius: 12px; padding: 10px 12px; transition: opacity .12s; }
+.dmc-item:hover { opacity: .78; }
+.dmc-label { font-size: 11px; font-weight: 700; }
+.dmc-value { font-size: 20px; font-weight: 900; margin-top: 2px; line-height: 1.1; }
+.dmc-sub { font-size: 10px; margin-top: 2px; opacity: .8; }
 /* CSV取込 ガイド */
 .csv-guide {
   font-size: 13px;
@@ -257,6 +263,7 @@ body:not(.dev-mode) #bulkOpsRow { display: none; }
     </div>
   </div>
   <div id="dashTodayPanel"></div>
+  <div id="dashMonthCard"></div>
   <div class="panel" style="padding:14px 18px">
     <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap">
       <button class="secondary" onclick="prevMonth()">◀ 前の月</button>

@@ -653,6 +653,57 @@ function renderTodayPanel() {
   }
   const html = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:8px 12px;margin-bottom:2px"><span style="font-size:11px;font-weight:900;color:#475569;margin-right:8px">📋 今日やること</span>' + body + '</div>';
   targets.forEach(function(t) { t.innerHTML = html; });
+  renderDashMonthCard();
+}
+function renderDashMonthCard() {
+  const el = document.getElementById('dashMonthCard');
+  if (!el) return;
+  const vm = _vmMonth();
+  const ms = sales().filter(function(x) { return (x.month || String(x.date || '').slice(0, 7)) === vm; });
+  if (ms.length === 0) { el.innerHTML = ''; return; }
+  const closed = isMonthClosed(vm);
+  const locked = ms.filter(function(x) { return String(x.memo || '').includes('[LOCK]'); }).length;
+  const lockPct = Math.round(locked / ms.length * 100);
+  const unmatched = ms.filter(function(x) {
+    const ship = num(x.shipping || 0); const st = String(x.matchStatus || ''); const m = String(x.memo || '');
+    return !(ship > 0 || st === '手入力' || st === '匿名配送' || st === '配送CSV一致' || m.includes('匿名')) && ship === 0;
+  }).length;
+  const anomaly = ms.filter(function(x) {
+    const p = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
+    return p < 0 || num(x.amount || 0) === 0 || p === 0;
+  }).length;
+  const noship = ms.filter(function(x) {
+    const ship = num(x.shipping || 0); const st = String(x.matchStatus || ''); const m = String(x.memo || '');
+    return ship === 0 && !(ship > 0 || st === '手入力' || st === '匿名配送' || st === '配送CSV一致' || m.includes('匿名'));
+  }).length;
+  function item(label, value, sub, bg, color, qf) {
+    const cstyle = qf ? ';cursor:pointer' : '';
+    const onclick = qf ? ' onclick="showSec(\'sales\',document.querySelectorAll(\'nav > button\')[1]);setQuickFilter(\'' + qf + '\')"' : '';
+    return '<div class="dmc-item" style="background:' + bg + ';color:' + color + cstyle + '"' + onclick + '>'
+      + '<div class="dmc-label">' + label + '</div>'
+      + '<div class="dmc-value">' + value + '</div>'
+      + (sub ? '<div class="dmc-sub">' + sub + '</div>' : '')
+      + '</div>';
+  }
+  const allOk = unmatched === 0 && anomaly === 0;
+  let closingItem;
+  if (closed) {
+    closingItem = item('月締め', '締め済み', '', '#dcfce7', '#166534', '');
+  } else if (allOk) {
+    closingItem = item('月締め', '締め可能 ✅', '', '#f0fdf4', '#166634', '');
+  } else {
+    closingItem = item('月締め', '未確認あり', '', '#fff7ed', '#b45309', '');
+  }
+  const html = '<div class="panel" style="padding:14px 18px;margin-bottom:12px">'
+    + '<div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:8px">📊 今月の状態 <span style="font-weight:700;color:#94a3b8">(' + vm + ')</span></div>'
+    + '<div class="dash-month-card">'
+    + item('未一致', unmatched + '件', unmatched > 0 ? 'クリックで確認' : 'なし ✅', unmatched > 0 ? '#fef2f2' : '#f0fdf4', unmatched > 0 ? '#dc2626' : '#166534', unmatched > 0 ? 'unmatched' : '')
+    + item('利益異常', anomaly + '件', anomaly > 0 ? 'クリックで確認' : 'なし ✅', anomaly > 0 ? '#fff7ed' : '#f0fdf4', anomaly > 0 ? '#b45309' : '#166534', anomaly > 0 ? 'anomaly' : '')
+    + item('送料0', noship + '件', noship > 0 ? 'クリックで確認' : 'なし', noship > 0 ? '#fff7ed' : '#f1f5f9', noship > 0 ? '#b45309' : '#475569', noship > 0 ? 'noship' : '')
+    + item('ロック率', lockPct + '%', locked + ' / ' + ms.length + '件', lockPct === 100 ? '#f0fdf4' : '#eff6ff', lockPct === 100 ? '#166534' : '#2563eb', 'locked')
+    + closingItem
+    + '</div></div>';
+  el.innerHTML = html;
 }
 function setQuickFilter(qf) {
   window._ribreQuickFilter = qf;
