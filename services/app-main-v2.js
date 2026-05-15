@@ -494,6 +494,21 @@ window.toggleAllSales = toggleAllSales;
 window.applyBulkMemo = applyBulkMemo;
 window.applyBulkLock = applyBulkLock;
 window.applyBulkUnlock = applyBulkUnlock;
+function renderOpsFixedBar(vm, unmatched, anomaly, closed) {
+  const el = document.getElementById('opsFixedBar');
+  if (!el) return;
+  const vmLabel = vm ? (vm.slice(0, 4) + '/' + vm.slice(5)) : '--';
+  const unmatchedLevel = unmatched > 0 ? 'unmatched' : 'closed';
+  const anomalyLevel = anomaly > 0 ? 'anomaly' : 'closed';
+  const stateClass = closed ? 'closed' : 'open';
+  const stateLabel = closed ? '締め済み' : '未締め';
+  el.innerHTML = '<div class="ops-fixed-inner">'
+    + '<span class="ops-chip month">月: ' + vmLabel + '</span>'
+    + '<span class="ops-chip ' + unmatchedLevel + '">未一致: ' + unmatched + '件</span>'
+    + '<span class="ops-chip ' + anomalyLevel + '">利益異常: ' + anomaly + '件</span>'
+    + '<span class="ops-chip ' + stateClass + '">状態: ' + stateLabel + '</span>'
+    + '</div>';
+}
 function renderStatusPanel() {
   const el = document.getElementById('statusPanel');
   if (!el) return;
@@ -599,6 +614,7 @@ function renderStatusPanel() {
     else { hintEl.textContent = ''; }
   }
   el.innerHTML = parts.join('') + checklistHtml;
+  renderOpsFixedBar(vm, unmatched, anomaly, closed);
   const salesEl = document.getElementById('sales');
   if (salesEl) salesEl.classList.toggle('month-is-closed', closed);
   renderTodayPanel();
