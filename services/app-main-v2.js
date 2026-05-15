@@ -205,7 +205,7 @@ function renderSales() {
   if (searchVal) condParts.push('検索「' + searchVal + '」');
   if (qf !== 'all') condParts.push(qfLabels[qf] || qf);
   const condLabelEl = document.getElementById('filterCondLabel');
-  if (condLabelEl) condLabelEl.textContent = '表示条件：' + condParts.join(' / ');
+  if (condLabelEl) condLabelEl.textContent = '表示条件：' + condParts.join(' / ') + (quickFiltered.length === 0 ? '　（該当なし）' : '');
   window._ribreDisplayedCount = quickFiltered.length;
   const infoEl = document.getElementById('salesFilterInfo');
   if (infoEl) {
@@ -543,20 +543,26 @@ function renderStatusPanel() {
   const srchVal = srchEl ? srchEl.value.trim() : '';
   const closed = isMonthClosed(vm);
   function chip(label, val, level) {
-    const bg = level === 'danger' ? '#fff1f2' : level === 'caution' ? '#fff7ed' : level === 'warn' ? '#fef9c3' : level === 'info' ? '#eff6ff' : '#f1f5f9';
-    const color = level === 'danger' ? '#dc2626' : level === 'caution' ? '#b45309' : level === 'warn' ? '#854d0e' : level === 'info' ? '#2563eb' : '#475569';
+    const bg = level === 'danger' ? '#fff1f2' : level === 'caution' ? '#fff7ed' : level === 'warn' ? '#fef9c3' : level === 'info' ? '#eff6ff' : level === 'ok' ? '#f0fdf4' : '#f1f5f9';
+    const color = level === 'danger' ? '#dc2626' : level === 'caution' ? '#b45309' : level === 'warn' ? '#854d0e' : level === 'info' ? '#2563eb' : level === 'ok' ? '#166534' : '#475569';
     return '<span style="background:' + bg + ';color:' + color + ';border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">' + label + '&nbsp;<strong>' + val + '</strong></span>';
   }
   const dispCount = typeof window._ribreDisplayedCount === 'number' ? window._ribreDisplayedCount : null;
+  const lockPct = ms.length > 0 ? Math.round(locked / ms.length * 100) : 0;
+  const allOk = ms.length > 0 && unmatched === 0 && anomaly === 0;
+  const readinessBadge = ms.length === 0 ? '' : allOk
+    ? '<span style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;white-space:nowrap">✅ 締め可能</span>'
+    : '<span style="background:#fff7ed;color:#b45309;border:1px solid #fed7aa;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;white-space:nowrap">⚠ 未確認あり</span>';
   const parts = [
     chip('全', allSales.length + '件', ''),
     chip('今月', ms.length + '件', ''),
-    dispCount !== null && dispCount !== ms.length ? chip('表示中', dispCount + '件', 'info') : '',
-    closed ? '<span style="background:#fef9c3;color:#b45309;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">🔒 締め済み</span>' : '',
-    locked > 0 ? chip('ロック', locked + '件', '') : '',
-    chip('未一致', unmatched + '件', unmatched > 0 ? 'danger' : ''),
-    chip('利益異常', anomaly + '件', anomaly > 0 ? 'caution' : ''),
-    chip('送料0', noship + '件', noship > 0 ? 'caution' : ''),
+    dispCount !== null && dispCount !== ms.length ? chip('表示中', dispCount + ' / ' + ms.length + '件', 'info') : '',
+    readinessBadge,
+    closed ? '<span style="background:#fef08a;color:#854d0e;border:1px solid #fbbf24;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;white-space:nowrap">🔒 締め済み</span>' : '',
+    ms.length > 0 ? chip('ロック', locked + ' / ' + ms.length + '件 (' + lockPct + '%)', lockPct === 100 ? 'ok' : '') : '',
+    chip('未一致', unmatched > 0 ? unmatched + '件' : ms.length > 0 ? 'なし ✅' : '0件', unmatched > 0 ? 'danger' : ms.length > 0 ? 'ok' : ''),
+    chip('利益異常', anomaly > 0 ? anomaly + '件' : ms.length > 0 ? 'なし ✅' : '0件', anomaly > 0 ? 'caution' : ms.length > 0 ? 'ok' : ''),
+    chip('送料0', noship > 0 ? noship + '件' : 'なし', noship > 0 ? 'caution' : ''),
     memoCount > 0 ? chip('メモ', memoCount + '件', '') : '',
     chip('容量', lsMB + 'MB', lsWarn ? 'warn' : ''),
     lastLog ? '<span style="background:#f1f5f9;color:#64748b;border-radius:20px;padding:3px 10px;font-size:11px;white-space:nowrap">最終操作: ' + lastLog + '</span>' : '',
