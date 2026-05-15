@@ -599,6 +599,59 @@ function renderStatusPanel() {
     else { hintEl.textContent = ''; }
   }
   el.innerHTML = parts.join('') + checklistHtml;
+  renderTodayPanel();
+}
+function renderTodayPanel() {
+  const el = document.getElementById('todayPanel');
+  if (!el) return;
+  const vm = _vmMonth();
+  const ms = sales().filter(x => (x.month || String(x.date || '').slice(0, 7)) === vm);
+  if (ms.length === 0) { el.innerHTML = ''; return; }
+  const closed = isMonthClosed(vm);
+  const locked = ms.filter(x => String(x.memo || '').includes('[LOCK]')).length;
+  const lockPct = Math.round(locked / ms.length * 100);
+  const unmatched = ms.filter(x => {
+    const ship = num(x.shipping || 0); const st = String(x.matchStatus || ''); const m = String(x.memo || '');
+    return !(ship > 0 || st === '手入力' || st === '匿名配送' || st === '配送CSV一致' || m.includes('匿名')) && ship === 0;
+  }).length;
+  const anomaly = ms.filter(x => {
+    const p = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));
+    return p < 0 || num(x.amount || 0) === 0 || p === 0;
+  }).length;
+  const noship = ms.filter(x => {
+    const ship = num(x.shipping || 0); const st = String(x.matchStatus || ''); const m = String(x.memo || '');
+    return ship === 0 && !(ship > 0 || st === '手入力' || st === '匿名配送' || st === '配送CSV一致' || m.includes('匿名'));
+  }).length;
+  let lsBytes = 0;
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); lsBytes += (k.length + (localStorage.getItem(k) || '').length) * 2; } } catch(e) {}
+  const lsWarn = lsBytes > 4 * 1048576;
+  function row(text, qf, level) {
+    const color = level === 'danger' ? '#dc2626' : level === 'caution' ? '#b45309' : level === 'warn' ? '#854d0e' : level === 'ok' ? '#166534' : '#2563eb';
+    const bg = level === 'danger' ? '#fff1f2' : level === 'caution' ? '#fff7ed' : level === 'warn' ? '#fef9c3' : level === 'ok' ? '#f0fdf4' : '#eff6ff';
+    const attrs = qf ? ' onclick="setQuickFilter(\'' + qf + '\')" title="クリックでフィルタ切替" style="cursor:pointer;color:' + color + ';background:' + bg + ';border-radius:10px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap"'
+                     : ' style="color:' + color + ';background:' + bg + ';border-radius:10px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap"';
+    return '<span' + attrs + '>' + text + '</span>';
+  }
+  let body = '';
+  if (closed) {
+    body = '<span style="font-size:11px;color:#166534;font-weight:700">✅ この月は締め済みです</span>';
+    if (lsWarn) body += ' ' + row('ストレージ容量注意', '', 'warn');
+  } else {
+    const hasIssues = unmatched > 0 || anomaly > 0 || noship > 0 || lsWarn;
+    if (!hasIssues) {
+      body = '<span style="font-size:11px;color:#166534;font-weight:700">✅ 今月の確認事項はありません — 月締めできます</span>';
+    } else {
+      const chips = [];
+      if (unmatched > 0) chips.push(row('未一致 ' + unmatched + '件 を確認', 'unmatched', 'danger'));
+      if (anomaly > 0) chips.push(row('利益異常 ' + anomaly + '件 を確認', 'anomaly', 'caution'));
+      if (noship > 0) chips.push(row('送料0 ' + noship + '件 を確認', 'noship', 'caution'));
+      if (lsWarn) chips.push(row('ストレージ容量注意（' + (lsBytes / 1048576).toFixed(1) + 'MB）', '', 'warn'));
+      chips.push(row('ロック率 ' + lockPct + '%（' + locked + ' / ' + ms.length + '件）', 'locked', lockPct === 100 ? 'ok' : 'info'));
+      chips.push(row('今月: 未締め', '', 'info'));
+      body = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">' + chips.join('') + '</div>';
+    }
+  }
+  el.innerHTML = '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:8px 12px;margin-bottom:2px"><span style="font-size:11px;font-weight:900;color:#475569;margin-right:8px">📋 今日やること</span>' + body + '</div>';
 }
 function setQuickFilter(qf) {
   window._ribreQuickFilter = qf;
