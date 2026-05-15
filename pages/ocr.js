@@ -4054,6 +4054,52 @@ window.ver500SaveToProduction = ver500SaveToProduction;
 window.ver500ExportCandidates = ver500ExportCandidates;
 window.ver500Guide = ver500Guide;
 
+function initOcrPasteArea() {
+  const zone = document.getElementById('ocrPasteArea');
+  const sub = document.getElementById('ocrPasteAreaSub');
+  const fileInput = document.getElementById('ocrFile');
+  if (!zone || !fileInput || zone.dataset.pasteReady === '1') return;
+  zone.dataset.pasteReady = '1';
+  zone.addEventListener('click', () => zone.focus());
+  zone.addEventListener('focus', () => zone.classList.add('active'));
+  zone.addEventListener('blur', () => zone.classList.remove('active'));
+  zone.addEventListener('paste', (event) => {
+    const items = event.clipboardData && event.clipboardData.items ? event.clipboardData.items : [];
+    let imageFile = null;
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (item && item.kind === 'file' && String(item.type || '').startsWith('image/')) {
+        imageFile = item.getAsFile();
+        break;
+      }
+    }
+    if (!imageFile) return;
+    event.preventDefault();
+    const ext = String(imageFile.type || 'image/png').split('/')[1] || 'png';
+    const file = new File([imageFile], 'clipboard-' + Date.now() + '.' + ext, {
+      type: imageFile.type || 'image/png',
+      lastModified: Date.now()
+    });
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      fileInput.files = dt.files;
+    } catch (e) {
+      alert('このブラウザでは貼り付け画像の自動設定に対応していません');
+      return;
+    }
+    if (typeof registerEvidence === 'function') registerEvidence();
+    if (sub) sub.textContent = '貼り付け画像を証憑登録しました';
+  });
+}
+
+if (!window.__ocrPasteAreaInit) {
+  window.__ocrPasteAreaInit = true;
+  window.addEventListener('load', () => {
+    initOcrPasteArea();
+  });
+}
+
 if (!window.__ver500DraftUiInit) {
   window.__ver500DraftUiInit = true;
   window.addEventListener('load', () => {

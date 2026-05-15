@@ -494,6 +494,33 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
   .dmc-item.dmc-ready { grid-column: unset; }
   .dash-sub-btn { width: 100%; }
 }
+.ocr-paste-zone {
+  margin: 8px 0;
+  border: 2px dashed #93c5fd;
+  background: #eff6ff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #1d4ed8;
+  text-align: center;
+  cursor: text;
+  user-select: none;
+}
+.ocr-paste-zone:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+.ocr-paste-zone-sub {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 700;
+}
+.ocr-paste-zone.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
 </style>
 </head>
 <body>
@@ -783,6 +810,10 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
       <button onclick="registerEvidence()">証憑登録</button>
       <button onclick="runOcr()">OCR自動入力</button>
       <button class="secondary" onclick="saveOcrCandidate()">候補保存</button>
+    </div>
+    <div id="ocrPasteArea" class="ocr-paste-zone" tabindex="0">
+      ここにCtrl+Vでスクショ画像を貼り付け
+      <div id="ocrPasteAreaSub" class="ocr-paste-zone-sub">クリックしてフォーカス後、画像を貼り付けると証憑登録されます</div>
     </div>
     <div class="editor">
       <select id="cKind"><option value="purchase">仕入</option><option value="sale">売上</option><option value="shipping">送料</option><option value="expense">経費</option></select>
