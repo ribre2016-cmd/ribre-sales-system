@@ -192,6 +192,10 @@ body:not(.dev-mode) #bulkOpsRow { display: none; }
   color: #cbd5e1; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0;
 }
 #devToggle.dev-on { background: #1d4ed8; border-color: #3b82f6; color: #fff; }
+/* 通常モード最終整理 */
+body:not(.dev-mode) #dashStats .controls { display: none; }
+body:not(.dev-mode) #dashList { display: none; }
+body:not(.dev-mode) #openMonthBtn { display: none; }
 /* モバイル: ダッシュボード最適化 */
 @media (max-width: 600px) {
   .dash-hero { padding: 14px 12px 12px; margin-bottom: 8px; }
@@ -271,6 +275,7 @@ body:not(.dev-mode) #bulkOpsRow { display: none; }
 
 <main>
 <section id="dash" class="section active">
+  <div id="dashTodayPanel"></div>
   <div class="panel dash-hero">
     <div class="dash-guide-label">📌 まずはここから</div>
     <button class="dash-cta" onclick="showSec('sales', document.querySelectorAll('nav > button')[1])">＋ 売上を入れる</button>
@@ -289,7 +294,6 @@ body:not(.dev-mode) #bulkOpsRow { display: none; }
       <span class="wf-step" onclick="showSec('sales', document.querySelectorAll('nav > button')[1])">✅ 月締め</span>
     </div>
   </div>
-  <div id="dashTodayPanel"></div>
   <div id="dashMonthCard"></div>
   <div class="panel" style="padding:14px 18px">
     <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap">
@@ -301,7 +305,7 @@ body:not(.dev-mode) #bulkOpsRow { display: none; }
       <button class="secondary" onclick="nextMonth()">次の月 ▶</button>
     </div>
   </div>
-  <div class="panel">
+  <div class="panel" id="dashStats">
     <div class="grid">
       <div class="card"><div class="label">売上合計</div><div id="dashSalesTotal" class="value">0円</div></div>
       <div class="card"><div class="label">売上件数</div><div id="dashSalesCount" class="value">0件</div></div>
@@ -355,7 +359,7 @@ body:not(.dev-mode) #bulkOpsRow { display: none; }
       <span id="currentViewMonthSales" style="font-weight:900;font-size:15px;color:#0f172a;min-width:90px;text-align:center"></span>
       <button class="secondary" onclick="nextMonth()" style="padding:5px 10px;min-width:unset">▶</button>
       <button class="secondary" onclick="closeMonth()" style="padding:5px 10px;border-color:#94a3b8;margin-left:4px">🔒 この月を締める</button>
-      <button class="secondary" onclick="openMonth()" style="padding:5px 10px">締め解除</button>
+      <button id="openMonthBtn" class="secondary" onclick="openMonth()" style="padding:5px 10px">締め解除</button>
       <span id="closeMonthHint" style="font-size:11px;font-weight:700;align-self:center"></span>
     </div>
     <div id="statusPanel" style="display:flex;flex-wrap:wrap;gap:5px;margin:4px 0"></div>
