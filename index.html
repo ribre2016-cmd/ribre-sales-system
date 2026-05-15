@@ -1183,6 +1183,15 @@ body.dev-mode .dev-only { display: block !important; }
 
 
 <section id="audit55" class="section">
+  <div class="panel" style="margin-bottom:14px">
+    <h2 style="font-size:16px;margin-bottom:8px">📋 セッション操作ログ</h2>
+    <p style="font-size:12px;color:#64748b;margin:0 0 8px">タブを閉じると消えます。最新10件表示。</p>
+    <div class="controls" style="margin-bottom:8px;gap:8px">
+      <button class="secondary" onclick="renderOpLog()">更新</button>
+      <button class="secondary" onclick="clearOpLog()">ログを消す</button>
+    </div>
+    <div id="opLogList" class="list" style="max-height:300px"></div>
+  </div>
   <div class="panel">
     <h2>🧾 操作ログ・監査履歴 Ver60.0</h2>
 

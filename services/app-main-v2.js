@@ -30,7 +30,7 @@ function closeMonth() {
     s[idx].memo = memo ? memo + ' / [LOCK]' : '[LOCK]';
     changed++;
   });
-  if (changed > 0) { setLS(LS.sales, s); refreshAll(); }
+  if (changed > 0) { setLS(LS.sales, s); logOp(label + 'を月締め（' + changed + '件）'); refreshAll(); }
   else { alert('対象行がないか、すでにすべてロック済みです。'); }
 }
 function openMonth() {
@@ -47,7 +47,7 @@ function openMonth() {
     s[idx].memo = memo.replace(/\s*\/\s*\[LOCK\]/g, '').replace(/\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim();
     changed++;
   });
-  if (changed > 0) { setLS(LS.sales, s); refreshAll(); }
+  if (changed > 0) { setLS(LS.sales, s); logOp(label + 'の締め解除（' + changed + '件）'); refreshAll(); }
   else { alert('ロック済みの行がありません。'); }
 }
 function refreshMonthDisplay() {
@@ -94,6 +94,7 @@ function refreshAll() {
   if (dashList) dashList.innerHTML = '';
   if (typeof window.monthlySummary === 'function') window.monthlySummary('refresh');
   else monthlySummary('refresh');
+  renderOpLog();
 }
 function monthlySummary(mode) {
   const map = {};
@@ -382,6 +383,7 @@ function applyBulkMemo() {
   if (skipped > 0) alert(ids.length + '件中' + skipped + '件がロック済みのため、' + changed + '件だけ更新しました。');
   if (changed > 0) {
     setLS(LS.sales, s);
+    logOp('一括メモ適用（' + changed + '件）' + (skipped ? ' ※' + skipped + '件ロック済スキップ' : ''));
     document.getElementById('bulkMemoInput').value = '';
     refreshAll();
   }
@@ -400,7 +402,7 @@ function applyBulkLock() {
     s[idx].memo = memo ? memo + ' / [LOCK]' : '[LOCK]';
     changed++;
   });
-  if (changed > 0) { setLS(LS.sales, s); refreshAll(); }
+  if (changed > 0) { setLS(LS.sales, s); logOp('一括ロック（' + changed + '件）'); refreshAll(); }
 }
 function applyBulkUnlock() {
   const checked = document.querySelectorAll('.sales-row-cb:checked');
@@ -416,7 +418,35 @@ function applyBulkUnlock() {
     s[idx].memo = memo.replace(/\s*\/\s*\[LOCK\]/g, '').replace(/\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim();
     changed++;
   });
-  if (changed > 0) { setLS(LS.sales, s); refreshAll(); }
+  if (changed > 0) { setLS(LS.sales, s); logOp('一括ロック解除（' + changed + '件）'); refreshAll(); }
+}
+function logOp(msg) {
+  try {
+    const logs = JSON.parse(sessionStorage.getItem('ribre_op_log') || '[]');
+    const now = new Date();
+    const ts = now.getFullYear() + '/' +
+      String(now.getMonth() + 1).padStart(2, '0') + '/' +
+      String(now.getDate()).padStart(2, '0') + ' ' +
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0');
+    logs.unshift({ ts, msg });
+    sessionStorage.setItem('ribre_op_log', JSON.stringify(logs.slice(0, 50)));
+  } catch(e) {}
+}
+function renderOpLog() {
+  const el = document.getElementById('opLogList');
+  if (!el) return;
+  try {
+    const logs = JSON.parse(sessionStorage.getItem('ribre_op_log') || '[]');
+    if (!logs.length) { el.innerHTML = '<div class="row"><span style="color:#64748b">ログがありません（このタブのセッション中の操作が記録されます）</span></div>'; return; }
+    el.innerHTML = logs.slice(0, 10).map(function(x) {
+      return '<div class="row ok"><span>' + x.ts + '　' + x.msg + '</span></div>';
+    }).join('');
+  } catch(e) { el.innerHTML = ''; }
+}
+function clearOpLog() {
+  try { sessionStorage.removeItem('ribre_op_log'); } catch(e) {}
+  renderOpLog();
 }
 window.refreshTop = refreshTop;
 window.refreshAll = refreshAll;
@@ -430,3 +460,5 @@ window.applyBulkLock = applyBulkLock;
 window.applyBulkUnlock = applyBulkUnlock;
 window.closeMonth = closeMonth;
 window.openMonth = openMonth;
+window.renderOpLog = renderOpLog;
+window.clearOpLog = clearOpLog;
