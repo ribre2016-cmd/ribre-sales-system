@@ -103,7 +103,21 @@ function renderSales() {
   };
   const filterEl = document.getElementById('salesShopFilter');
   const filterVal = filterEl ? filterEl.value : '';
-  const filtered = filterVal ? data.filter((x) => x.shop === filterVal) : data;
+  const searchEl = document.getElementById('salesItemIdSearch');
+  const searchVal = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  const byShop = filterVal ? data.filter((x) => x.shop === filterVal) : data;
+  const filtered = searchVal
+    ? byShop.filter((x) => {
+        const id = String(x.itemId || x.id || '').toLowerCase();
+        return id.includes(searchVal);
+      })
+    : byShop;
+  const infoEl = document.getElementById('salesFilterInfo');
+  if (infoEl) {
+    infoEl.textContent = (filterVal || searchVal)
+      ? filtered.length + '件 / 全' + data.length + '件'
+      : '全' + data.length + '件';
+  }
   const rows = filtered.map((x, i) => {
     const cls = shopClsMap[x.shop] || '';
     const profit = (x.profit !== undefined && x.profit !== null) ? x.profit : (num(x.amount) - num(x.fee) - num(x.shipping));

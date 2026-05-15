@@ -255,7 +255,7 @@ body.dev-mode .dev-only { display: block !important; }
       <button onclick="addSale()">売上追加</button>
       <button class="secondary" onclick="exportSalesCsv()">売上CSV</button>
     </div>
-    <div class="controls" style="margin-top:8px">
+    <div class="controls" style="margin-top:8px;flex-wrap:wrap;gap:8px">
       <label>販売先フィルタ：</label>
       <select id="salesShopFilter" onchange="renderSales()">
         <option value="">すべて</option>
@@ -271,6 +271,8 @@ body.dev-mode .dev-only { display: block !important; }
         <option value="メルカリShops">メルカリShops</option>
         <option value="ラクマ">ラクマ</option>
       </select>
+      <input id="salesItemIdSearch" placeholder="商品ID・注文番号で検索" oninput="renderSales()" style="min-width:220px">
+      <span id="salesFilterInfo" style="font-size:12px;color:#64748b;align-self:center"></span>
     </div>
     <div id="salesTable"></div>
   </div>
