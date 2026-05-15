@@ -161,6 +161,7 @@ function renderSales() {
       ? '<td class="sale-loss-cell">' + yen(profit) + '</td>'
       : '<td>' + yen(profit) + '</td>';
     return '<tr class="' + cls + (anomaly ? ' ' + anomaly : '') + '">' +
+      '<td><input type="checkbox" class="sales-row-cb" onchange="updateSalesSelectCount()"></td>' +
       '<td>' + (i + 1) + '</td>' +
       '<td>' + (x.date || '') + '</td>' +
       '<td>' + (x.shop || '') + '</td>' +
@@ -176,9 +177,11 @@ function renderSales() {
   }).join('');
   document.getElementById('salesTable').innerHTML =
     '<div class="sales-table-wrap"><table class="sales-tbl">' +
-    '<thead><tr><th>連番</th><th>日付</th><th>販売先</th><th>商品ID</th><th>内容</th>' +
+    '<thead><tr><th><input type="checkbox" id="salesSelectAll" onchange="toggleAllSales(this)"></th>' +
+    '<th>連番</th><th>日付</th><th>販売先</th><th>商品ID</th><th>内容</th>' +
     '<th>手数料</th><th>送料</th><th>利益</th><th>決済金額</th><th>金額</th><th>メモ</th></tr></thead>' +
     '<tbody>' + rows + '</tbody></table></div>';
+  updateSalesSelectCount();
 }
 function renderPurchases() {
   const data = purchases();
@@ -296,8 +299,25 @@ window.addEventListener('load', () => {
   monthlySummary();
 });
 
+function updateSalesSelectCount() {
+  const checked = document.querySelectorAll('.sales-row-cb:checked').length;
+  const total = document.querySelectorAll('.sales-row-cb').length;
+  const el = document.getElementById('salesSelectInfo');
+  if (el) el.textContent = checked > 0 ? '選択中: ' + checked + '件' : '';
+  const hdr = document.getElementById('salesSelectAll');
+  if (hdr) {
+    hdr.indeterminate = checked > 0 && checked < total;
+    hdr.checked = total > 0 && checked === total;
+  }
+}
+function toggleAllSales(cb) {
+  document.querySelectorAll('.sales-row-cb').forEach(function(el) { el.checked = cb.checked; });
+  updateSalesSelectCount();
+}
 window.refreshTop = refreshTop;
 window.refreshAll = refreshAll;
 window.monthlySummary = monthlySummary;
 window.prevMonth = prevMonth;
 window.nextMonth = nextMonth;
+window.updateSalesSelectCount = updateSalesSelectCount;
+window.toggleAllSales = toggleAllSales;
