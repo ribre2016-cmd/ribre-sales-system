@@ -542,10 +542,12 @@ function renderStatusPanel() {
   const srchEl = document.getElementById('salesItemIdSearch');
   const srchVal = srchEl ? srchEl.value.trim() : '';
   const closed = isMonthClosed(vm);
-  function chip(label, val, level) {
+  function chip(label, val, level, onclick) {
     const bg = level === 'danger' ? '#fff1f2' : level === 'caution' ? '#fff7ed' : level === 'warn' ? '#fef9c3' : level === 'info' ? '#eff6ff' : level === 'ok' ? '#f0fdf4' : '#f1f5f9';
     const color = level === 'danger' ? '#dc2626' : level === 'caution' ? '#b45309' : level === 'warn' ? '#854d0e' : level === 'info' ? '#2563eb' : level === 'ok' ? '#166534' : '#475569';
-    return '<span style="background:' + bg + ';color:' + color + ';border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">' + label + '&nbsp;<strong>' + val + '</strong></span>';
+    const style = 'background:' + bg + ';color:' + color + ';border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap' + (onclick ? ';cursor:pointer' : '');
+    const attrs = onclick ? ' style="' + style + '" onclick="' + onclick + '" title="クリックでフィルタ切替"' : ' style="' + style + '"';
+    return '<span' + attrs + '>' + label + '&nbsp;<strong>' + val + '</strong></span>';
   }
   const dispCount = typeof window._ribreDisplayedCount === 'number' ? window._ribreDisplayedCount : null;
   const lockPct = ms.length > 0 ? Math.round(locked / ms.length * 100) : 0;
@@ -559,18 +561,44 @@ function renderStatusPanel() {
     dispCount !== null && dispCount !== ms.length ? chip('表示中', dispCount + ' / ' + ms.length + '件', 'info') : '',
     readinessBadge,
     closed ? '<span style="background:#fef08a;color:#854d0e;border:1px solid #fbbf24;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;white-space:nowrap">🔒 締め済み</span>' : '',
-    ms.length > 0 ? chip('ロック', locked + ' / ' + ms.length + '件 (' + lockPct + '%)', lockPct === 100 ? 'ok' : '') : '',
-    chip('未一致', unmatched > 0 ? unmatched + '件' : ms.length > 0 ? 'なし ✅' : '0件', unmatched > 0 ? 'danger' : ms.length > 0 ? 'ok' : ''),
-    chip('利益異常', anomaly > 0 ? anomaly + '件' : ms.length > 0 ? 'なし ✅' : '0件', anomaly > 0 ? 'caution' : ms.length > 0 ? 'ok' : ''),
-    chip('送料0', noship > 0 ? noship + '件' : 'なし', noship > 0 ? 'caution' : ''),
-    memoCount > 0 ? chip('メモ', memoCount + '件', '') : '',
+    ms.length > 0 ? chip('ロック', locked + ' / ' + ms.length + '件 (' + lockPct + '%)', lockPct === 100 ? 'ok' : '', "setQuickFilter('locked')") : '',
+    chip('未一致', unmatched > 0 ? unmatched + '件' : ms.length > 0 ? 'なし ✅' : '0件', unmatched > 0 ? 'danger' : ms.length > 0 ? 'ok' : '', unmatched > 0 ? "setQuickFilter('unmatched')" : ''),
+    chip('利益異常', anomaly > 0 ? anomaly + '件' : ms.length > 0 ? 'なし ✅' : '0件', anomaly > 0 ? 'caution' : ms.length > 0 ? 'ok' : '', anomaly > 0 ? "setQuickFilter('anomaly')" : ''),
+    chip('送料0', noship > 0 ? noship + '件' : 'なし', noship > 0 ? 'caution' : '', noship > 0 ? "setQuickFilter('noship')" : ''),
+    memoCount > 0 ? chip('メモ', memoCount + '件', '', "setQuickFilter('memo')") : '',
     chip('容量', lsMB + 'MB', lsWarn ? 'warn' : ''),
     lastLog ? '<span style="background:#f1f5f9;color:#64748b;border-radius:20px;padding:3px 10px;font-size:11px;white-space:nowrap">最終操作: ' + lastLog + '</span>' : '',
     qf !== 'all' ? chip('絞込', qf, 'info') : '',
     shopVal ? chip('販売先', shopVal, 'info') : '',
     srchVal ? chip('検索', '&quot;' + srchVal + '&quot;', 'info') : ''
   ].filter(Boolean);
-  el.innerHTML = parts.join('');
+  const checkItems = [];
+  if (unmatched > 0) checkItems.push(['未一致', unmatched + '件', "setQuickFilter('unmatched')", 'danger']);
+  if (anomaly > 0) checkItems.push(['利益異常', anomaly + '件', "setQuickFilter('anomaly')", 'caution']);
+  if (noship > 0) checkItems.push(['送料0', noship + '件', "setQuickFilter('noship')", 'caution']);
+  let checklistHtml = '';
+  if (ms.length > 0) {
+    if (closed) {
+      checklistHtml = '<div style="width:100%;margin-top:4px;font-size:11px;font-weight:700;color:#854d0e">🔒 この月は締め済みです</div>';
+    } else if (checkItems.length === 0) {
+      checklistHtml = '<div style="width:100%;margin-top:4px;font-size:11px;font-weight:700;color:#166534">✅ 全項目確認済み — 締め作業を進められます</div>';
+    } else {
+      const itemLinks = checkItems.map(function(item) {
+        const c = item[3] === 'danger' ? '#dc2626' : '#b45309';
+        const b = item[3] === 'danger' ? '#fff1f2' : '#fff7ed';
+        return '<span onclick="' + item[2] + '" style="cursor:pointer;color:' + c + ';background:' + b + ';border-radius:10px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap">▸ ' + item[0] + ' ' + item[1] + '</span>';
+      }).join('');
+      checklistHtml = '<div style="width:100%;margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:5px"><span style="font-size:11px;color:#475569;font-weight:700">確認必要:</span>' + itemLinks + '</div>';
+    }
+  }
+  const hintEl = document.getElementById('closeMonthHint');
+  if (hintEl) {
+    if (closed) { hintEl.textContent = '締め済み'; hintEl.style.color = '#854d0e'; }
+    else if (allOk && ms.length > 0) { hintEl.textContent = '✅ 締め可能'; hintEl.style.color = '#166534'; }
+    else if (ms.length > 0) { hintEl.textContent = '⚠ ' + checkItems.map(function(i) { return i[0] + i[1]; }).join(' / '); hintEl.style.color = '#b45309'; }
+    else { hintEl.textContent = ''; }
+  }
+  el.innerHTML = parts.join('') + checklistHtml;
 }
 function setQuickFilter(qf) {
   window._ribreQuickFilter = qf;
