@@ -553,7 +553,7 @@ function renderStatusPanel() {
   const lockPct = ms.length > 0 ? Math.round(locked / ms.length * 100) : 0;
   const allOk = ms.length > 0 && unmatched === 0 && anomaly === 0;
   const readinessBadge = ms.length === 0 ? '' : allOk
-    ? '<span style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;white-space:nowrap">✅ 締め可能</span>'
+    ? '<span style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;white-space:nowrap">✅ 確認済み・締め可能</span>'
     : '<span style="background:#fff7ed;color:#b45309;border:1px solid #fed7aa;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;white-space:nowrap">⚠ 未確認あり</span>';
   const parts = [
     chip('全', allSales.length + '件', ''),
@@ -562,8 +562,8 @@ function renderStatusPanel() {
     readinessBadge,
     closed ? '<span style="background:#fef08a;color:#854d0e;border:1px solid #fbbf24;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:900;white-space:nowrap">🔒 締め済み</span>' : '',
     ms.length > 0 ? chip('ロック', locked + ' / ' + ms.length + '件 (' + lockPct + '%)', lockPct === 100 ? 'ok' : '', "setQuickFilter('locked')") : '',
-    chip('未一致', unmatched > 0 ? unmatched + '件' : ms.length > 0 ? 'なし ✅' : '0件', unmatched > 0 ? 'danger' : ms.length > 0 ? 'ok' : '', unmatched > 0 ? "setQuickFilter('unmatched')" : ''),
-    chip('利益異常', anomaly > 0 ? anomaly + '件' : ms.length > 0 ? 'なし ✅' : '0件', anomaly > 0 ? 'caution' : ms.length > 0 ? 'ok' : '', anomaly > 0 ? "setQuickFilter('anomaly')" : ''),
+    chip('未一致', unmatched > 0 ? unmatched + '件' : ms.length > 0 ? '確認済み' : '0件', unmatched > 0 ? 'danger' : ms.length > 0 ? 'ok' : '', unmatched > 0 ? "setQuickFilter('unmatched')" : ''),
+    chip('利益異常', anomaly > 0 ? anomaly + '件' : ms.length > 0 ? '確認済み' : '0件', anomaly > 0 ? 'caution' : ms.length > 0 ? 'ok' : '', anomaly > 0 ? "setQuickFilter('anomaly')" : ''),
     chip('送料0', noship > 0 ? noship + '件' : 'なし', noship > 0 ? 'caution' : '', noship > 0 ? "setQuickFilter('noship')" : ''),
     memoCount > 0 ? chip('メモ', memoCount + '件', '', "setQuickFilter('memo')") : '',
     chip('容量', lsMB + 'MB', lsWarn ? 'warn' : ''),
@@ -581,7 +581,7 @@ function renderStatusPanel() {
     if (closed) {
       checklistHtml = '<div style="width:100%;margin-top:4px;font-size:11px;font-weight:700;color:#854d0e">🔒 この月は締め済みです</div>';
     } else if (checkItems.length === 0) {
-      checklistHtml = '<div style="width:100%;margin-top:4px;font-size:11px;font-weight:700;color:#166534">✅ 全項目確認済み — 締め作業を進められます</div>';
+      checklistHtml = '<div style="width:100%;margin-top:4px"><span class="normal-ok-hint">✅ 全項目確認済み — 締め作業を進められます</span></div>';
     } else {
       const itemLinks = checkItems.map(function(item) {
         const c = item[3] === 'danger' ? '#dc2626' : '#b45309';
@@ -594,7 +594,7 @@ function renderStatusPanel() {
   const hintEl = document.getElementById('closeMonthHint');
   if (hintEl) {
     if (closed) { hintEl.textContent = '締め済み'; hintEl.style.color = '#854d0e'; }
-    else if (allOk && ms.length > 0) { hintEl.textContent = '✅ 締め可能'; hintEl.style.color = '#166534'; }
+    else if (allOk && ms.length > 0) { hintEl.textContent = '✅ 確認済み'; hintEl.style.color = '#166534'; }
     else if (ms.length > 0) { hintEl.textContent = '⚠ ' + checkItems.map(function(i) { return i[0] + i[1]; }).join(' / '); hintEl.style.color = '#b45309'; }
     else { hintEl.textContent = ''; }
   }
@@ -641,7 +641,7 @@ function renderTodayPanel() {
   } else {
     const hasIssues = unmatched > 0 || anomaly > 0 || noship > 0 || lsWarn;
     if (!hasIssues) {
-      body = '<span style="font-size:11px;color:#166534;font-weight:700">✅ 今月の確認事項はありません — 月締めできます</span>';
+      body = '<span class="normal-ok-hint">✅ 今月の確認事項はありません — 月締めできます</span>';
     } else {
       const chips = [];
       if (unmatched > 0) chips.push(row('未一致 ' + unmatched + '件 を確認', 'unmatched', 'danger'));
@@ -695,7 +695,7 @@ function renderDashMonthCard() {
   if (closed) {
     closingItem = item('月締め', '締め済み', '', '#dcfce7', '#166534', '', '');
   } else if (allOk) {
-    closingItem = item('月締め', '締め可能 ✅', '', '#f0fdf4', '#166534', '', 'dmc-ready');
+    closingItem = item('月締め', '確認済み ✅', '', '#f0fdf4', '#166534', '', 'dmc-ready');
   } else {
     closingItem = item('月締め', '未確認あり', '', '#fff7ed', '#b45309', '', '');
   }
@@ -703,9 +703,9 @@ function renderDashMonthCard() {
     + '<div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:8px">📊 今月の状態 <span style="font-weight:700;color:#94a3b8">(' + vm + ')</span></div>'
     + okBanner
     + '<div class="dash-month-card">'
-    + item('未一致', unmatched + '件', unmatched > 0 ? 'クリックで確認' : 'なし ✅', unmatched > 0 ? '#fef2f2' : '#f0fdf4', unmatched > 0 ? '#dc2626' : '#166534', unmatched > 0 ? 'unmatched' : '', unmatched > 0 ? 'dmc-alert' : '')
-    + item('利益異常', anomaly + '件', anomaly > 0 ? 'クリックで確認' : 'なし ✅', anomaly > 0 ? '#fff7ed' : '#f0fdf4', anomaly > 0 ? '#b45309' : '#166534', anomaly > 0 ? 'anomaly' : '', anomaly > 0 ? 'dmc-caution' : '')
-    + item('送料0', noship + '件', noship > 0 ? 'クリックで確認' : 'なし', noship > 0 ? '#fff7ed' : '#f1f5f9', noship > 0 ? '#b45309' : '#475569', noship > 0 ? 'noship' : '', noship > 0 ? 'dmc-caution' : '')
+    + item('未一致', unmatched + '件', unmatched > 0 ? 'クリックで確認' : '確認済み ✅', unmatched > 0 ? '#fef2f2' : '#f0fdf4', unmatched > 0 ? '#dc2626' : '#166534', unmatched > 0 ? 'unmatched' : '', unmatched > 0 ? 'dmc-alert' : '')
+    + item('利益異常', anomaly + '件', anomaly > 0 ? 'クリックで確認' : '確認済み', anomaly > 0 ? '#fff7ed' : '#f0fdf4', anomaly > 0 ? '#b45309' : '#166534', anomaly > 0 ? 'anomaly' : '', anomaly > 0 ? 'dmc-caution' : '')
+    + item('送料0', noship + '件', noship > 0 ? 'クリックで確認' : '確認済み', noship > 0 ? '#fff7ed' : '#f1f5f9', noship > 0 ? '#b45309' : '#475569', noship > 0 ? 'noship' : '', noship > 0 ? 'dmc-caution' : '')
     + item('ロック率', lockPct + '%', locked + ' / ' + ms.length + '件', lockPct === 100 ? '#f0fdf4' : '#eff6ff', lockPct === 100 ? '#166534' : '#2563eb', 'locked', '')
     + closingItem
     + '</div></div>';

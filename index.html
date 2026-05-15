@@ -197,9 +197,81 @@ body:not(.dev-mode) #dashStats .controls { display: none; }
 body:not(.dev-mode) #dashList { display: none; }
 /* 誤操作防止強化 */
 .sales-tbl tbody tr.sale-locked td:first-child { border-left: 3px solid #94a3b8; }
-body:not(.dev-mode) button.red { background: #fff !important; color: #ef4444 !important; border: 1px solid #fca5a5 !important; box-shadow: none !important; }
+body:not(.dev-mode) .sales-tbl tbody tr.sale-locked {
+  background: linear-gradient(0deg, #f8fafc 0%, #eef2f7 100%);
+  color: #475569;
+}
+body:not(.dev-mode) .sales-tbl tbody tr.sale-locked td {
+  box-shadow: inset 0 -1px 0 #e2e8f0;
+}
+body:not(.dev-mode) .sales-tbl tbody tr.sale-locked td:nth-child(12) {
+  color: #334155;
+  font-weight: 700;
+}
+body:not(.dev-mode) button.red {
+  background: #f8fafc !important;
+  color: #b91c1c !important;
+  border: 1px solid #fecaca !important;
+  box-shadow: none !important;
+  opacity: 0.72;
+}
+body:not(.dev-mode) button.red:hover {
+  background: #fff1f2 !important;
+  border-color: #fca5a5 !important;
+  opacity: 1;
+}
+body:not(.dev-mode) #openMonthBtn,
+body:not(.dev-mode) #bulkUnlockBtn {
+  background: #f8fafc !important;
+  color: #9f1239 !important;
+  border: 1px dashed #fda4af !important;
+  box-shadow: none !important;
+  opacity: 0.65;
+}
+body:not(.dev-mode) #openMonthBtn:hover,
+body:not(.dev-mode) #bulkUnlockBtn:hover {
+  background: #fff1f2 !important;
+  border-style: solid !important;
+  opacity: 1;
+}
 body:not(.dev-mode) #sales.month-is-closed .editor { opacity: 0.35; pointer-events: none; }
 body:not(.dev-mode) #sales.month-is-closed #salesAddControls { opacity: 0.35; pointer-events: none; }
+body:not(.dev-mode) #sales.month-is-closed #salesQuickFilterBar,
+body:not(.dev-mode) #sales.month-is-closed #salesFilterBar,
+body:not(.dev-mode) #sales.month-is-closed #bulkOpsRow {
+  opacity: 0.5;
+}
+body:not(.dev-mode) #sales.month-is-closed #bulkOpsRow {
+  pointer-events: none;
+}
+body:not(.dev-mode) #sales.month-is-closed .sales-row-cb,
+body:not(.dev-mode) #sales.month-is-closed #salesSelectAll {
+  pointer-events: none;
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+.normal-ok-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 900;
+}
+.normal-ok-hint::before {
+  content: "確認済み";
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: #15803d;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
 /* 操作ガイド */
 body.dev-mode #dashGuide { display: none; }
 .dash-guide-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
@@ -391,7 +463,7 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
       <span id="currentViewMonthSales" style="font-weight:900;font-size:15px;color:#0f172a;min-width:90px;text-align:center"></span>
       <button class="secondary" onclick="nextMonth()" style="padding:5px 10px;min-width:unset">▶</button>
       <button class="secondary" onclick="closeMonth()" style="padding:5px 10px;border-color:#94a3b8;margin-left:4px">🔒 この月を締める</button>
-      <button id="openMonthBtn" class="secondary" onclick="openMonth()" style="padding:5px 10px">締め解除</button>
+      <button id="openMonthBtn" class="secondary normal-danger" onclick="openMonth()" style="padding:5px 10px">締め解除</button>
       <span id="closeMonthHint" style="font-size:11px;font-weight:700;align-self:center"></span>
     </div>
     <div id="statusPanel" style="display:flex;flex-wrap:wrap;gap:5px;margin:4px 0"></div>
@@ -406,7 +478,7 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
       <button onclick="addSale()">売上追加</button>
       <button class="secondary" onclick="exportSalesCsv()">売上CSV</button>
     </div>
-    <div class="controls" style="margin-top:8px;gap:6px;flex-wrap:wrap">
+    <div id="salesQuickFilterBar" class="controls" style="margin-top:8px;gap:6px;flex-wrap:wrap">
       <span style="font-size:12px;color:#64748b;align-self:center;font-weight:700">絞り込み:</span>
       <button class="qf-btn active" data-qf="all" onclick="setQuickFilter('all')">全件</button>
       <button class="qf-btn" data-qf="unmatched" onclick="setQuickFilter('unmatched')">未一致</button>
@@ -415,7 +487,7 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
       <button class="qf-btn" data-qf="locked" onclick="setQuickFilter('locked')">🔒 ロック済</button>
       <button class="qf-btn" data-qf="memo" onclick="setQuickFilter('memo')">メモあり</button>
     </div>
-    <div class="controls" style="margin-top:8px;flex-wrap:wrap;gap:8px">
+    <div id="salesFilterBar" class="controls" style="margin-top:8px;flex-wrap:wrap;gap:8px">
       <label>販売先フィルタ：</label>
       <select id="salesShopFilter" onchange="renderSales()">
         <option value="">すべて</option>
@@ -439,7 +511,7 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
       <input id="bulkMemoInput" placeholder="まとめてメモを付ける（選択行へ追記）" style="min-width:240px">
       <button class="secondary" onclick="applyBulkMemo()">選択行へメモ適用</button>
       <button class="secondary" onclick="applyBulkLock()" style="border-color:#94a3b8">🔒 選択行をロック</button>
-      <button class="secondary" onclick="applyBulkUnlock()">ロック解除</button>
+      <button id="bulkUnlockBtn" class="secondary" onclick="applyBulkUnlock()">ロック解除</button>
     </div>
     <div id="filterCondLabel" style="font-size:12px;color:#64748b;padding:4px 2px"></div>
     <div id="selectBar" style="display:none;background:#eff6ff;color:#1d4ed8;border-radius:10px;padding:5px 12px;font-size:12px;font-weight:700;margin-bottom:4px"></div>
