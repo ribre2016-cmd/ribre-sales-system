@@ -79,9 +79,13 @@ function shipOcrLightMeta(x) {
   return (carrier ? ' / ' + carrier : '') + (tracking ? ' / ' + tracking : '') + (evidence ? ' / 証憑あり' : '');
 }
 function extractItemId(v) {
-  const s = String(v || '');
+  const s = String(v || '').trim();
+  const order = s.match(/order_[A-Za-z0-9]+/);
+  if (order) return order[0];
   const m = s.match(/[a-z]?\d{9,12}/i);
-  return m ? m[0] : '';
+  if (m) return m[0];
+  if (s.length >= 8) return s;
+  return '';
 }
 function importShippingCsv() {
   const input = document.getElementById('shipCsvFile');
@@ -115,18 +119,31 @@ function importShippingCsv() {
         } else if (type === 'yamato2') {
           obj.company = 'ヤマト';
           obj.slip = normalizeSlip(r[4] || '');
-          obj.shipping = num(r[11] || 0);
+          obj.shipping = Math.round(num(r[11] || 0) * 1.1);
         } else {
           obj.company = '佐川急便';
           obj.itemId = extractItemId(r[4] || '');
-          obj.shipping = num(r[10] || 0);
+          obj.shipping = Math.round(num(r[10] || 0) * 1.1);
         }
 
         if (obj.itemId || obj.slip || obj.shipping) mapped.push(obj);
       });
 
-      saveShipRows(mapped);
-      shipSet('shipCsvCount', mapped.length + '件');
+      let finalRows;
+      if (type === 'yamato2') {
+        const prev = shipRows();
+        const nonY2 = prev.filter(r => r.type !== 'yamato2');
+        const slipMap = new Map(prev.filter(r => r.type === 'yamato2' && r.slip).map(r => [r.slip, r]));
+        const noSlipPrev = prev.filter(r => r.type === 'yamato2' && !r.slip);
+        const noSlipNew = [];
+        mapped.forEach(r => { r.slip ? slipMap.set(r.slip, r) : noSlipNew.push(r); });
+        finalRows = nonY2.concat(Array.from(slipMap.values())).concat(noSlipPrev).concat(noSlipNew);
+      } else {
+        const prev = shipRows();
+        finalRows = prev.filter(r => r.type === 'yamato2' || r.type !== type).concat(mapped);
+      }
+      saveShipRows(finalRows);
+      shipSet('shipCsvCount', finalRows.length + '件');
       shipSet('shipStatus', '取込OK');
 
       if (!mapped.length) {
@@ -221,20 +238,33 @@ function matchShipping() {
     }
   });
   setLS(LS.sales, s);
-  saveShipResults(results);
   refreshAll();
-  shipSet('shipMatchCount', matched + '件');
-  shipSet('shipUnmatchCount', unmatched + '件');
+  const salesResults = [];
+  s.forEach(x => {
+    const shipped = Number(x.shipping || 0) > 0;
+    const csvMatched = x.matchStatus === '配送CSV一致' && shipped;
+    const status = csvMatched ? '一致' : (shipped ? '匿名配送' : '未一致');
+    salesResults.push({
+      status,
+      company: x.deliveryCompany || '',
+      itemId: x.itemId || x.id || '',
+      slip: x.slip || '',
+      shipping: x.shipping || 0,
+      name: x.name || '',
+      msg: status + ': ' + (x.name || '') + ' / 送料:' + (x.shipping || 0) + (x.deliveryCompany ? ' / ' + x.deliveryCompany : '')
+    });
+  });
+  saveShipResults(salesResults);
+  const salesMatched   = salesResults.filter(r => r.status === '一致').length;
+  const salesAnon      = salesResults.filter(r => r.status === '匿名配送').length;
+  const salesUnmatched = salesResults.filter(r => r.status === '未一致').length;
+  shipSet('shipSalesCount', s.length + '件');
+  shipSet('shipMatchCount', salesMatched + '件');
+  shipSet('shipSalesUnmatched', salesUnmatched + '件');
+  shipSet('shipMatchRate', s.length > 0 ? Math.round(salesMatched / s.length * 100) + '%' : '—');
+  shipSet('shipUnmatchCount', salesAnon + '件');
   shipSet('shipStatus', '照合完了');
-  shipRender(
-    results
-      .slice(0, 120)
-      .map((r) => ({
-        type: r.status,
-        level: r.status === '一致' ? 'ok' : 'warn',
-        msg: r.msg + ' / 送料:' + r.shipping + ' / ' + r.company + shipSourceTag(r) + shipOcrLightMeta(r)
-      }))
-  );
+  shipRenderEditable(salesResults);
 }
 function exportShippingReport() {
   const rows = [['状態', '会社', '商品ID', '伝票番号', '送料', '商品名']];
@@ -320,6 +350,7 @@ function yDate(v) {
 function importYahooSalesCsv() {
   const file = document.getElementById('yahooCsvFile').files[0];
   const account = document.getElementById('yahooAccount').value;
+  const isYahoo = account.startsWith('ヤフオク');
   if (!file) {
     alert('ヤフオク売上CSVを選択してください');
     return;
@@ -330,30 +361,51 @@ function importYahooSalesCsv() {
   const rd = new FileReader();
   rd.onload = () => {
     try {
-      const rows = yParseCsv(rd.result);
+      const utf8Attempt = new TextDecoder('utf-8').decode(rd.result);
+      const csvText = utf8Attempt.includes('�') || utf8Attempt.includes('□')
+        ? new TextDecoder('shift_jis').decode(rd.result)
+        : utf8Attempt;
+      const rows = yParseCsv(csvText);
       if (!rows.length) {
         alert('CSVが空です');
         return;
       }
+      if (rows.length === 1) {
+        alert('取込できる行がありませんでした（ヘッダー行のみ）。CSV形式を確認してください。');
+        return;
+      }
       const h = rows[0];
 
-      const idxId = yFindIndex(h, ['商品ID', 'オークションID', '管理番号'], 0);
-      const idxDate = yFindIndex(h, ['完了日', '落札日', '終了日時', '取扱日'], 1);
+      const isMercariShops = account === 'メルカリShops';
+      const idxId = isYahoo
+        ? yFindIndex(h, ['商品ID', 'オークションID', '管理番号'], 0)
+        : isMercariShops
+        ? 0
+        : yFindIndex(h, ['注文番号', '商品ID', '管理番号'], 0);
+      const idxDate = isMercariShops ? 6 : yFindIndex(h, ['完了日', '落札日', '終了日時', '取扱日'], 1);
       const idxName = yFindIndex(h, ['商品名', 'タイトル', '取扱内容'], 2);
-      const idxAmount = yFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計'], 3);
-      const idxFee = yFindIndex(h, ['手数料', '落札システム利用料'], 4);
+      const idxAmount = isMercariShops ? 12 : yFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計'], 3);
+      const idxFee = isYahoo
+        ? yFindIndex(h, ['落札システム利用料', '手数料'], 4)
+        : isMercariShops
+        ? 15
+        : yFindIndex(h, ['手数料'], 4);
       const idxShip = yFindIndex(h, ['送料'], 5);
       const idxStatus = yFindIndex(h, ['状態', 'ステータス'], 6);
       const idxPay = yFindIndex(h, ['支払方法', '決済方法'], 7);
 
       const old = yRows();
       const seen = new Set(old.map((x) => x.itemId));
-      let imported = 0,
-        skipped = 0;
+      let imported = 0, skipped = 0, patched = 0;
       const added = [];
+      const isGarbled = (s) => {
+        const v = String(s || '');
+        return !v || v.includes('�') || v.includes('□');
+      };
 
       rows.slice(1).forEach((r, i) => {
-        const itemId = yItemId(r[idxId] || r.join(' '));
+        const rawId = String(r[idxId] || '').trim();
+        const itemId = isYahoo ? yItemId(r[idxId] || r.join(' ')) : (rawId || yItemId(r.join(' ')));
         if (!itemId) {
           skipped++;
           return;
@@ -368,19 +420,59 @@ function importYahooSalesCsv() {
           skipped++;
           return;
         }
+        const amount = yNum(r[idxAmount]);
+        const rawDateVal = String(r[idxDate] || '');
+        const dateStr = (isMercariShops && !/\d{4}[\/\-年]\d{1,2}/.test(rawDateVal))
+          ? today()
+          : yDate(rawDateVal);
+
         if (seen.has(itemId)) {
+          const existing = old.find((x) => x.itemId === itemId);
+          if (existing) {
+            const csvFee = yNum(r[idxFee]);
+            const csvShipping = yNum(r[idxShip]);
+            const csvSettleAmount = yNum(r[idxAmount]);
+            const csvName = r[idxName] || '';
+            let touched = false;
+            if (!Number(existing.fee) && csvFee) { existing.fee = csvFee; touched = true; }
+            if (!Number(existing.shipping) && csvShipping) {
+              existing.shipping = csvShipping;
+              existing.ship = csvShipping;
+              touched = true;
+            }
+            if (!Number(existing.settleAmount) && csvSettleAmount) { existing.settleAmount = csvSettleAmount; touched = true; }
+            if (csvName && isGarbled(existing.name)) { existing.name = csvName; touched = true; }
+            if (isGarbled(existing.memo)) {
+              existing.memo = (isYahoo ? 'ヤフオク売上CSV' : account + '売上CSV') + ' / ' + file.name;
+              touched = true;
+            }
+            if (isMercariShops) {
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(String(existing.date || ''))) {
+                existing.date = dateStr;
+                existing.month = dateStr.slice(0, 7);
+                touched = true;
+              }
+              if (!Number(existing.amount || 0) && Number(amount)) {
+                existing.amount = amount;
+                touched = true;
+              }
+            }
+            if (touched) {
+              existing.profit = Number(existing.amount || existing.price || 0) - Number(existing.fee || 0) - Number(existing.shipping || 0);
+              patched++;
+            }
+          }
           skipped++;
           return;
         }
 
-        const amount = yNum(r[idxAmount]);
         const fee = yNum(r[idxFee]);
         const shipping = yNum(r[idxShip]);
         const row = {
           id: itemId,
           itemId: itemId,
-          date: yDate(r[idxDate]),
-          month: yDate(r[idxDate]).slice(0, 7),
+          date: dateStr,
+          month: dateStr.slice(0, 7),
           shop: account,
           name: r[idxName] || '',
           amount: amount,
@@ -392,7 +484,7 @@ function importYahooSalesCsv() {
           slip: '',
           deliveryCompany: '',
           matchStatus: '売上CSV取込',
-          memo: 'ヤフオク売上CSV / ' + file.name,
+          memo: (isYahoo ? 'ヤフオク売上CSV' : account + '売上CSV') + ' / ' + file.name,
           source: 'YahooCSV Ver60.0',
           order: old.length + added.length + i + 1
         };
@@ -401,13 +493,57 @@ function importYahooSalesCsv() {
         imported++;
       });
 
+      if (added.length === 0 && patched === 0) {
+        alert('取込できる行がありませんでした。重複またはCSV形式を確認してください。');
+        if (window.logOp) window.logOp('CSV取込警告（0件）：' + file.name);
+        return;
+      }
+      if (added.length > 0) {
+        const zeroAmt = added.filter(function(r) { return !r.amount; }).length;
+        if (zeroAmt > added.length * 0.5) {
+          if (!confirm('金額が0円の行が多いです（' + zeroAmt + '件）。CSV列がずれている可能性があります。続行しますか？')) {
+            if (window.logOp) window.logOp('CSV取込中止（金額0件多）：' + file.name);
+            return;
+          }
+        }
+      }
+      if (!isMercariShops && added.length > 3) {
+        const todayStr = today();
+        const badDates = added.filter(function(r) { return r.date === todayStr; }).length;
+        if (badDates > added.length * 0.7) {
+          if (!confirm('日付を確認できない行が多いです（' + badDates + '件）。CSV列がずれている可能性があります。続行しますか？')) {
+            if (window.logOp) window.logOp('CSV取込中止（日付不明多）：' + file.name);
+            return;
+          }
+        }
+      }
+      if (added.length > 0 && window.isMonthClosed) {
+        const closedMonths = [...new Set(added.map(function(r) { return r.month; }).filter(function(m) { return m && window.isMonthClosed(m); }))];
+        if (closedMonths.length > 0) {
+          if (!confirm('締め済みの月（' + closedMonths.join(', ') + '）へのデータが含まれています。取り込みを続行しますか？')) {
+            if (window.logOp) window.logOp('CSV取込中止（締め済み月）：' + file.name);
+            return;
+          }
+        }
+      }
       const merged = old.concat(added);
       ySave(merged);
       refreshAll();
-      ySet('yahooSalesCount', merged.length + '件');
+      const totalSales = merged.length;
+      const matchedSales = merged.filter((x) => {
+        if (Number(x.shipping || 0) > 0) return true;
+        if (x.matchStatus === '配送一致' || x.matchStatus === '手入力') return true;
+        const s = [x.slip, x.invoiceNo, x.memo, x.deliveryCompany, x.matchStatus].map((v) => String(v || '')).join(' ');
+        return s.includes('匿名配送') || s.includes('匿名');
+      }).length;
+      ySet('yahooSalesCount', totalSales + '件');
+      ySet('yahooMatchCount', matchedSales + '件');
+      ySet('yahooUnmatchCount', (totalSales - matchedSales) + '件');
       ySet('yahooStatus', '取込OK');
+      if (window.logOp) window.logOp('CSV取込完了（新規' + imported + '件, 補完' + patched + '件）：' + file.name);
       yRender([
         { type: '取込', level: 'ok', msg: '取込：' + imported + '件' },
+        { type: '補完', level: 'ok', msg: '補完更新：' + patched + '件' },
         { type: '除外', level: 'warn', msg: '除外/重複：' + skipped + '件' },
         ...added.slice(0, 80).map((x) => ({ type: x.shop, level: 'ok', msg: x.itemId + ' / ' + x.name + ' / ' + yNum(x.amount).toLocaleString() + '円' }))
       ]);
@@ -417,13 +553,13 @@ function importYahooSalesCsv() {
     }
   };
   rd.onerror = () => yRender([{ type: 'ERROR', level: 'danger', msg: 'CSVを読み込めませんでした' }]);
-  rd.readAsText(file, 'Shift_JIS');
+  rd.readAsArrayBuffer(file);
 }
 function autoMatchShippingFromYahoo() {
   const ships = shipRows();
   const ys = yRows();
   if (!ys.length) {
-    alert('先にヤフオク売上CSVを取込してください');
+    alert('先に売上CSVを取込してください');
     return;
   }
   if (!ships.length) {
@@ -437,6 +573,13 @@ function autoMatchShippingFromYahoo() {
   ships.forEach((sh) => {
     let target = null;
     if (sh.itemId) target = ys.find((x) => String(x.itemId || x.id || '') === String(sh.itemId));
+    if (!target && sh.itemId && sh.itemId.length >= 8) {
+      const sId = String(sh.itemId);
+      target = ys.find((x) => {
+        const xId = String(x.itemId || x.id || '');
+        return xId.length >= 8 && (xId.startsWith(sId) || sId.startsWith(xId));
+      });
+    }
     if (!target && sh.slip) target = ys.find((x) => normalizeSlip(x.slip || '') === sh.slip);
     if (target) {
       if (sh.slip) target.slip = sh.slip;
@@ -523,9 +666,13 @@ window.addEventListener('load', () => {
 });
 
 function ver250ItemIdFromAny(v) {
-  const s = String(v || '');
+  const s = String(v || '').trim();
+  const order = s.match(/order_[A-Za-z0-9]+/);
+  if (order) return order[0];
   const m = s.match(/[a-z]?\d{9,12}/i);
-  return m ? m[0] : '';
+  if (m) return m[0];
+  if (s.length >= 8) return s;
+  return '';
 }
 function ver250Slip(v) {
   return String(v || '').replace(/[-\s]/g, '').trim();
@@ -548,7 +695,7 @@ function ver250ShipRowsEnhanced() {
 function ver250ImproveUnmatched() {
   const ys = yRows();
   if (!ys.length) {
-    alert('先にヤフオク売上CSVを取込してください');
+    alert('先に売上CSVを取込してください');
     return;
   }
   const ships = ver250ShipRowsEnhanced();
@@ -566,6 +713,13 @@ function ver250ImproveUnmatched() {
     let target = null;
     if (sh.itemId) {
       target = ys.find((x) => String(x.itemId || x.id || '') === String(sh.itemId));
+    }
+    if (!target && sh.itemId && sh.itemId.length >= 8) {
+      const sId = String(sh.itemId);
+      target = ys.find((x) => {
+        const xId = String(x.itemId || x.id || '');
+        return xId.length >= 8 && (xId.startsWith(sId) || sId.startsWith(xId));
+      });
     }
     if (!target && sh.itemId) {
       target = ys.find((x) => String(x.name || '').includes(sh.itemId) || String(x.memo || '').includes(sh.itemId));
@@ -853,6 +1007,58 @@ function ver270ExportDiagnosis() {
   csvDownload(csvRows, 'unmatched_diagnosis_Ver27_0.csv');
 }
 
+function shipRenderEditable(rows) {
+  const box = document.getElementById('shippingList');
+  if (!box) return;
+  box.innerHTML = (rows || []).slice(0, 200).map(r => {
+    const level = (r.status === '一致' || r.status === '手入力') ? 'ok'
+                : r.status === '未一致' ? 'unmatched'
+                : 'warn';
+    const safeId = String(r.itemId || '').replace(/['"<>&]/g, '');
+    const inputHtml = safeId
+      ? '<input type="number" class="ship-edit-input" value="' + (r.shipping || 0) + '" min="0" data-id="' + safeId + '" onchange="manualShipping(this.dataset.id,this.value)" onkeydown="if(event.key===\'Enter\'){manualShipping(this.dataset.id,this.value);event.target.blur();}" title="送料を手入力（Enter/タブで確定）">'
+      : '';
+    return '<div class="row ' + level + '"><span class="ship-row-msg">' + (r.msg || '') + '</span>' + inputHtml + '<span class="badge">' + r.status + '</span></div>';
+  }).join('');
+}
+function sortUnmatchedFirst() {
+  const rows = shipResults();
+  if (!rows.length) { alert('先に「売上と照合」を実行してください'); return; }
+  const order = { '未一致': 0 };
+  const sorted = rows.slice().sort((a, b) => (order[a.status] ?? 1) - (order[b.status] ?? 1));
+  shipRenderEditable(sorted);
+}
+function manualShipping(itemId, val) {
+  const v = Math.round(Number(val) || 0);
+  const s = sales();
+  const idx = s.findIndex(x => String(x.itemId || x.id || '') === String(itemId));
+  if (idx < 0) return;
+  if (String(s[idx].memo || '').includes('[LOCK]')) { alert('ロック済みのため送料を変更できません。'); return; }
+  s[idx].shipping = v;
+  s[idx].ship = v;
+  s[idx].profit = num(s[idx].amount || s[idx].price || 0) - num(s[idx].fee || 0) - v;
+  s[idx].matchStatus = '手入力';
+  setLS(LS.sales, s);
+  const ys = yRows();
+  const yi = ys.findIndex(x => String(x.itemId || x.id || '') === String(itemId));
+  if (yi >= 0) {
+    ys[yi].shipping = v; ys[yi].ship = v;
+    ys[yi].profit = s[idx].profit; ys[yi].matchStatus = '手入力';
+    localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(ys.slice(0, 20000)));
+  }
+  refreshAll();
+  const results = shipResults();
+  const ri = results.findIndex(r => String(r.itemId || '') === String(itemId));
+  if (ri >= 0) {
+    results[ri].status = '手入力';
+    results[ri].shipping = v;
+    results[ri].msg = '手入力: ' + (results[ri].name || '') + ' / 送料:' + v;
+    saveShipResults(results);
+  }
+}
+window.shipRenderEditable = shipRenderEditable;
+window.sortUnmatchedFirst = sortUnmatchedFirst;
+window.manualShipping = manualShipping;
 window.shipRows = shipRows;
 window.saveShipRows = saveShipRows;
 window.shipResults = shipResults;
@@ -881,6 +1087,89 @@ window.importYahooSalesCsv = importYahooSalesCsv;
 window.autoMatchShippingFromYahoo = autoMatchShippingFromYahoo;
 window.exportYahooSalesCsv = exportYahooSalesCsv;
 window.showYahooGuide = showYahooGuide;
+
+function renderCsvImportLog() {
+  const box = document.getElementById('csvImportLog');
+  if (!box) return;
+  const vm = window._ribreViewMonth || '';
+  const map = {};
+  sales().forEach(function(x) {
+    if (vm && (x.month || String(x.date || '').slice(0, 7)) !== vm) return;
+    const memo = String(x.memo || '');
+    const m = memo.match(/^(.+CSV)\s*\/\s*(.+)$/);
+    if (!m) return;
+    const type = m[1].trim();
+    const fname = m[2].trim();
+    const month = x.month || String(x.date || '').slice(0, 7) || '不明';
+    const key = type + '\x00' + fname;
+    if (!map[key]) map[key] = { type: type, fname: fname, months: {}, total: 0 };
+    map[key].months[month] = (map[key].months[month] || 0) + 1;
+    map[key].total++;
+  });
+  const esc = function(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  const entries = Object.values(map).sort(function(a, b) {
+    const ma = Object.keys(a.months).sort().reverse()[0] || '';
+    const mb = Object.keys(b.months).sort().reverse()[0] || '';
+    return mb > ma ? 1 : mb < ma ? -1 : 0;
+  });
+  const note = '<div style="font-size:11px;color:#64748b;padding:6px 10px 4px;">※ 売上データの取込履歴のみ表示しています。CSV本文は保存されていません。</div>';
+  box.style.display = 'block';
+  if (!entries.length) {
+    box.innerHTML = note + '<div class="row warn"><span>取込履歴がありません（売上CSVを取り込むと表示されます）</span></div>';
+    return;
+  }
+  box.innerHTML = note + entries.map(function(e) {
+    const monthStr = Object.keys(e.months).sort().reverse().slice(0, 3).join(', ');
+    return '<div class="row ok"><span class="ship-row-msg">' + esc(e.type) + ' / ' + esc(e.fname) + ' — ' + esc(monthStr) + '</span><span class="badge">' + e.total + '件</span></div>';
+  }).join('');
+}
+window.renderCsvImportLog = renderCsvImportLog;
+
+function renderShipUnmatchAnalysis() {
+  const el = document.getElementById('shipUnmatchAnalysis');
+  if (!el) return;
+  const vm = window._ribreViewMonth || '';
+  const all = sales();
+  const s = vm ? all.filter(function(x) { return (x.month || String(x.date || '').slice(0, 7)) === vm; }) : all;
+  if (!s.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  let matchedCount = 0, anonCount = 0, unmatchedCount = 0;
+  let noId = 0, orderFmt = 0, other = 0;
+  s.forEach(function(x) {
+    const ship = Number(x.shipping || 0);
+    const ms = String(x.matchStatus || '');
+    const memo = String(x.memo || '');
+    const id = String(x.itemId || '').trim();
+    const isExplicitAnon = ms.includes('匿名') || memo.includes('匿名');
+    if (ms === '配送CSV一致' || ms === '手入力') { matchedCount++; return; }
+    if (ship > 0 || isExplicitAnon) { anonCount++; return; }
+    unmatchedCount++;
+    if (!id) { noId++; return; }
+    if (id.toLowerCase().includes('order_')) { orderFmt++; return; }
+    other++;
+  });
+  const ships = typeof shipRows === 'function' ? shipRows() : [];
+  const noShipId = ships.filter(function(x) { return !String(x.itemId || '').trim(); }).length;
+  if (unmatchedCount === 0) {
+    el.innerHTML = '<div style="font-size:12px;color:#059669;font-weight:700;padding:4px 0">✓ 未一致なし（' + vm + '）</div>';
+    return;
+  }
+  function card(n, label, color, bg) {
+    const dim = n === 0;
+    return '<div style="background:' + (dim ? '#f8fafc' : bg) + ';border-radius:8px;padding:6px 10px;min-width:100px;border:1px solid #e5e7eb">' +
+      '<div style="font-size:18px;font-weight:900;color:' + (dim ? '#cbd5e1' : color) + '">' + n + '</div>' +
+      '<div style="font-size:11px;color:' + (dim ? '#cbd5e1' : '#64748b') + ';margin-top:2px">' + label + '</div></div>';
+  }
+  el.innerHTML =
+    '<div style="font-size:12px;font-weight:900;color:#475569;margin-bottom:8px">未一致分析（' + vm + '） 計' + unmatchedCount + '件</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+    card(noId, '商品IDなし', '#dc2626', '#fff1f2') +
+    card(orderFmt, 'order_形式のID', '#7c3aed', '#f5f3ff') +
+    card(noShipId, '配送CSV側IDなし', '#b45309', '#fffbeb') +
+    card(other, 'その他未一致', '#475569', '#f1f5f9') +
+    '</div>';
+}
+window.renderShipUnmatchAnalysis = renderShipUnmatchAnalysis;
 
 window.ver250ItemIdFromAny = ver250ItemIdFromAny;
 window.ver250Slip = ver250Slip;

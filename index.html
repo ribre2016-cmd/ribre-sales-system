@@ -6,70 +6,700 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/mobile.css">
-
+<style>
+.other-wrapper { position: relative; }
+.other-menu {
+  position: absolute; top: calc(100% + 6px); left: 0;
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+  padding: 8px; z-index: 1000;
+  display: flex; flex-direction: column; gap: 2px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.14);
+  max-height: 60vh; overflow-y: auto; min-width: 170px;
+}
+.other-menu.hidden { display: none; }
+.other-menu button {
+  border: 1px solid transparent !important;
+  background: none !important;
+  text-align: left !important;
+  padding: 8px 14px !important;
+  border-radius: 6px !important;
+  font-size: 14px !important;
+  white-space: nowrap !important;
+  width: 100% !important;
+  font-weight: 600 !important;
+  color: #0f172a !important;
+  box-shadow: none !important;
+}
+.other-menu button:hover {
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+  border-color: #dbeafe !important;
+}
+/* ダッシュボード ヒーローエリア */
+.dash-hero {
+  text-align: center;
+  padding: 22px 18px 20px;
+  margin-bottom: 12px;
+}
+.dash-guide-label {
+  font-size: 13px;
+  font-weight: 900;
+  color: #2563eb;
+  letter-spacing: .07em;
+  margin-bottom: 16px;
+}
+.dash-cta {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto 14px;
+  padding: 22px 0;
+  font-size: 20px;
+  font-weight: 900;
+  border-radius: 18px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  box-shadow: 0 6px 22px rgba(37,99,235,.38);
+  letter-spacing: .04em;
+  transition: all .15s ease;
+}
+.dash-cta:hover {
+  background: #1d4ed8;
+  box-shadow: 0 10px 30px rgba(37,99,235,.48);
+  transform: translateY(-2px);
+}
+.dash-hint {
+  font-size: 13px;
+  color: #64748b;
+}
+.dash-sub-btn { font-size: 13px; font-weight: 900; padding: 10px 18px; min-width: unset; }
+.dash-workflow {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.wf-step {
+  background: #f1f5f9;
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .12s;
+}
+.wf-step:hover { background: #dbeafe; color: #1d4ed8; }
+.wf-arrow { color: #94a3b8; }
+.dash-month-card { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 4px; }
+.dmc-item { border-radius: 12px; padding: 10px 12px; transition: opacity .12s; }
+.dmc-item:hover { opacity: .78; }
+.dmc-label { font-size: 11px; font-weight: 700; }
+.dmc-value { font-size: 20px; font-weight: 900; margin-top: 2px; line-height: 1.1; }
+.dmc-sub { font-size: 10px; margin-top: 2px; opacity: .8; }
+.dmc-item.dmc-alert { border-left: 4px solid #dc2626; }
+.dmc-item.dmc-caution { border-left: 4px solid #f59e0b; }
+.dmc-item.dmc-ready { border: 2px solid #86efac; }
+body:not(.dev-mode) .dmc-item.dmc-alert .dmc-value { font-size: 26px; }
+body:not(.dev-mode) .dmc-item.dmc-caution .dmc-value { font-size: 22px; }
+.dmc-ok-banner { background: #dcfce7; border: 1px solid #86efac; border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 900; color: #166534; text-align: center; margin-bottom: 8px; }
+/* CSV取込 ガイド */
+.csv-guide {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0369a1;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 0 0 10px;
+}
+.csv-advanced {
+  margin-top: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+.csv-advanced summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 700;
+  user-select: none;
+}
+.csv-advanced summary:hover { color: #2563eb; }
+/* 配送照合 一致サマリー強調 */
+.ship-hl { border-color: #93c5fd; background: #eff6ff; }
+.ship-hl .label { color: #1d4ed8; }
+/* 配送照合 手入力欄 */
+.ship-edit-input { width: 80px; min-width: unset !important; padding: 4px 6px !important; border-radius: 6px !important; font-size: 13px !important; }
+.ship-row-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 未一致行 */
+.row.unmatched { background: #fef2f2; }
+.row.unmatched .badge { background: #fee2e2; color: #991b1b; }
+/* 未一致件数強調 */
+#shipSalesUnmatched { color: #dc2626; font-weight: 900; }
+/* 売上一覧テーブル */
+.sales-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 65vh; -webkit-overflow-scrolling: touch; margin-top: 10px; }
+.sales-tbl { min-width: 1120px; border-collapse: separate; border-spacing: 0; overflow: visible; }
+.sales-tbl thead { position: sticky; top: 0; z-index: 10; }
+.sales-tbl thead th { background: #f8fafc; box-shadow: 0 2px 0 #e5e7eb; }
+.sales-tbl th, .sales-tbl td { white-space: nowrap; min-width: 70px; }
+.sales-tbl th:first-child, .sales-tbl td:first-child {
+  width: 24px;
+  min-width: 24px !important;
+  max-width: 24px;
+  text-align: center;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  padding-left: 0;
+  padding-right: 0;
+  box-sizing: border-box;
+}
+.sales-tbl td:nth-child(2) { min-width: 44px; text-align: center; color: #94a3b8; }
+.sales-tbl td:nth-child(5) { min-width: 110px; font-family: monospace; font-size: 11px; }
+.sales-tbl td:nth-child(6) { min-width: 160px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.sales-tbl td:nth-child(12) { min-width: 180px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.sales-memo-edit-btn {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  border-radius: 999px;
+}
+/* クイック絞り込みボタン */
+.qf-btn { font-size:11px; padding:4px 10px; border-radius:20px; border:1px solid #cbd5e1; background:#fff; color:#475569; cursor:pointer; font-weight:700; transition:all 0.1s; }
+.qf-btn.active { background:#2563eb; color:#fff; border-color:#2563eb; }
+.qf-btn:hover:not(.active) { background:#eff6ff; border-color:#93c5fd; color:#1d4ed8; }
+/* ロック行（異常検知より弱め） */
+.sales-tbl tbody tr.sale-locked { background: #f1f5f9; color: #64748b; }
+/* 締め済み月ラベル */
+.month-closed { color: #854d0e !important; background: #fef9c3; border: 1px solid #fbbf24; border-radius: 8px; padding: 2px 8px; }
+/* 利益異常検知（!important で sale-locked より優先） */
+.sales-tbl tbody tr.sale-al { background: #fef2f2 !important; }
+.sales-tbl tbody tr.sale-az { background: #fff7ed !important; }
+.sales-tbl tbody tr.sale-zp { background: #fefce8 !important; }
+.sales-tbl tbody tr.sale-ns { background: #fffbeb !important; }
+.sales-tbl .sale-loss-cell { color: #dc2626; font-weight: 900; }
+.sales-tbl tbody tr:hover td { box-shadow: inset 0 0 0 9999px rgba(37,99,235,0.06); }
+/* 販売先別行色 */
+.shop-yahoo1 { background: #eff6ff; }
+.shop-yahoo2 { background: #f0fdf4; }
+.shop-yahoo3 { background: #fff7ed; }
+.shop-yahoo4 { background: #fdf4ff; }
+.shop-yahoo5 { background: #fef2f2; }
+.shop-yahoo6 { background: #fefce8; }
+.shop-yahoo7 { background: #f0fdfa; }
+.shop-yahoo8 { background: #fff1f2; }
+.shop-mercari { background: #fce7f3; }
+.shop-mercari-shops { background: #ede9fe; }
+.shop-rakuma { background: #ecfdf5; }
+/* 開発者モード切替 */
+.dev-only { display: none !important; }
+body.dev-mode .dev-only { display: block !important; }
+body:not(.dev-mode) #bulkOpsRow { display: none; }
+#devToggle {
+  font-size: 11px; padding: 4px 10px; border-radius: 12px;
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.25);
+  color: #cbd5e1; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+#devToggle.dev-on { background: #1d4ed8; border-color: #3b82f6; color: #fff; }
+/* 通常モード最終整理 */
+body:not(.dev-mode) #dashStats .controls { display: none; }
+body:not(.dev-mode) #dashList { display: none; }
+/* 誤操作防止強化 */
+.sales-tbl tbody tr.sale-locked td:first-child { border-left: 3px solid #94a3b8; }
+body:not(.dev-mode) .sales-tbl tbody tr.sale-locked {
+  background: linear-gradient(0deg, #f8fafc 0%, #eef2f7 100%);
+  color: #475569;
+}
+body:not(.dev-mode) .sales-tbl tbody tr.sale-locked td {
+  box-shadow: inset 0 -1px 0 #e2e8f0;
+}
+body:not(.dev-mode) .sales-tbl tbody tr.sale-locked td:nth-child(12) {
+  color: #334155;
+  font-weight: 700;
+}
+body:not(.dev-mode) button.red {
+  background: #f8fafc !important;
+  color: #b91c1c !important;
+  border: 1px solid #fecaca !important;
+  box-shadow: none !important;
+  opacity: 0.72;
+}
+body:not(.dev-mode) button.red:hover {
+  background: #fff1f2 !important;
+  border-color: #fca5a5 !important;
+  opacity: 1;
+}
+body:not(.dev-mode) #openMonthBtn,
+body:not(.dev-mode) #bulkUnlockBtn {
+  background: #f8fafc !important;
+  color: #9f1239 !important;
+  border: 1px dashed #fda4af !important;
+  box-shadow: none !important;
+  opacity: 0.65;
+}
+body:not(.dev-mode) #openMonthBtn:hover,
+body:not(.dev-mode) #bulkUnlockBtn:hover {
+  background: #fff1f2 !important;
+  border-style: solid !important;
+  opacity: 1;
+}
+body:not(.dev-mode) #sales.month-is-closed .editor { opacity: 0.35; pointer-events: none; }
+body:not(.dev-mode) #sales.month-is-closed #salesAddControls { opacity: 0.35; pointer-events: none; }
+body:not(.dev-mode) #sales.month-is-closed #salesQuickFilterBar,
+body:not(.dev-mode) #sales.month-is-closed #salesFilterBar,
+body:not(.dev-mode) #sales.month-is-closed #bulkOpsRow {
+  opacity: 0.5;
+}
+body:not(.dev-mode) #sales.month-is-closed #salesTable .sales-table-wrap {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+body:not(.dev-mode) #sales.month-is-closed #salesTable .sales-table-wrap::after {
+  content: "LOCKED\A締め済み\AREAD ONLY";
+  white-space: pre;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: clamp(26px, 7vw, 56px);
+  font-weight: 900;
+  letter-spacing: .08em;
+  line-height: 1.35;
+  color: rgba(15, 23, 42, 0.08);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  pointer-events: none;
+  z-index: 2;
+}
+body:not(.dev-mode) #sales.month-is-closed #bulkOpsRow {
+  pointer-events: none;
+}
+body:not(.dev-mode) #sales.month-is-closed .sales-row-cb,
+body:not(.dev-mode) #sales.month-is-closed #salesSelectAll {
+  pointer-events: none;
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+body:not(.dev-mode) #sales.month-is-closed .sales-memo-edit-btn {
+  pointer-events: none;
+  opacity: 0.5;
+}
+.normal-ok-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 900;
+}
+.normal-ok-hint::before {
+  content: "確認済み";
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: #15803d;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+/* 操作ガイド */
+body.dev-mode #dashGuide { display: none; }
+.dash-guide-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.dash-guide-step { border-radius: 12px; padding: 10px 12px; }
+.dash-guide-step-num { font-size: 15px; font-weight: 900; margin-bottom: 4px; }
+.dash-guide-step-desc { font-size: 11px; font-weight: 700; line-height: 1.45; }
+.preflight-checklist {
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.preflight-checklist h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 900;
+  color: #92400e;
+}
+.preflight-checklist ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+.preflight-checklist li {
+  font-size: 12px;
+  font-weight: 700;
+  color: #78350f;
+  line-height: 1.45;
+}
+.preflight-checklist .readonly {
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #a16207;
+}
+.staff-help {
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+.staff-help h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #1d4ed8;
+}
+.staff-help ul {
+  margin: 0;
+  padding-left: 17px;
+  display: grid;
+  gap: 3px;
+}
+.staff-help li {
+  font-size: 11px;
+  line-height: 1.4;
+  color: #334155;
+  font-weight: 700;
+}
+.staff-help .readonly {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 700;
+}
+body.dev-mode .staff-help { display: none; }
+.recent-op-mini {
+  margin-top: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 9px 11px;
+}
+.recent-op-mini h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #334155;
+}
+.recent-op-mini-list {
+  display: grid;
+  gap: 4px;
+}
+.recent-op-mini-item {
+  font-size: 11px;
+  color: #475569;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-op-mini-empty {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 700;
+}
+body:not(.dev-mode) .recent-op-mini {
+  border-color: #cbd5e1;
+  background: #f8fbff;
+}
+.ops-fixed-bar {
+  --ops-fixed-stack-offset: clamp(34px, 5.2vh, 52px);
+  position: relative;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #dbeafe;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(3px);
+}
+.ops-fixed-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+.ops-chip {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 800;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.ops-chip.month { background: #eff6ff; color: #1d4ed8; }
+.ops-chip.unmatched { background: #fef2f2; color: #dc2626; }
+.ops-chip.anomaly { background: #fff7ed; color: #b45309; }
+.ops-chip.closed { background: #dcfce7; color: #166534; }
+.ops-chip.open { background: #f1f5f9; color: #475569; }
+body:not(.dev-mode) .ops-fixed-bar {
+  border-color: #bfdbfe;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+.emergency-banner {
+  position: relative;
+  margin: 2px 0 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 800;
+  display: none;
+}
+.emergency-banner.alert {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+.emergency-banner.warn {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #b45309;
+}
+body:not(.dev-mode) .emergency-banner {
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.12);
+}
+body:not(.dev-mode) #openMonthBtn { display: none; }
+/* モバイル: ダッシュボード最適化 */
+@media (max-width: 600px) {
+  .dash-hero { padding: 14px 12px 12px; margin-bottom: 8px; }
+  .dash-guide-label { margin-bottom: 10px; }
+  .dash-cta { padding: 16px 0; font-size: 18px; margin-bottom: 10px; max-width: 100%; }
+  .dash-sub-btn { font-size: 14px; padding: 12px 16px; }
+  .wf-step { padding: 6px 14px; font-size: 12px; }
+  .dash-month-card { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .dmc-item.dmc-alert,
+  .dmc-item.dmc-ready { grid-column: 1 / -1; }
+  .dmc-value { font-size: 22px; }
+  body:not(.dev-mode) .dmc-item.dmc-alert .dmc-value { font-size: 28px; }
+  .dmc-ok-banner { font-size: 13px; padding: 8px 12px; }
+  .staff-help { padding: 9px 10px; }
+  .staff-help li { font-size: 10px; }
+  .ops-fixed-bar { padding: 5px 8px; margin-bottom: 6px; }
+  .ops-fixed-inner { gap: 4px; font-size: 10px; }
+  .ops-chip { padding: 2px 7px; }
+  .recent-op-mini { padding: 8px 9px; }
+  .recent-op-mini h3 { font-size: 11px; }
+  .recent-op-mini-item,
+  .recent-op-mini-empty { font-size: 10px; }
+  body:not(.dev-mode) #sales.month-is-closed #salesTable .sales-table-wrap::after {
+    font-size: clamp(20px, 8vw, 36px);
+    line-height: 1.4;
+  }
+  .panel { margin-bottom: 8px; }
+}
+@media (max-width: 400px) {
+  .dash-month-card { grid-template-columns: 1fr; }
+  .dmc-item.dmc-alert,
+  .dmc-item.dmc-ready { grid-column: unset; }
+  .dash-sub-btn { width: 100%; }
+}
+.ocr-paste-zone {
+  margin: 8px 0;
+  border: 2px dashed #93c5fd;
+  background: #eff6ff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #1d4ed8;
+  text-align: center;
+  cursor: text;
+  user-select: none;
+}
+.ocr-paste-zone:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+.ocr-paste-zone-sub {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 700;
+}
+.ocr-paste-zone.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+</style>
 </head>
 <body>
 <header>
   <h1>株式会社RIBRE 売上管理 Ver60.0</h1>
-  <div id="topUser">未ログイン</div>
+  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+    <button id="devToggle" onclick="toggleDevMode()">開発者モード</button>
+    <div id="topUser">未ログイン</div>
+  </div>
 </header>
 
 <nav>
-  <button class="active" onclick="showSec('dash',this)">ダッシュボード</button>
-  <button onclick="showSec('settings',this)">設定・ログイン</button>
-  <button onclick="showSec('sales',this)">売上管理</button>
-  <button onclick="showSec('purchases',this)">仕入管理</button>
+  <button class="active" onclick="showSec('dash',this)">ホーム</button>
+  <button onclick="showSec('sales',this)">売上を入れる</button>
+  <button onclick="showOther('purchases')">仕入を入れる</button>
   <button onclick="showSec('ocr',this)">OCR・証憑</button>
-  <button onclick="showSec('cloud',this)">クラウド保存</button>
+  <button onclick="showSec('yahoo',this)">売上CSV取込</button>
   <button onclick="showSec('shipping',this)">配送照合</button>
-  <button onclick="showSec('yahoo',this)">ヤフオクCSV</button>
-  <button onclick="showSec('analytics',this)">集計・出力</button>
-  <button onclick="showSec('backup',this)">バックアップ</button>
-  <button onclick="showSec('permissions',this)">権限・ロック</button>
-  <button onclick="showSec('autosync',this)">自動同期</button>
-  <button onclick="showSec('search',this)">検索・絞込</button>
-  <button onclick="showSec('templates',this)">テンプレート</button>
-  <button onclick="showSec('aiclassify',this)">AI分類</button>
-  <button onclick="showSec('datacheck',this)">データ確認</button>
-  <button onclick="showSec('fixtasks',this)">修正タスク</button>
-  <button onclick="showSec('monthclose',this)">月締め</button>
-  <button onclick="showSec('accounting',this)">会計出力</button>
-  <button onclick="showSec('evidencecloud',this)">証憑クラウド</button>
-  <button onclick="showSec('dashboard42',this)">経営分析</button>
-  <button onclick="showSec('schema43',this)">本番設計</button>
-  <button onclick="showSec('migration44',this)">本番移行</button>
-  <button onclick="showSec('dedupe45',this)">重複防止</button>
-  <button onclick="showSec('realtime46',this)">リアルタイム</button>
-  <button onclick="showSec('staff47',this)">スタッフ運用</button>
-  <button onclick="showSec('storage49',this)">Storage保存</button>
-  <button onclick="showSec('aiauto50',this)">AI自動登録</button>
-  <button onclick="showSec('analytics51',this)">分析強化</button>
-  <button onclick="showSec('report52',this)">日次レポート</button>
-  <button onclick="showSec('backup53',this)">本番バックアップ</button>
-  <button onclick="showSec('sync54',this)">自動同期</button>
-  <button onclick="showSec('audit55',this)">操作ログ</button>
-  <button onclick="showSec('organize56',this)">整理・引継ぎ</button>
-  <button onclick="showSec('beginner57',this)">初心者モード</button>
-  <button onclick="showSec('mobile58',this)">スマホ最適化</button>
-  <button onclick="showSec('stable59',this)">安定化</button>
-  <button onclick="showSec('product60',this)">商品化準備</button>
+  <button onclick="showSec('analytics',this)">集計を見る</button>
+  <div class="other-wrapper">
+    <button id="btnOther" onclick="toggleOtherMenu()">☰ その他</button>
+    <div id="otherMenu" class="other-menu hidden">
+      <button onclick="showOther('purchases')">仕入を入れる</button>
+      <button onclick="showOther('templates')">テンプレート</button>
+      <button onclick="showOther('search')">検索・絞込</button>
+      <button onclick="showOther('datacheck')">データ確認</button>
+      <button onclick="showOther('backup')">バックアップ</button>
+      <button onclick="showOther('settings')">設定・ログイン</button>
+      <button class="dev-only" onclick="showOther('ocr')">OCR・証憑</button>
+      <button class="dev-only" onclick="showOther('cloud')">クラウド保存</button>
+      <button class="dev-only" onclick="showOther('permissions')">権限・ロック</button>
+      <button class="dev-only" onclick="showOther('autosync')">自動同期</button>
+      <button class="dev-only" onclick="showOther('aiclassify')">AI分類</button>
+      <button class="dev-only" onclick="showOther('fixtasks')">修正タスク</button>
+      <button class="dev-only" onclick="showOther('monthclose')">月締め</button>
+      <button class="dev-only" onclick="showOther('accounting')">会計出力</button>
+      <button class="dev-only" onclick="showOther('evidencecloud')">証憑クラウド</button>
+      <button class="dev-only" onclick="showOther('dashboard42')">経営分析</button>
+      <button class="dev-only" onclick="showOther('schema43')">本番設計</button>
+      <button class="dev-only" onclick="showOther('migration44')">本番移行</button>
+      <button class="dev-only" onclick="showOther('dedupe45')">重複防止</button>
+      <button class="dev-only" onclick="showOther('realtime46')">リアルタイム</button>
+      <button class="dev-only" onclick="showOther('staff47')">スタッフ運用</button>
+      <button class="dev-only" onclick="showOther('storage49')">Storage保存</button>
+      <button class="dev-only" onclick="showOther('aiauto50')">AI自動登録</button>
+      <button class="dev-only" onclick="showOther('analytics51')">分析強化</button>
+      <button class="dev-only" onclick="showOther('report52')">日次レポート</button>
+      <button class="dev-only" onclick="showOther('backup53')">本番バックアップ</button>
+      <button class="dev-only" onclick="showOther('audit55')">操作ログ</button>
+      <button class="dev-only" onclick="showOther('organize56')">整理・引継ぎ</button>
+      <button class="dev-only" onclick="showOther('beginner57')">初心者モード</button>
+      <button class="dev-only" onclick="showOther('mobile58')">スマホ最適化</button>
+      <button class="dev-only" onclick="showOther('stable59')">安定化</button>
+      <button class="dev-only" onclick="showOther('product60')">商品化準備</button>
+    </div>
+  </div>
 </nav>
 
 <main>
+<div id="opsFixedBar" class="ops-fixed-bar">
+  <div class="ops-fixed-inner">
+    <span class="ops-chip month">月: --</span>
+    <span class="ops-chip unmatched">未一致: --</span>
+    <span class="ops-chip anomaly">利益異常: --</span>
+    <span class="ops-chip open">状態: --</span>
+  </div>
+</div>
+<div id="emergencyBanner" class="emergency-banner"></div>
 <section id="dash" class="section active">
-  <div class="panel">
-    <h2>📊 ダッシュボード</h2>
-    <div class="grid">
-      <div class="card"><div class="label">売上件数</div><div id="dashSalesCount" class="value">0件</div></div>
-      <div class="card"><div class="label">仕入件数</div><div id="dashPurchaseCount" class="value">0件</div></div>
-      <div class="card"><div class="label">売上合計</div><div id="dashSalesTotal" class="value">0円</div></div>
-      <div class="card"><div class="label">利益目安</div><div id="dashProfit" class="value">0円</div></div>
+  <div id="dashTodayPanel"></div>
+  <div class="panel dash-hero">
+    <div class="dash-guide-label">📌 まずはここから</div>
+    <button class="dash-cta" onclick="showSec('sales', document.querySelectorAll('nav > button')[1])">＋ 売上を入れる</button>
+    <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="secondary dash-sub-btn" onclick="showSec('yahoo', document.querySelectorAll('nav > button')[2])">📥 CSV取込</button>
+      <button class="secondary dash-sub-btn" onclick="showSec('shipping', document.querySelectorAll('nav > button')[3])">📦 配送照合</button>
+      <button class="secondary dash-sub-btn" onclick="showSec('analytics', document.querySelectorAll('nav > button')[4])">📊 集計を見る</button>
     </div>
+    <div class="dash-workflow">
+      <span class="wf-step" onclick="showSec('yahoo', document.querySelectorAll('nav > button')[2])">📥 CSV取込</span>
+      <span class="wf-arrow">→</span>
+      <span class="wf-step" onclick="showSec('sales', document.querySelectorAll('nav > button')[1])">🔍 確認</span>
+      <span class="wf-arrow">→</span>
+      <span class="wf-step" onclick="showSec('sales', document.querySelectorAll('nav > button')[1]);setQuickFilter('locked')">🔒 ロック</span>
+      <span class="wf-arrow">→</span>
+      <span class="wf-step" onclick="showSec('sales', document.querySelectorAll('nav > button')[1])">✅ 月締め</span>
+    </div>
+  </div>
+  <div id="dashGuide" class="panel" style="padding:14px 18px;margin-bottom:8px">
+    <div style="font-size:12px;font-weight:900;color:#64748b;margin-bottom:10px">📖 基本の流れ</div>
+    <div class="dash-guide-steps">
+      <div class="dash-guide-step" style="background:#eff6ff">
+        <div class="dash-guide-step-num" style="color:#2563eb">① CSV取込</div>
+        <div class="dash-guide-step-desc" style="color:#1d4ed8">各プラットフォームの売上CSVをここへ取り込む</div>
+      </div>
+      <div class="dash-guide-step" style="background:#f0fdf4">
+        <div class="dash-guide-step-num" style="color:#166534">② 確認</div>
+        <div class="dash-guide-step-desc" style="color:#166534">未一致・利益異常・送料0をチェックして修正する</div>
+      </div>
+      <div class="dash-guide-step" style="background:#fef9c3">
+        <div class="dash-guide-step-num" style="color:#854d0e">③ ロック</div>
+        <div class="dash-guide-step-desc" style="color:#854d0e">確認済みの行を🔒ロックして誤編集を防ぐ</div>
+      </div>
+      <div class="dash-guide-step" style="background:#dcfce7">
+        <div class="dash-guide-step-num" style="color:#166534">④ 月締め</div>
+        <div class="dash-guide-step-desc" style="color:#166534">全件確認後に月を締めて翌月の準備をする</div>
+      </div>
+    </div>
+  </div>
+  <div class="preflight-checklist dev-only">
+    <h3>🛡 本番前チェックリスト（開発者モード）</h3>
+    <ul>
+      <li>1. git status確認</li>
+      <li>2. backup-ui-safe作成済み</li>
+      <li>3. shipping-stable確認済み</li>
+      <li>4. localStorage追加なし</li>
+      <li>5. OCR未変更</li>
+      <li>6. 配送照合未変更</li>
+      <li>7. 利益計算未変更</li>
+      <li>8. スタッフテスト前</li>
+      <li>9. main統合前</li>
+    </ul>
+    <div class="readonly">※ 読み取り専用表示（保存・状態保持なし）</div>
+  </div>
+  <div id="dashMonthCard"></div>
+  <div class="panel" style="padding:14px 18px">
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap">
+      <button class="secondary" onclick="prevMonth()">◀ 前の月</button>
+      <div style="text-align:center">
+        <div id="currentViewMonth" style="font-size:22px;font-weight:900;color:#0f172a">—</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">この月のデータを表示中</div>
+      </div>
+      <button class="secondary" onclick="nextMonth()">次の月 ▶</button>
+    </div>
+  </div>
+  <div class="panel" id="dashStats">
+    <div class="grid">
+      <div class="card"><div class="label">売上合計</div><div id="dashSalesTotal" class="value">0円</div></div>
+      <div class="card"><div class="label">売上件数</div><div id="dashSalesCount" class="value">0件</div></div>
+    </div>
+    <div style="display:none"><span id="dashPurchaseCount"></span><span id="dashProfit"></span></div>
     <div class="controls">
-      <button onclick="window.refreshAll()">再集計</button>
+      <button class="secondary" onclick="window.refreshAll()">再集計</button>
       <button class="secondary" onclick="window.monthlySummary()">月別集計</button>
     </div>
     <div id="dashList" class="list"></div>
+  </div>
+  <div class="staff-help">
+    <h3>👥 スタッフ向けヘルプ</h3>
+    <ul>
+      <li>未一致が赤なら確認</li>
+      <li>利益異常が橙なら確認</li>
+      <li>確認後はロック</li>
+      <li>月末は締め</li>
+      <li>困ったら開発者へ連絡</li>
+    </ul>
+    <div class="readonly">※ 読み取り専用（保存なし）</div>
+  </div>
+  <div id="recentOpMini" class="recent-op-mini">
+    <h3>🕘 最近の操作（ミニ履歴）</h3>
+    <div class="recent-op-mini-list">
+      <div class="recent-op-mini-empty">このセッションの操作履歴はまだありません</div>
+    </div>
   </div>
 </section>
 
@@ -107,6 +737,16 @@
 <section id="sales" class="section">
   <div class="panel">
     <h2>💰 売上管理</h2>
+    <div id="todayPanel"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <button class="secondary" onclick="prevMonth()" style="padding:5px 10px;min-width:unset">◀</button>
+      <span id="currentViewMonthSales" style="font-weight:900;font-size:15px;color:#0f172a;min-width:90px;text-align:center"></span>
+      <button class="secondary" onclick="nextMonth()" style="padding:5px 10px;min-width:unset">▶</button>
+      <button class="secondary" onclick="closeMonth()" style="padding:5px 10px;border-color:#94a3b8;margin-left:4px">🔒 この月を締める</button>
+      <button id="openMonthBtn" class="secondary normal-danger" onclick="openMonth()" style="padding:5px 10px">締め解除</button>
+      <span id="closeMonthHint" style="font-size:11px;font-weight:700;align-self:center"></span>
+    </div>
+    <div id="statusPanel" style="display:flex;flex-wrap:wrap;gap:5px;margin:4px 0"></div>
     <div class="editor">
       <input id="saleDate" placeholder="日付">
       <input id="saleShop" placeholder="販売先">
@@ -114,10 +754,48 @@
       <input id="saleAmount" placeholder="金額">
       <input id="saleMemo" placeholder="メモ">
     </div>
-    <div class="controls">
+    <div id="salesAddControls" class="controls">
       <button onclick="addSale()">売上追加</button>
       <button class="secondary" onclick="exportSalesCsv()">売上CSV</button>
     </div>
+    <div id="salesQuickFilterBar" class="controls" style="margin-top:8px;gap:6px;flex-wrap:wrap">
+      <span style="font-size:12px;color:#64748b;align-self:center;font-weight:700">絞り込み:</span>
+      <button class="qf-btn active" data-qf="all" onclick="setQuickFilter('all')">全件</button>
+      <button class="qf-btn" data-qf="unmatched" onclick="setQuickFilter('unmatched')">未一致</button>
+      <button class="qf-btn" data-qf="anomaly" onclick="setQuickFilter('anomaly')">利益異常</button>
+      <button class="qf-btn" data-qf="noship" onclick="setQuickFilter('noship')">送料0</button>
+      <button class="qf-btn" data-qf="locked" onclick="setQuickFilter('locked')">🔒 ロック済</button>
+      <button class="qf-btn" data-qf="memo" onclick="setQuickFilter('memo')">メモあり</button>
+    </div>
+    <div id="salesFilterBar" class="controls" style="margin-top:8px;flex-wrap:wrap;gap:8px">
+      <label>販売先フィルタ：</label>
+      <select id="salesShopFilter" onchange="renderSales()">
+        <option value="">すべて</option>
+        <option value="ヤフオク1">ヤフオク1</option>
+        <option value="ヤフオク2">ヤフオク2</option>
+        <option value="ヤフオク3">ヤフオク3</option>
+        <option value="ヤフオク4">ヤフオク4</option>
+        <option value="ヤフオク5">ヤフオク5</option>
+        <option value="ヤフオク6">ヤフオク6</option>
+        <option value="ヤフオク7">ヤフオク7</option>
+        <option value="ヤフオク8">ヤフオク8</option>
+        <option value="メルカリ">メルカリ</option>
+        <option value="メルカリShops">メルカリShops</option>
+        <option value="ラクマ">ラクマ</option>
+      </select>
+      <input id="salesItemIdSearch" placeholder="商品ID・注文番号・商品名で検索" oninput="renderSales()" style="min-width:220px">
+      <span id="salesFilterInfo" style="font-size:12px;color:#64748b;align-self:center"></span>
+      <span id="salesSelectInfo" style="font-size:12px;color:#2563eb;font-weight:900;align-self:center"></span>
+    </div>
+    <div id="bulkOpsRow" class="controls" style="margin-top:6px;flex-wrap:wrap;gap:8px">
+      <input id="bulkMemoInput" placeholder="まとめてメモを付ける（選択行へ追記）" style="min-width:240px">
+      <button class="secondary" onclick="applyBulkMemo()">選択行へメモ適用</button>
+      <button class="secondary" onclick="convertSelectedMemoToUserMemo()" style="font-size:11px;padding:4px 10px">選択行メモを編集可能にする</button>
+      <button class="secondary" onclick="applyBulkLock()" style="border-color:#94a3b8">🔒 選択行をロック</button>
+      <button id="bulkUnlockBtn" class="secondary" onclick="applyBulkUnlock()">ロック解除</button>
+    </div>
+    <div id="filterCondLabel" style="font-size:12px;color:#64748b;padding:4px 2px"></div>
+    <div id="selectBar" style="display:none;background:#eff6ff;color:#1d4ed8;border-radius:10px;padding:5px 12px;font-size:12px;font-weight:700;margin-bottom:4px"></div>
     <div id="salesTable"></div>
   </div>
 </section>
@@ -149,6 +827,10 @@
       <button onclick="registerEvidence()">証憑登録</button>
       <button onclick="runOcr()">OCR自動入力</button>
       <button class="secondary" onclick="saveOcrCandidate()">候補保存</button>
+    </div>
+    <div id="ocrPasteArea" class="ocr-paste-zone" tabindex="0">
+      ここにCtrl+Vでスクショ画像を貼り付け
+      <div id="ocrPasteAreaSub" class="ocr-paste-zone-sub">クリックしてフォーカス後、画像を貼り付けると証憑登録されます</div>
     </div>
     <div class="editor">
       <select id="cKind"><option value="purchase">仕入</option><option value="sale">売上</option><option value="shipping">送料</option><option value="expense">経費</option></select>
@@ -203,15 +885,20 @@
       <button onclick="importShippingCsv()">配送CSV取込</button>
       <button onclick="matchShipping()">売上と照合</button>
       <button onclick="exportShippingReport()" class="secondary">照合結果CSV</button>
+      <button onclick="sortUnmatchedFirst()" class="secondary">未一致を上に並べる</button>
     </div>
 
     <div class="grid">
-      <div class="card"><div class="label">配送CSV</div><div id="shipCsvCount" class="value">0件</div></div>
-      <div class="card"><div class="label">一致</div><div id="shipMatchCount" class="value">0件</div></div>
-      <div class="card"><div class="label">未一致</div><div id="shipUnmatchCount" class="value">0件</div></div>
+      <div class="card ship-hl"><div class="label">売上CSV取込数</div><div id="shipSalesCount" class="value">—</div></div>
+      <div class="card ship-hl"><div class="label">配送一致数</div><div id="shipMatchCount" class="value">0件</div></div>
+      <div class="card ship-hl"><div class="label">未一致（送料なし）</div><div id="shipSalesUnmatched" class="value">—</div></div>
+      <div class="card ship-hl"><div class="label">一致率</div><div id="shipMatchRate" class="value">—</div></div>
+      <div class="card"><div class="label">匿名配送数</div><div id="shipUnmatchCount" class="value">0件</div></div>
+      <div class="card"><div class="label">配送CSV取込数</div><div id="shipCsvCount" class="value">0件</div></div>
       <div class="card"><div class="label">状態</div><div id="shipStatus" class="value">待機</div></div>
     </div>
 
+    <div id="shipUnmatchAnalysis" style="display:none;margin-top:10px;padding:10px 12px;background:#f8fafc;border-radius:12px;border:1px solid #e5e7eb"></div>
     <div id="shippingList" class="list"></div>
   </div>
 </section>
@@ -219,46 +906,64 @@
 
 <section id="yahoo" class="section">
   <div class="panel">
-    <h2>🟡 ヤフオク売上CSV取込 Ver60.0</h2>
+    <h2>📥 売上CSV取込</h2>
+    <p class="csv-guide">① 取込元を選ぶ　② CSVファイルを選ぶ　③「売上CSV取込」を押す</p>
 
     <div class="controls">
       <select id="yahooAccount">
-        <option value="ヤフオク1">ヤフオク1</option>
-        <option value="ヤフオク2">ヤフオク2</option>
-        <option value="ヤフオク3">ヤフオク3</option>
-        <option value="ヤフオク4">ヤフオク4</option>
-        <option value="ヤフオク5">ヤフオク5</option>
-        <option value="ヤフオク6">ヤフオク6</option>
-        <option value="ヤフオク7">ヤフオク7</option>
-        <option value="ヤフオク8">ヤフオク8</option>
+        <optgroup label="ヤフオク">
+          <option value="ヤフオク1">ヤフオク1</option>
+          <option value="ヤフオク2">ヤフオク2</option>
+          <option value="ヤフオク3">ヤフオク3</option>
+          <option value="ヤフオク4">ヤフオク4</option>
+          <option value="ヤフオク5">ヤフオク5</option>
+          <option value="ヤフオク6">ヤフオク6</option>
+          <option value="ヤフオク7">ヤフオク7</option>
+          <option value="ヤフオク8">ヤフオク8</option>
+        </optgroup>
+        <optgroup label="その他モール">
+          <option value="メルカリ">メルカリ</option>
+          <option value="メルカリShops">メルカリShops</option>
+          <option value="ラクマ">ラクマ</option>
+        </optgroup>
       </select>
       <input id="yahooCsvFile" type="file" accept=".csv,text/csv">
       <button onclick="importYahooSalesCsv()">売上CSV取込</button>
-      <button onclick="autoMatchShippingFromYahoo()">配送CSVと自動一致</button>
-      <button onclick="exportYahooSalesCsv()" class="secondary">売上CSV出力</button>
-      <button onclick="ver250ImproveUnmatched()" class="green">未一致自動補完</button>
-      <button onclick="ver250ShowOnlyUnmatched()" class="secondary">未一致だけ表示</button>
-      <button onclick="ver250CompanySummary()" class="secondary">会社別集計</button>
-      <button onclick="ver260SalesBasedUnmatched()" class="green">売上件数ベース未一致</button>
-      <button onclick="ver260ExportRemainingUnmatched()" class="secondary">残未一致CSV</button>
-      <button onclick="ver270DiagnoseUnmatched()" class="green">未一致原因診断</button>
-      <button onclick="ver270ExportDiagnosis()" class="secondary">原因別CSV</button>
       <button onclick="showYahooGuide()" class="secondary">使い方</button>
     </div>
 
-    <div class="grid">
-      <div class="card"><div class="label">ヤフオク売上</div><div id="yahooSalesCount" class="value">0件</div></div>
+    <details class="csv-advanced">
+      <summary>詳細操作（上級者向け）</summary>
+      <div class="controls" style="margin-top:8px">
+        <button onclick="autoMatchShippingFromYahoo()">配送CSVと自動一致</button>
+        <button onclick="exportYahooSalesCsv()" class="secondary">売上CSV出力</button>
+        <button onclick="ver250ImproveUnmatched()" class="green">未一致自動補完</button>
+        <button onclick="ver250ShowOnlyUnmatched()" class="secondary">未一致だけ表示</button>
+        <button onclick="ver250CompanySummary()" class="secondary">会社別集計</button>
+        <button onclick="ver260SalesBasedUnmatched()" class="green">売上件数ベース未一致</button>
+        <button onclick="ver260ExportRemainingUnmatched()" class="secondary">残未一致CSV</button>
+        <button onclick="ver270DiagnoseUnmatched()" class="green">未一致原因診断</button>
+        <button onclick="ver270ExportDiagnosis()" class="secondary">原因別CSV</button>
+      </div>
+    </details>
+
+    <div class="grid" style="margin-top:12px">
+      <div class="card"><div class="label">取込件数</div><div id="yahooSalesCount" class="value">0件</div></div>
       <div class="card"><div class="label">配送一致</div><div id="yahooMatchCount" class="value">0件</div></div>
       <div class="card"><div class="label">配送未一致</div><div id="yahooUnmatchCount" class="value">0件</div></div>
       <div class="card"><div class="label">状態</div><div id="yahooStatus" class="value">待機</div></div>
-      <div class="card"><div class="label">補完一致</div><div id="ver250ImproveCount" class="value">0件</div></div>
-      <div class="card"><div class="label">佐川未一致</div><div id="ver250SagawaUnmatch" class="value">0件</div></div>
-      <div class="card"><div class="label">売上基準 残未一致</div><div id="ver260Remaining" class="value">0件</div></div>
-      <div class="card"><div class="label">送料0件</div><div id="ver260ZeroShipping" class="value">0件</div></div>
-      <div class="card"><div class="label">原因診断</div><div id="ver270DiagnosisCount" class="value">0件</div></div>
+    </div>
+    <div style="display:none">
+      <span id="ver250ImproveCount"></span><span id="ver250SagawaUnmatch"></span>
+      <span id="ver260Remaining"></span><span id="ver260ZeroShipping"></span>
+      <span id="ver270DiagnosisCount"></span>
     </div>
 
     <div id="yahooList" class="list"></div>
+    <div class="controls" style="margin-top:12px">
+      <button class="secondary" onclick="renderCsvImportLog()">取込済みCSVを確認</button>
+    </div>
+    <div id="csvImportLog" class="list" style="display:none;margin-top:8px"></div>
   </div>
 </section>
 
@@ -963,6 +1668,15 @@
 
 
 <section id="audit55" class="section">
+  <div class="panel" style="margin-bottom:14px">
+    <h2 style="font-size:16px;margin-bottom:8px">📋 セッション操作ログ</h2>
+    <p style="font-size:12px;color:#64748b;margin:0 0 8px">タブを閉じると消えます。最新10件表示。</p>
+    <div class="controls" style="margin-bottom:8px;gap:8px">
+      <button class="secondary" onclick="renderOpLog()">更新</button>
+      <button class="secondary" onclick="clearOpLog()">ログを消す</button>
+    </div>
+    <div id="opLogList" class="list" style="max-height:300px"></div>
+  </div>
   <div class="panel">
     <h2>🧾 操作ログ・監査履歴 Ver60.0</h2>
 
@@ -1156,5 +1870,31 @@
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
 
+<script>
+function toggleOtherMenu() {
+  document.getElementById('otherMenu').classList.toggle('hidden');
+}
+function showOther(id) {
+  document.getElementById('otherMenu').classList.add('hidden');
+  showSec(id, document.getElementById('btnOther'));
+}
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#btnOther') && !e.target.closest('#otherMenu')) {
+    document.getElementById('otherMenu').classList.add('hidden');
+  }
+});
+function toggleDevMode() {
+  const on = document.body.classList.toggle('dev-mode');
+  const btn = document.getElementById('devToggle');
+  btn.classList.toggle('dev-on', on);
+  btn.textContent = on ? '← 初心者モード' : '開発者モード';
+  try { sessionStorage.setItem('ribre_dev_mode', on ? '1' : ''); } catch(e) {}
+}
+window.addEventListener('load', function() {
+  try {
+    if (sessionStorage.getItem('ribre_dev_mode') === '1') toggleDevMode();
+  } catch(e) {}
+});
+</script>
 </body>
 </html>
