@@ -146,7 +146,7 @@ body:not(.dev-mode) .dmc-item.dmc-caution .dmc-value { font-size: 22px; }
 #shipSalesUnmatched { color: #dc2626; font-weight: 900; }
 /* 売上一覧テーブル */
 .sales-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 65vh; -webkit-overflow-scrolling: touch; margin-top: 10px; }
-.sales-tbl { min-width: 900px; border-collapse: separate; border-spacing: 0; overflow: visible; }
+.sales-tbl { min-width: 1120px; border-collapse: separate; border-spacing: 0; overflow: visible; }
 .sales-tbl thead { position: sticky; top: 0; z-index: 10; }
 .sales-tbl thead th { background: #f8fafc; box-shadow: 0 2px 0 #e5e7eb; }
 .sales-tbl th, .sales-tbl td { white-space: nowrap; min-width: 70px; }
@@ -164,7 +164,14 @@ body:not(.dev-mode) .dmc-item.dmc-caution .dmc-value { font-size: 22px; }
 .sales-tbl td:nth-child(2) { min-width: 44px; text-align: center; color: #94a3b8; }
 .sales-tbl td:nth-child(5) { min-width: 110px; font-family: monospace; font-size: 11px; }
 .sales-tbl td:nth-child(6) { min-width: 160px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-.sales-tbl td:nth-child(12) { min-width: 100px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.sales-tbl td:nth-child(12) { min-width: 180px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.sales-memo-edit-btn {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  border-radius: 999px;
+}
 /* クイック絞り込みボタン */
 .qf-btn { font-size:11px; padding:4px 10px; border-radius:20px; border:1px solid #cbd5e1; background:#fff; color:#475569; cursor:pointer; font-weight:700; transition:all 0.1s; }
 .qf-btn.active { background:#2563eb; color:#fff; border-color:#2563eb; }
@@ -253,7 +260,8 @@ body:not(.dev-mode) #sales.month-is-closed #bulkOpsRow {
 }
 body:not(.dev-mode) #sales.month-is-closed #salesTable .sales-table-wrap {
   position: relative;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 body:not(.dev-mode) #sales.month-is-closed #salesTable .sales-table-wrap::after {
   content: "LOCKED\A締め済み\AREAD ONLY";
@@ -281,6 +289,10 @@ body:not(.dev-mode) #sales.month-is-closed #salesSelectAll {
   pointer-events: none;
   filter: grayscale(1);
   opacity: 0.45;
+}
+body:not(.dev-mode) #sales.month-is-closed .sales-memo-edit-btn {
+  pointer-events: none;
+  opacity: 0.5;
 }
 .normal-ok-hint {
   display: inline-flex;
@@ -778,6 +790,7 @@ body:not(.dev-mode) #openMonthBtn { display: none; }
     <div id="bulkOpsRow" class="controls" style="margin-top:6px;flex-wrap:wrap;gap:8px">
       <input id="bulkMemoInput" placeholder="まとめてメモを付ける（選択行へ追記）" style="min-width:240px">
       <button class="secondary" onclick="applyBulkMemo()">選択行へメモ適用</button>
+      <button class="secondary" onclick="convertSelectedMemoToUserMemo()" style="font-size:11px;padding:4px 10px">選択行メモを編集可能にする</button>
       <button class="secondary" onclick="applyBulkLock()" style="border-color:#94a3b8">🔒 選択行をロック</button>
       <button id="bulkUnlockBtn" class="secondary" onclick="applyBulkUnlock()">ロック解除</button>
     </div>

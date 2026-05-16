@@ -229,7 +229,13 @@ function renderSales() {
     else if (profit === 0) anomaly = 'sale-zp';
     else if (!shipOk) anomaly = 'sale-ns';
     const isLocked = String(x.memo || '').includes('[LOCK]');
-    const memoDisplay = String(x.memo || '').replace(/\s*\/\s*\[LOCK\]|\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim();
+    const memoRaw = String(x.memo || '');
+    const memoDisplay = memoRaw
+      .replace(/\s*\/\s*\[LOCK\]|\[LOCK\]\s*\/\s*/g, '')
+      .replace('[LOCK]', '')
+      .replace(/\[USERMEMO\]\s*/g, '')
+      .trim();
+    const hasUserMemo = memoRaw.includes('[USERMEMO]');
     const profitTd = profit < 0
       ? '<td class="sale-loss-cell">' + yen(profit) + '</td>'
       : '<td>' + yen(profit) + '</td>';
@@ -245,7 +251,9 @@ function renderSales() {
       profitTd +
       '<td>' + yen(x.amount || 0) + '</td>' +
       '<td>' + yen(x.price || x.amount || 0) + '</td>' +
-      '<td>' + (isLocked ? '🔒 ' : '') + memoDisplay + '</td>' +
+      '<td>' + (isLocked ? '🔒 ' : '') + memoDisplay +
+        (hasUserMemo ? ' <button class="secondary sales-memo-edit-btn" onclick="editUserMemo(' + origIdx + ')">編集</button>' : '') +
+      '</td>' +
       '</tr>';
   }).join('');
   document.getElementById('salesTable').innerHTML =
@@ -400,7 +408,8 @@ function toggleAllSales(cb) {
 function applyBulkMemo() {
   const memoText = (document.getElementById('bulkMemoInput') || {}).value;
   if (!memoText || !memoText.trim()) { alert('メモを入力してください'); return; }
-  const text = memoText.trim();
+  const text = memoText.trim().replace(/\[USERMEMO\]\s*/g, '');
+  if (!text) { alert('メモを入力してください'); return; }
   const checked = document.querySelectorAll('.sales-row-cb:checked');
   if (!checked.length) { alert('行を選択してください'); return; }
   const ids = Array.from(checked).map(function(cb) { return cb.dataset.id; }).filter(Boolean);
@@ -413,7 +422,7 @@ function applyBulkMemo() {
     if (!Number.isFinite(idx) || idx < 0 || idx >= s.length) return;
     if (String(s[idx].memo || '').includes('[LOCK]')) { skipped++; return; }
     const existing = String(s[idx].memo || '').trim();
-    s[idx].memo = existing ? existing + ' / ' + text : text;
+    s[idx].memo = existing ? existing + ' / [USERMEMO]' + text : '[USERMEMO]' + text;
     changed++;
   });
   if (skipped > 0) alert(ids.length + '件中' + skipped + '件がロック済みのため、' + changed + '件だけ更新しました。');
@@ -456,6 +465,77 @@ function applyBulkUnlock() {
   });
   if (changed > 0) { setLS(LS.sales, s); logOp('一括ロック解除（' + changed + '件）'); refreshAll(); }
 }
+function convertSelectedMemoToUserMemo() {
+  const checked = document.querySelectorAll('.sales-row-cb:checked');
+  if (!checked.length) { alert('行を選択してください'); return; }
+  const ids = Array.from(checked).map(function(cb) { return cb.dataset.id; }).filter(Boolean);
+  if (!ids.length) return;
+  const s = sales();
+  let changed = 0;
+  let skippedLocked = 0;
+  let skippedTagged = 0;
+  let skippedNoTail = 0;
+  ids.forEach(function(id) {
+    const idx = Number(id);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= s.length) return;
+    const memoRaw = String(s[idx].memo || '').trim();
+    if (!memoRaw) { skippedNoTail++; return; }
+    if (memoRaw.includes('[LOCK]')) { skippedLocked++; return; }
+    if (memoRaw.includes('[USERMEMO]')) { skippedTagged++; return; }
+    const lastSep = memoRaw.lastIndexOf(' / ');
+    if (lastSep < 0) { skippedNoTail++; return; }
+    const head = memoRaw.slice(0, lastSep).trim();
+    const tail = memoRaw.slice(lastSep + 3).trim();
+    if (!head || !tail) { skippedNoTail++; return; }
+    s[idx].memo = head + ' / [USERMEMO]' + tail;
+    changed++;
+  });
+  if (changed > 0) {
+    setLS(LS.sales, s);
+    logOp('選択行メモを編集可能化（' + changed + '件）');
+    refreshAll();
+  }
+  if (skippedLocked || skippedTagged || skippedNoTail) {
+    alert('変換: ' + changed + '件 / スキップ: ロック済み' + skippedLocked + '件・既に編集可能' + skippedTagged + '件・変換対象なし' + skippedNoTail + '件');
+  }
+}
+function editUserMemo(origIdx) {
+  const idx = Number(origIdx);
+  if (!Number.isFinite(idx)) return;
+  const s = sales();
+  if (idx < 0 || idx >= s.length) return;
+  const row = s[idx];
+  const memoRaw = String(row.memo || '');
+  const hasLock = memoRaw.includes('[LOCK]');
+  const withoutLock = memoRaw
+    .replace(/\s*\/\s*\[LOCK\]|\[LOCK\]\s*\/\s*/g, '')
+    .replace('[LOCK]', '')
+    .trim();
+  const userMemoRegex = /(?:^|\s*\/\s*)\[USERMEMO\]\s*([^]*?)(?=(?:\s*\/\s*\[USERMEMO\])|$)/g;
+  const userParts = [];
+  let match;
+  while ((match = userMemoRegex.exec(withoutLock)) !== null) {
+    const v = String(match[1] || '').trim();
+    if (v) userParts.push(v);
+  }
+  if (!userParts.length) { alert('編集対象の手入力メモがありません。'); return; }
+  const currentUserMemo = userParts.join(' / ');
+  const next = prompt('手入力メモを編集してください（空欄で手入力メモのみ削除）', currentUserMemo);
+  if (next == null) return;
+  const nextUserMemo = String(next).replace(/\[USERMEMO\]\s*/g, '').trim();
+  const baseMemo = withoutLock
+    .replace(userMemoRegex, '')
+    .replace(/\s*\/\s*$/g, '')
+    .replace(/^\s*\/\s*/g, '')
+    .trim();
+  let rebuilt = baseMemo;
+  if (nextUserMemo) rebuilt = rebuilt ? rebuilt + ' / [USERMEMO]' + nextUserMemo : '[USERMEMO]' + nextUserMemo;
+  if (hasLock) rebuilt = rebuilt ? rebuilt + ' / [LOCK]' : '[LOCK]';
+  if (memoRaw === rebuilt) return;
+  row.memo = rebuilt;
+  setLS(LS.sales, s);
+  renderSales();
+}
 function logOp(msg) {
   try {
     const logs = JSON.parse(sessionStorage.getItem('ribre_op_log') || '[]');
@@ -494,6 +574,8 @@ window.toggleAllSales = toggleAllSales;
 window.applyBulkMemo = applyBulkMemo;
 window.applyBulkLock = applyBulkLock;
 window.applyBulkUnlock = applyBulkUnlock;
+window.convertSelectedMemoToUserMemo = convertSelectedMemoToUserMemo;
+window.editUserMemo = editUserMemo;
 function renderOpsFixedBar(vm, unmatched, anomaly, closed) {
   const el = document.getElementById('opsFixedBar');
   if (!el) return;
