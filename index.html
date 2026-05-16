@@ -400,9 +400,7 @@ body:not(.dev-mode) .recent-op-mini {
 }
 .ops-fixed-bar {
   --ops-fixed-stack-offset: clamp(34px, 5.2vh, 52px);
-  position: sticky;
-  top: 0;
-  z-index: 850;
+  position: relative;
   margin: 0 0 8px;
   padding: 6px 10px;
   border-bottom: 1px solid #dbeafe;
@@ -433,9 +431,7 @@ body:not(.dev-mode) .ops-fixed-bar {
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
 .emergency-banner {
-  position: sticky;
-  top: calc(env(safe-area-inset-top, 0px) + var(--ops-fixed-stack-offset, 40px));
-  z-index: 840;
+  position: relative;
   margin: 2px 0 8px;
   padding: 6px 10px;
   border-radius: 8px;
