@@ -150,7 +150,17 @@ body:not(.dev-mode) .dmc-item.dmc-caution .dmc-value { font-size: 22px; }
 .sales-tbl thead { position: sticky; top: 0; z-index: 10; }
 .sales-tbl thead th { background: #f8fafc; box-shadow: 0 2px 0 #e5e7eb; }
 .sales-tbl th, .sales-tbl td { white-space: nowrap; min-width: 70px; }
-.sales-tbl th:first-child, .sales-tbl td:first-child { width: 32px; min-width: 32px !important; text-align: center; padding: 4px; }
+.sales-tbl th:first-child, .sales-tbl td:first-child {
+  width: 24px;
+  min-width: 24px !important;
+  max-width: 24px;
+  text-align: center;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  padding-left: 0;
+  padding-right: 0;
+  box-sizing: border-box;
+}
 .sales-tbl td:nth-child(2) { min-width: 44px; text-align: center; color: #94a3b8; }
 .sales-tbl td:nth-child(5) { min-width: 110px; font-family: monospace; font-size: 11px; }
 .sales-tbl td:nth-child(6) { min-width: 160px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
