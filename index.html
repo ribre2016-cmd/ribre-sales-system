@@ -617,6 +617,9 @@ body.simple-mode #simpleApp { display: flex; }
   background: #1e40af; border: none; color: #fff; cursor: pointer; white-space: nowrap;
 }
 #simpleToggleBtn:hover { background: #1d4ed8; }
+.smp-chart-legend { font-size: 12px; font-weight: 700; color: #475569; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.smp-legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 3px; }
+.smp-chart-labels { display: flex; justify-content: space-around; font-size: 11px; font-weight: 700; color: #64748b; margin-top: 4px; }
 /* base.css の全体スタイルをかんたんモード内でリセット */
 #simpleApp input,
 #simpleApp select,
@@ -704,15 +707,15 @@ body.simple-mode #simpleApp { display: flex; }
     <button class="smp-back-btn" onclick="simpleToggle()">← フル画面に戻る</button>
   </div>
   <div class="smp-tabs">
-    <button class="smp-tab-btn smp-tab-active" data-tab="csv"     onclick="simpleTab('csv')">📥 売上CSV</button>
+    <button class="smp-tab-btn"                data-tab="csv"     onclick="simpleTab('csv')">📥 売上CSV</button>
     <button class="smp-tab-btn"                data-tab="ship"    onclick="simpleTab('ship')">🚚 配送照合</button>
     <button class="smp-tab-btn"                data-tab="ocr"     onclick="simpleTab('ocr')">📦 仕入OCR</button>
-    <button class="smp-tab-btn"                data-tab="summary" onclick="simpleTab('summary')">📊 今月</button>
+    <button class="smp-tab-btn smp-tab-active" data-tab="summary" onclick="simpleTab('summary')">📊 集計</button>
   </div>
   <div class="smp-content">
 
     <!-- 売上CSV取込 -->
-    <div class="smp-screen smp-screen-active" data-screen="csv">
+    <div class="smp-screen" data-screen="csv">
       <div class="smp-card">
         <h2><span class="smp-step">STEP 1</span>売上CSVを取り込む</h2>
         <div class="smp-guide">ヤフオク・メルカリ・ラクマの売上CSVをここで取り込みます。</div>
@@ -802,9 +805,21 @@ body.simple-mode #simpleApp { display: flex; }
     </div>
 
     <!-- 月次サマリー -->
-    <div class="smp-screen" data-screen="summary">
+    <div class="smp-screen smp-screen-active" data-screen="summary">
+      <!-- 3ヶ月グラフ -->
       <div class="smp-card">
-        <h2>📊 今月の集計</h2>
+        <h2>📊 3ヶ月グラフ</h2>
+        <div class="smp-chart-legend">
+          <span class="smp-legend-dot" style="background:#2563eb"></span>売上
+          <span class="smp-legend-dot" style="background:#f59e0b;margin-left:12px"></span>仕入れ
+          <span class="smp-legend-dot" style="background:#16a34a;margin-left:12px"></span>利益
+        </div>
+        <canvas id="smpChart" height="160" style="width:100%;display:block;margin-top:10px"></canvas>
+        <div id="smpChartLabels" class="smp-chart-labels"></div>
+      </div>
+      <!-- 月別詳細 -->
+      <div class="smp-card">
+        <h2>月別詳細</h2>
         <div class="smp-field">
           <label>月を選ぶ</label>
           <select id="smpSummaryMonth" onchange="simpleRenderSummary()"></select>

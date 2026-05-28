@@ -3,13 +3,13 @@
 function simpleToggle() {
   const on = document.body.classList.toggle('simple-mode');
   try { localStorage.setItem('ribre_simple_mode', on ? '1' : ''); } catch(e) {}
-  if (on) { simpleTab('csv'); simpleRenderSummary(); }
+  if (on) { simpleTab('summary'); simpleRenderSummary(); simpleRenderChart(); }
 }
 
 function simpleTab(tab) {
   document.querySelectorAll('.smp-tab-btn').forEach(b => b.classList.toggle('smp-tab-active', b.dataset.tab === tab));
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
-  if (tab === 'summary') simpleRenderSummary();
+  if (tab === 'summary') { simpleRenderSummary(); simpleRenderChart(); }
 }
 
 /* ---- 売上CSV取込 ---- */
@@ -208,6 +208,105 @@ function smpSetStatus(id, msg, type) {
   el.className = 'smp-status smp-status-' + (type || 'info');
 }
 
+/* ---- 3ヶ月グラフ ---- */
+function simpleRenderChart() {
+  const canvas = document.getElementById('smpChart');
+  if (!canvas) return;
+
+  // 直近3ヶ月のデータを取得
+  const months = [];
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - i);
+    months.push(d.toISOString().slice(0, 7));
+  }
+
+  const allSales = sales();
+  const allPur   = purchases();
+
+  const data = months.map(m => {
+    const s = allSales.filter(r => (r.month || String(r.date||'').slice(0,7)) === m);
+    const p = allPur.filter(r   => (r.month || String(r.date||'').slice(0,7)) === m);
+    const sale   = s.reduce((a, r) => a + num(r.amount || r.price), 0);
+    const fee    = s.reduce((a, r) => a + num(r.fee), 0);
+    const ship   = s.reduce((a, r) => a + num(r.ship || r.shipping), 0);
+    const pur    = p.reduce((a, r) => a + num(r.total || r.amount), 0);
+    const profit = sale - fee - ship - pur;
+    return { month: m, sale, pur, profit };
+  });
+
+  // ラベル更新
+  const labelEl = document.getElementById('smpChartLabels');
+  if (labelEl) labelEl.innerHTML = months.map(m => `<span>${m.slice(5)}月</span>`).join('');
+
+  // Canvas描画
+  const dpr = window.devicePixelRatio || 1;
+  const W   = canvas.offsetWidth || 300;
+  const H   = 160;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const maxVal = Math.max(1, ...data.map(d => Math.max(d.sale, d.pur, Math.abs(d.profit))));
+  const padL = 8, padR = 8, padT = 10, padB = 24;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const groupW = chartW / 3;
+  const barW   = Math.min(groupW * 0.22, 20);
+  const gap    = barW * 0.6;
+
+  // ゼロライン
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padL, padT + chartH);
+  ctx.lineTo(W - padR, padT + chartH);
+  ctx.stroke();
+
+  // グリッド（上半分）
+  ctx.strokeStyle = '#f1f5f9';
+  ctx.lineWidth = 0.5;
+  [0.5].forEach(ratio => {
+    const y = padT + chartH * (1 - ratio);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+  });
+
+  data.forEach((d, i) => {
+    const cx = padL + groupW * i + groupW / 2;
+
+    const drawBar = (val, color, offsetX) => {
+      const bh = Math.max(2, Math.abs(val) / maxVal * chartH * 0.88);
+      const x  = cx + offsetX - barW / 2;
+      const y  = val >= 0 ? padT + chartH - bh : padT + chartH;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(x, y, barW, bh, [3, 3, 0, 0]) : ctx.rect(x, y, barW, bh);
+      ctx.fill();
+    };
+
+    drawBar(d.sale,   '#2563eb', -(barW + gap));
+    drawBar(d.pur,    '#f59e0b', 0);
+    drawBar(d.profit, d.profit >= 0 ? '#16a34a' : '#dc2626', barW + gap);
+
+    // 利益の数字
+    const profitLabel = d.profit >= 0
+      ? '+' + Math.round(d.profit / 1000) + 'k'
+      : Math.round(d.profit / 1000) + 'k';
+    ctx.fillStyle = d.profit >= 0 ? '#166534' : '#dc2626';
+    ctx.font = `bold ${Math.min(10, barW + 2)}px system-ui`;
+    ctx.textAlign = 'center';
+    const profBH = Math.max(2, Math.abs(d.profit) / maxVal * chartH * 0.88);
+    const profY  = d.profit >= 0 ? padT + chartH - profBH - 3 : padT + chartH + 12;
+    ctx.fillText(profitLabel, cx + barW + gap, profY);
+  });
+}
+
 function smpClearOcr() {
   ['smpOcrDate','smpOcrVendor','smpOcrItem','smpOcrAmount'].forEach(id => {
     const el = document.getElementById(id);
@@ -244,8 +343,9 @@ window.addEventListener('load', function() {
   try {
     if (localStorage.getItem('ribre_simple_mode') === '1') {
       document.body.classList.add('simple-mode');
-      simpleTab('csv');
+      simpleTab('summary');
       simpleRenderSummary();
+      simpleRenderChart();
     }
   } catch(e) {}
 });
