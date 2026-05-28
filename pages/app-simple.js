@@ -84,9 +84,32 @@ function smpMatchShipping() {
 }
 
 /* ---- 仕入れ（OCR） ---- */
+function smpShowPreview(file) {
+  const area    = document.getElementById('smpOcrPreviewArea');
+  const img     = document.getElementById('smpOcrPreviewImg');
+  const pdfBox  = document.getElementById('smpOcrPreviewPdf');
+  const pdfName = document.getElementById('smpOcrPreviewPdfName');
+  if (!area) return;
+
+  area.style.display = 'block';
+
+  if (file.type.startsWith('image/')) {
+    img.style.display = 'block';
+    pdfBox.style.display = 'none';
+    const reader = new FileReader();
+    reader.onload = e => { img.src = e.target.result; };
+    reader.readAsDataURL(file);
+  } else {
+    img.style.display = 'none';
+    pdfBox.style.display = 'block';
+    if (pdfName) pdfName.textContent = file.name;
+  }
+}
+
 function smpOcrFile(input) {
   const file = input.files[0];
   if (!file) return;
+  smpShowPreview(file);
 
   const origFile = document.getElementById('ocrFile');
   const origKind = document.getElementById('ocrKind');
@@ -314,6 +337,10 @@ function smpClearOcr() {
   });
   const fi = document.getElementById('smpOcrFileInput');
   if (fi) fi.value = '';
+  const pa = document.getElementById('smpOcrPreviewArea');
+  if (pa) pa.style.display = 'none';
+  const pi = document.getElementById('smpOcrPreviewImg');
+  if (pi) pi.src = '';
   smpSetStatus('smpOcrStatus', '画像を選ぶとAIが自動で読み取ります', 'info');
   document.getElementById('smpOcrFileName').textContent = '';
 }
