@@ -544,80 +544,75 @@ body.simple-mode > main   { display: none; }
 body.simple-mode #opsFixedBar { display: none; }
 body.simple-mode #emergencyBanner { display: none; }
 body.simple-mode #simpleApp { display: flex; }
-#simpleApp { display: none; flex-direction: column; min-height: 100vh; background: #f8fafc; font-family: inherit; }
+#simpleApp { display: none; flex-direction: column; min-height: 100vh; background: #f1f5f9; font-family: inherit; }
 .smp-header {
-  background: #2563eb; color: #fff; padding: 14px 18px;
-  display: flex; align-items: center; justify-content: space-between;
+  background: #1e40af; color: #fff; padding: 14px 18px;
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
 }
-.smp-header h1 { font-size: 16px; font-weight: 900; margin: 0; }
+.smp-header h1 { font-size: 15px; font-weight: 900; margin: 0; }
 .smp-back-btn {
   font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 20px;
   background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.35);
   color: #fff; cursor: pointer;
 }
-.smp-back-btn:hover { background: rgba(255,255,255,.3); }
 .smp-tabs {
-  display: grid; grid-template-columns: 1fr 1fr 1fr;
-  background: #fff; border-bottom: 2px solid #e5e7eb;
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  background: #fff; border-bottom: 2px solid #e5e7eb; flex-shrink: 0;
 }
 .smp-tab-btn {
-  padding: 13px 0; font-size: 14px; font-weight: 700; text-align: center;
+  padding: 11px 4px; font-size: 12px; font-weight: 700; text-align: center;
   border: none; background: none; cursor: pointer; color: #64748b;
-  border-bottom: 3px solid transparent; margin-bottom: -2px;
-  transition: all .12s;
+  border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all .12s;
 }
-.smp-tab-btn.smp-tab-active { color: #2563eb; border-bottom-color: #2563eb; }
-.smp-content { flex: 1; overflow-y: auto; padding: 16px; max-width: 520px; width: 100%; margin: 0 auto; }
+.smp-tab-btn.smp-tab-active { color: #1e40af; border-bottom-color: #1e40af; }
+.smp-content { flex: 1; overflow-y: auto; padding: 14px; max-width: 560px; width: 100%; margin: 0 auto; box-sizing: border-box; }
 .smp-screen { display: none; }
 .smp-screen.smp-screen-active { display: block; }
-.smp-card { background: #fff; border-radius: 14px; padding: 18px; margin-bottom: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.07); }
-.smp-card h2 { font-size: 15px; font-weight: 900; color: #0f172a; margin: 0 0 14px; }
-.smp-field { margin-bottom: 12px; }
-.smp-field label { display: block; font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 4px; }
+.smp-card { background: #fff; border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.07); }
+.smp-card h2 { font-size: 14px; font-weight: 900; color: #0f172a; margin: 0 0 14px; }
+.smp-step { font-size: 11px; font-weight: 700; color: #fff; background: #1e40af; border-radius: 999px; padding: 2px 8px; margin-right: 6px; }
+.smp-guide { font-size: 12px; font-weight: 700; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
+.smp-field { margin-bottom: 10px; }
+.smp-field label { display: block; font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; }
 .smp-field input, .smp-field select {
   width: 100%; padding: 10px 12px; border: 1.5px solid #e2e8f0; border-radius: 10px;
-  font-size: 15px; font-weight: 600; box-sizing: border-box;
-  background: #f8fafc; transition: border-color .12s;
+  font-size: 15px; font-weight: 600; box-sizing: border-box; background: #f8fafc; transition: border-color .12s;
 }
 .smp-field input:focus, .smp-field select:focus { border-color: #2563eb; outline: none; background: #fff; }
-.smp-profit-box {
-  background: #f0fdf4; border: 1px solid #86efac; border-radius: 10px;
-  padding: 10px 14px; margin-bottom: 12px; font-size: 13px;
+.smp-dropzone {
+  border: 2px dashed #93c5fd; background: #eff6ff; border-radius: 12px;
+  padding: 20px; text-align: center; cursor: pointer; margin-bottom: 10px;
+  font-size: 14px; font-weight: 700; color: #1d4ed8;
 }
-.smp-profit-box .smp-pl { color: #64748b; font-weight: 700; margin-bottom: 3px; }
-.smp-profit-box .smp-pv { font-size: 20px; font-weight: 900; }
-.smp-save-btn {
-  width: 100%; padding: 14px; font-size: 16px; font-weight: 900;
+.smp-dropzone input[type=file] { display: none; }
+.smp-dropzone:hover { background: #dbeafe; border-color: #2563eb; }
+.smp-btn {
+  width: 100%; padding: 13px; font-size: 15px; font-weight: 900;
   background: #2563eb; color: #fff; border: none; border-radius: 12px;
-  cursor: pointer; transition: background .12s;
+  cursor: pointer; transition: background .12s; margin-bottom: 8px;
 }
-.smp-save-btn:hover { background: #1d4ed8; }
-.smp-flash {
-  text-align: center; font-size: 13px; font-weight: 700; color: #166534;
-  height: 20px; margin-top: 8px; transition: opacity .4s;
-}
-.smp-recent-title { font-size: 12px; font-weight: 700; color: #64748b; margin: 16px 0 8px; }
-.smp-row {
-  display: flex; align-items: center; gap: 8px; padding: 8px 0;
-  border-bottom: 1px solid #f1f5f9; font-size: 13px;
-}
-.smp-row:last-child { border-bottom: none; }
-.smp-row-date { color: #94a3b8; font-size: 11px; white-space: nowrap; }
-.smp-row-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.smp-row-amount { font-weight: 700; white-space: nowrap; }
-.smp-empty { color: #94a3b8; font-size: 13px; text-align: center; padding: 16px 0; }
-.smp-type-sale { background: #dbeafe; color: #1d4ed8; border-radius: 6px; padding: 1px 6px; font-size: 11px; font-weight: 900; white-space: nowrap; }
-.smp-type-pur  { background: #fef3c7; color: #92400e; border-radius: 6px; padding: 1px 6px; font-size: 11px; font-weight: 900; white-space: nowrap; }
-.smp-month-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-.smp-month-card { background: #f8fafc; border-radius: 12px; padding: 12px 14px; border: 1px solid #e2e8f0; }
-.smp-month-card .smp-mc-label { font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; }
-.smp-month-card .smp-mc-value { font-size: 20px; font-weight: 900; color: #0f172a; }
-.smp-month-card .smp-mc-sub { font-size: 11px; color: #94a3b8; margin-top: 2px; }
-.smp-month-card.smp-mc-profit { background: #f0fdf4; border-color: #86efac; grid-column: 1 / -1; }
-.smp-month-card.smp-mc-profit .smp-mc-label { color: #166534; }
+.smp-btn:hover { background: #1d4ed8; }
+.smp-btn.smp-btn-green { background: #16a34a; }
+.smp-btn.smp-btn-green:hover { background: #15803d; }
+.smp-btn.smp-btn-secondary { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
+.smp-btn.smp-btn-secondary:hover { background: #e2e8f0; }
+.smp-status { font-size: 12px; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin-top: 8px; min-height: 36px; }
+.smp-status-info   { background: #eff6ff; color: #1d4ed8; }
+.smp-status-ok     { background: #f0fdf4; color: #166534; }
+.smp-status-warn   { background: #fffbeb; color: #92400e; }
+.smp-status-err    { background: #fef2f2; color: #b91c1c; }
+.smp-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.smp-sum-card { background: #f8fafc; border-radius: 12px; padding: 12px 14px; border: 1px solid #e2e8f0; }
+.smp-sum-card.profit { background: #f0fdf4; border-color: #86efac; grid-column: 1/-1; }
+.smp-sum-label { font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; }
+.smp-sum-value { font-size: 22px; font-weight: 900; color: #0f172a; }
+.smp-sum-sub   { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+.smp-divider { border: none; border-top: 1px solid #e2e8f0; margin: 12px 0; }
+.smp-ocr-preview { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+.smp-ocr-preview-title { font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 8px; }
 #simpleToggleBtn {
-  font-size: 13px; font-weight: 700; padding: 6px 14px; border-radius: 20px;
-  background: #2563eb; border: none; color: #fff; cursor: pointer; white-space: nowrap;
+  font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 20px;
+  background: #1e40af; border: none; color: #fff; cursor: pointer; white-space: nowrap;
 }
 #simpleToggleBtn:hover { background: #1d4ed8; }
 </style>
@@ -627,100 +622,141 @@ body.simple-mode #simpleApp { display: flex; }
 <!-- かんたんモード UI -->
 <div id="simpleApp">
   <div class="smp-header">
-    <h1>📦 かんたん売上管理</h1>
-    <button class="smp-back-btn" onclick="simpleToggle()">← フル画面</button>
+    <h1>⚡ かんたんモード</h1>
+    <button class="smp-back-btn" onclick="simpleToggle()">← フル画面に戻る</button>
   </div>
   <div class="smp-tabs">
-    <button class="smp-tab-btn smp-tab-active" data-tab="pur" onclick="simpleTab('pur')">📦 仕入れる</button>
-    <button class="smp-tab-btn" data-tab="sale" onclick="simpleTab('sale')">💰 売る</button>
-    <button class="smp-tab-btn" data-tab="month" onclick="simpleTab('month')">📊 今月</button>
+    <button class="smp-tab-btn smp-tab-active" data-tab="csv"     onclick="simpleTab('csv')">📥 売上CSV</button>
+    <button class="smp-tab-btn"                data-tab="ship"    onclick="simpleTab('ship')">🚚 配送照合</button>
+    <button class="smp-tab-btn"                data-tab="ocr"     onclick="simpleTab('ocr')">📦 仕入OCR</button>
+    <button class="smp-tab-btn"                data-tab="summary" onclick="simpleTab('summary')">📊 今月</button>
   </div>
   <div class="smp-content">
 
-    <!-- 仕入れる -->
-    <div class="smp-screen smp-screen-active" data-screen="pur">
+    <!-- 売上CSV取込 -->
+    <div class="smp-screen smp-screen-active" data-screen="csv">
       <div class="smp-card">
-        <h2>📦 仕入れを記録する</h2>
-        <div class="smp-field"><label>日付</label><input type="date" id="smpPurDate"></div>
-        <div class="smp-field"><label>商品名</label><input type="text" id="smpPurName" placeholder="例：革ジャケット"></div>
-        <div class="smp-field"><label>仕入れ先</label>
-          <select id="smpPurVendor">
-            <option value="ハードオフ">ハードオフ</option>
-            <option value="古物市場">古物市場</option>
-            <option value="個人">個人</option>
-            <option value="ネット">ネット</option>
-            <option value="リサイクルショップ">リサイクルショップ</option>
-            <option value="その他">その他</option>
+        <h2><span class="smp-step">STEP 1</span>売上CSVを取り込む</h2>
+        <div class="smp-guide">ヤフオク・メルカリ・ラクマの売上CSVをここで取り込みます。</div>
+        <div class="smp-field">
+          <label>① 取込元を選ぶ</label>
+          <select id="smpPlatform">
+            <optgroup label="ヤフオク">
+              <option value="ヤフオク1">ヤフオク1</option>
+              <option value="ヤフオク2">ヤフオク2</option>
+              <option value="ヤフオク3">ヤフオク3</option>
+              <option value="ヤフオク4">ヤフオク4</option>
+              <option value="ヤフオク5">ヤフオク5</option>
+              <option value="ヤフオク6">ヤフオク6</option>
+              <option value="ヤフオク7">ヤフオク7</option>
+              <option value="ヤフオク8">ヤフオク8</option>
+            </optgroup>
+            <optgroup label="その他">
+              <option value="メルカリ">メルカリ</option>
+              <option value="メルカリShops">メルカリShops</option>
+              <option value="ラクマ">ラクマ</option>
+            </optgroup>
           </select>
         </div>
-        <div class="smp-field"><label>仕入れ値（円）</label><input type="number" id="smpPurAmount" placeholder="0" inputmode="numeric"></div>
-        <button class="smp-save-btn" onclick="simpleAddPurchase()">保存する</button>
-        <div class="smp-flash" id="smpPurFlash"></div>
+        <div class="smp-field"><label>② CSVファイルを選ぶ</label></div>
+        <label class="smp-dropzone">
+          📄 ここをタップしてCSVを選ぶ
+          <input type="file" id="smpCsvFile" accept=".csv,text/csv">
+          <div id="smpCsvFileName" style="font-size:12px;color:#64748b;margin-top:4px"></div>
+        </label>
+        <button class="smp-btn" onclick="smpImportCsv()">③ 取込実行</button>
+        <div class="smp-status smp-status-info" id="smpCsvStatus">CSVファイルを選んで「取込実行」を押してください</div>
       </div>
-      <div class="smp-recent-title">直近の仕入れ</div>
-      <div id="smpRecentPur"></div>
+      <div class="smp-card" style="background:#fff7ed;border:1px solid #fed7aa">
+        <div style="font-size:12px;font-weight:700;color:#92400e">次のステップ</div>
+        <div style="font-size:12px;color:#78350f;margin-top:4px">取込後は「🚚 配送照合」タブで送料を照合してください</div>
+      </div>
     </div>
 
-    <!-- 売る -->
-    <div class="smp-screen" data-screen="sale">
+    <!-- 配送照合 -->
+    <div class="smp-screen" data-screen="ship">
       <div class="smp-card">
-        <h2>💰 売上を記録する</h2>
-        <div class="smp-field"><label>日付</label><input type="date" id="smpSaleDate"></div>
-        <div class="smp-field"><label>商品名</label><input type="text" id="smpSaleName" placeholder="例：革ジャケット"></div>
-        <div class="smp-field"><label>販売先</label>
-          <select id="smpSaleShop" onchange="simpleCalcProfit()">
-            <option value="ヤフオク">ヤフオク（手数料8.8%）</option>
-            <option value="メルカリ">メルカリ（手数料10%）</option>
-            <option value="ラクマ">ラクマ（手数料6%）</option>
-            <option value="メルカリShops">メルカリShops（手数料10%）</option>
-            <option value="直接">直接（手数料なし）</option>
-            <option value="その他">その他</option>
+        <h2><span class="smp-step">STEP 2</span>配送CSVを照合する</h2>
+        <div class="smp-guide">ヤマト・佐川の配送CSVを取り込み、売上データと送料を自動照合します。</div>
+        <div class="smp-field">
+          <label>① 配送会社を選ぶ</label>
+          <select id="smpShipType">
+            <option value="yamato1">ヤマト（商品ID照合）</option>
+            <option value="yamato2">ヤマト（伝票番号照合）</option>
+            <option value="sagawa">佐川急便</option>
           </select>
         </div>
-        <div class="smp-field"><label>販売価格（円）</label><input type="number" id="smpSalePrice" placeholder="0" inputmode="numeric" oninput="simpleCalcProfit()"></div>
-        <div class="smp-field"><label>仕入れ値（円）—利益計算用—</label><input type="number" id="smpSaleCost" placeholder="0" inputmode="numeric" oninput="simpleCalcProfit()"></div>
-        <div class="smp-profit-box">
-          <div class="smp-pl">手数料：<span id="smpFeePreview">—</span></div>
-          <div class="smp-pl">利益：</div>
-          <div class="smp-pv" id="smpProfitPreview">—</div>
-        </div>
-        <button class="smp-save-btn" onclick="simpleAddSale()">保存する</button>
-        <div class="smp-flash" id="smpSaleFlash"></div>
+        <div class="smp-field"><label>② 配送CSVファイルを選ぶ</label></div>
+        <label class="smp-dropzone">
+          📄 ここをタップして配送CSVを選ぶ
+          <input type="file" id="smpShipFile" accept=".csv,text/csv">
+          <div id="smpShipFileName" style="font-size:12px;color:#64748b;margin-top:4px"></div>
+        </label>
+        <button class="smp-btn" onclick="smpImportShipping()">③ 配送CSV取込</button>
+        <button class="smp-btn smp-btn-green" onclick="smpMatchShipping()">④ 売上と照合する</button>
+        <div class="smp-status smp-status-info" id="smpShipStatus">配送CSVを選んで「配送CSV取込」→「照合」の順に押してください</div>
       </div>
-      <div class="smp-recent-title">直近の売上</div>
-      <div id="smpRecentSale"></div>
     </div>
 
-    <!-- 今月 -->
-    <div class="smp-screen" data-screen="month">
+    <!-- 仕入れOCR -->
+    <div class="smp-screen" data-screen="ocr">
       <div class="smp-card">
-        <h2>📊 月次サマリー</h2>
-        <div class="smp-field"><label>月を選ぶ</label>
-          <select id="smpMonth" onchange="simpleRenderMonth()"></select>
+        <h2><span class="smp-step">STEP 3</span>仕入れをOCRで登録</h2>
+        <div class="smp-guide">領収書・レシートの画像やPDFを読み込んで仕入れ情報を自動入力します。</div>
+        <div class="smp-field"><label>① 画像またはPDFを選ぶ</label></div>
+        <label class="smp-dropzone">
+          📷 ここをタップして画像/PDFを選ぶ
+          <input type="file" id="smpOcrFileInput" accept="application/pdf,.pdf,image/*" onchange="smpOcrFile(this)">
+          <div id="smpOcrFileName" style="font-size:12px;color:#64748b;margin-top:4px"></div>
+        </label>
+        <div class="smp-status smp-status-info" id="smpOcrStatus">画像を選ぶとAIが自動で読み取ります</div>
+        <hr class="smp-divider">
+        <div class="smp-ocr-preview">
+          <div class="smp-ocr-preview-title">② OCR結果を確認・修正</div>
+          <div class="smp-field"><label>日付</label><input type="date" id="smpOcrDate"></div>
+          <div class="smp-field"><label>仕入れ先</label><input type="text" id="smpOcrVendor" placeholder="例：ハードオフ"></div>
+          <div class="smp-field"><label>商品名</label><input type="text" id="smpOcrItem" placeholder="例：革ジャケット"></div>
+          <div class="smp-field"><label>金額（円）</label><input type="number" id="smpOcrAmount" placeholder="0" inputmode="numeric"></div>
         </div>
-        <div class="smp-month-grid">
-          <div class="smp-month-card">
-            <div class="smp-mc-label">売上合計</div>
-            <div class="smp-mc-value" id="smpMSale">—</div>
-            <div class="smp-mc-sub" id="smpMSaleCount"></div>
-          </div>
-          <div class="smp-month-card">
-            <div class="smp-mc-label">仕入れ合計</div>
-            <div class="smp-mc-value" id="smpMPur">—</div>
-            <div class="smp-mc-sub" id="smpMPurCount"></div>
-          </div>
-          <div class="smp-month-card">
-            <div class="smp-mc-label">手数料合計</div>
-            <div class="smp-mc-value" id="smpMFee">—</div>
-          </div>
-          <div class="smp-month-card smp-mc-profit">
-            <div class="smp-mc-label">利益（売上 − 手数料 − 仕入れ）</div>
-            <div class="smp-mc-value" id="smpMProfit">—</div>
-          </div>
-        </div>
+        <button class="smp-btn smp-btn-green" onclick="smpRegisterPurchase()">③ 仕入れとして登録する</button>
+        <button class="smp-btn smp-btn-secondary" onclick="smpClearOcr()">クリア</button>
       </div>
-      <div class="smp-recent-title">この月の取引一覧</div>
-      <div id="smpMonthList"></div>
+    </div>
+
+    <!-- 月次サマリー -->
+    <div class="smp-screen" data-screen="summary">
+      <div class="smp-card">
+        <h2>📊 今月の集計</h2>
+        <div class="smp-field">
+          <label>月を選ぶ</label>
+          <select id="smpSummaryMonth" onchange="simpleRenderSummary()"></select>
+        </div>
+        <div class="smp-summary-grid">
+          <div class="smp-sum-card">
+            <div class="smp-sum-label">売上合計</div>
+            <div class="smp-sum-value" id="smpTotalSale">—</div>
+            <div class="smp-sum-sub" id="smpSaleCount"></div>
+          </div>
+          <div class="smp-sum-card">
+            <div class="smp-sum-label">仕入れ合計</div>
+            <div class="smp-sum-value" id="smpTotalPur">—</div>
+            <div class="smp-sum-sub" id="smpPurCount"></div>
+          </div>
+          <div class="smp-sum-card">
+            <div class="smp-sum-label">手数料合計</div>
+            <div class="smp-sum-value" id="smpTotalFee">—</div>
+          </div>
+          <div class="smp-sum-card">
+            <div class="smp-sum-label">送料合計</div>
+            <div class="smp-sum-value" id="smpTotalShip">—</div>
+          </div>
+          <div class="smp-sum-card profit">
+            <div class="smp-sum-label">利益（売上 − 手数料 − 送料 − 仕入れ）</div>
+            <div class="smp-sum-value" id="smpTotalProfit">—</div>
+          </div>
+        </div>
+        <button class="smp-btn smp-btn-secondary" style="margin-top:8px" onclick="simpleRenderSummary()">再集計</button>
+      </div>
     </div>
 
   </div>
@@ -729,7 +765,7 @@ body.simple-mode #simpleApp { display: flex; }
 <header>
   <h1>株式会社RIBRE 売上管理 Ver60.0</h1>
   <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
-    <button id="simpleToggleBtn" onclick="simpleToggle()">かんたんモード</button>
+    <button id="simpleToggleBtn" onclick="simpleToggle()">⚡ かんたんモード</button>
     <button id="devToggle" onclick="toggleDevMode()">開発者モード</button>
     <div id="topUser">未ログイン</div>
   </div>
