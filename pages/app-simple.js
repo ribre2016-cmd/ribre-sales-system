@@ -106,31 +106,34 @@ function smpShowPreview(file) {
   }
 }
 
-function smpOcrFile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  smpShowPreview(file);
-
+function smpRunOcrProcess(file) {
   const origFile = document.getElementById('ocrFile');
   const origKind = document.getElementById('ocrKind');
-  if (!origFile || !origKind) { alert('ページを再読み込みしてください'); return; }
+  if (!origFile || !origKind) {
+    smpSetStatus('smpOcrStatus', '⚠ OCR機能が利用できません。ページを再読み込みしてください', 'warn');
+    return;
+  }
 
   origKind.value = 'purchase';
-  const dt = new DataTransfer();
-  dt.items.add(file);
-  origFile.files = dt.files;
+  try {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    origFile.files = dt.files;
+  } catch(e) {}
 
-  smpSetStatus('smpOcrStatus', '画像を読み込み中...', 'info');
+  smpSetStatus('smpOcrStatus', '📖 AIが読み取っています...（数秒かかります）', 'info');
   try {
     registerEvidence();
     setTimeout(() => {
-      runOcr();
-      smpSetStatus('smpOcrStatus', 'OCR実行中...AIが読み取っています', 'info');
-      // OCR完了後に候補フィールドを反映
-      setTimeout(() => smpSyncOcrFields(), 4000);
+      try {
+        runOcr();
+        setTimeout(() => smpSyncOcrFields(), 4000);
+      } catch(e) {
+        smpSetStatus('smpOcrStatus', '⚠ OCR処理でエラーが発生しました。手動で入力してください', 'warn');
+      }
     }, 500);
   } catch(e) {
-    smpSetStatus('smpOcrStatus', '❌ エラー：' + e.message, 'err');
+    smpSetStatus('smpOcrStatus', '⚠ ファイル登録でエラーが発生しました。手動で入力してください', 'warn');
   }
 }
 
@@ -345,12 +348,12 @@ function smpClearOcr() {
   document.getElementById('smpOcrFileName').textContent = '';
 }
 
-/* ファイル選択時にファイル名を表示 */
+/* ファイル選択時のイベントを一括バインド */
 function smpBindFileLabels() {
+  // CSV・配送はファイル名表示のみ
   [
-    ['smpCsvFile',     'smpCsvFileName'],
-    ['smpShipFile',    'smpShipFileName'],
-    ['smpOcrFileInput','smpOcrFileName']
+    ['smpCsvFile',  'smpCsvFileName'],
+    ['smpShipFile', 'smpShipFileName'],
   ].forEach(([inputId, labelId]) => {
     const input = document.getElementById(inputId);
     const label = document.getElementById(labelId);
@@ -360,6 +363,19 @@ function smpBindFileLabels() {
       });
     }
   });
+
+  // OCRはプレビュー表示 + OCR処理
+  const ocrInput = document.getElementById('smpOcrFileInput');
+  const ocrLabel = document.getElementById('smpOcrFileName');
+  if (ocrInput) {
+    ocrInput.addEventListener('change', function() {
+      const file = this.files[0];
+      if (!file) return;
+      if (ocrLabel) ocrLabel.textContent = file.name;
+      smpShowPreview(file);
+      smpRunOcrProcess(file);
+    });
+  }
 }
 
 window.addEventListener('load', function() {
