@@ -1054,6 +1054,17 @@ body.simple-mode #simpleApp { display: flex; }
       <div class="card"><div class="label">OpenAI</div><div id="openaiStatus" class="value">未設定</div></div>
     </div>
     <div id="settingsList" class="list"></div>
+    <hr style="margin:18px 0;border-color:#e2e8f0">
+    <h3 style="font-size:14px;font-weight:900;margin:0 0 10px">🔄 設定の引き継ぎ（file://→localhostなど）</h3>
+    <p style="font-size:12px;color:#64748b;margin:0 0 10px">設定・データを別の環境へ移すときに使います。</p>
+    <div class="controls">
+      <button onclick="exportAllSettings()">📤 設定をファイルに保存</button>
+      <label style="cursor:pointer">
+        <span style="background:#fff;color:#111;border:1px solid #cbd5e1;border-radius:12px;padding:10px 14px;font-weight:900;font-size:14px">📥 設定をファイルから読込</span>
+        <input type="file" accept=".json" style="display:none" onchange="importAllSettings(this)">
+      </label>
+    </div>
+    <div id="settingsTransferStatus" style="font-size:12px;font-weight:700;margin-top:8px;color:#166534"></div>
   </div>
 </section>
 
@@ -2195,6 +2206,42 @@ body.simple-mode #simpleApp { display: flex; }
 <script src="pages/app-simple.js"></script>
 
 <script>
+function exportAllSettings() {
+  const data = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    data[k] = localStorage.getItem(k);
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ribre_settings_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  const el = document.getElementById('settingsTransferStatus');
+  if (el) el.textContent = '✅ ' + Object.keys(data).length + '件の設定を保存しました';
+}
+function importAllSettings(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      let count = 0;
+      for (const [k, v] of Object.entries(data)) {
+        localStorage.setItem(k, v);
+        count++;
+      }
+      const el = document.getElementById('settingsTransferStatus');
+      if (el) el.textContent = '✅ ' + count + '件の設定を読み込みました。ページを再読み込みしてください。';
+      setTimeout(() => location.reload(), 1500);
+    } catch(err) {
+      const el = document.getElementById('settingsTransferStatus');
+      if (el) el.textContent = '❌ 読み込みに失敗しました：' + err.message;
+    }
+  };
+  reader.readAsText(file);
+}
 function toggleOtherMenu() {
   document.getElementById('otherMenu').classList.toggle('hidden');
 }
