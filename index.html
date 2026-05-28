@@ -580,9 +580,11 @@ body.simple-mode #simpleApp { display: flex; }
 }
 .smp-field input:focus, .smp-field select:focus { border-color: #2563eb; outline: none; background: #fff; }
 .smp-dropzone {
+  display: block;
   border: 2px dashed #93c5fd; background: #eff6ff; border-radius: 12px;
   padding: 20px; text-align: center; cursor: pointer; margin-bottom: 10px;
   font-size: 14px; font-weight: 700; color: #1d4ed8;
+  box-sizing: border-box; width: 100%;
 }
 .smp-dropzone input[type=file] { display: none; }
 .smp-dropzone:hover { background: #dbeafe; border-color: #2563eb; }
