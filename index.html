@@ -615,6 +615,82 @@ body.simple-mode #simpleApp { display: flex; }
   background: #1e40af; border: none; color: #fff; cursor: pointer; white-space: nowrap;
 }
 #simpleToggleBtn:hover { background: #1d4ed8; }
+/* base.css の全体スタイルをかんたんモード内でリセット */
+#simpleApp input,
+#simpleApp select,
+#simpleApp textarea {
+  min-width: unset !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+#simpleApp button {
+  background: none;
+  color: inherit;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  font-weight: inherit;
+  cursor: pointer;
+  width: auto;
+  min-width: unset;
+}
+#simpleApp .smp-tab-btn {
+  padding: 11px 4px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  background: none !important;
+  color: #64748b !important;
+  border-radius: 0 !important;
+  border-bottom: 3px solid transparent !important;
+  width: 100% !important;
+}
+#simpleApp .smp-tab-btn.smp-tab-active {
+  color: #1e40af !important;
+  border-bottom-color: #1e40af !important;
+}
+#simpleApp .smp-btn {
+  background: #2563eb !important;
+  color: #fff !important;
+  border-radius: 12px !important;
+  padding: 13px !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+  width: 100% !important;
+  margin-bottom: 8px !important;
+}
+#simpleApp .smp-btn:hover { background: #1d4ed8 !important; }
+#simpleApp .smp-btn.smp-btn-green { background: #16a34a !important; }
+#simpleApp .smp-btn.smp-btn-green:hover { background: #15803d !important; }
+#simpleApp .smp-btn.smp-btn-secondary {
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  border: 1px solid #e2e8f0 !important;
+}
+#simpleApp .smp-btn.smp-btn-secondary:hover { background: #e2e8f0 !important; }
+#simpleApp .smp-back-btn {
+  background: rgba(255,255,255,.18) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255,255,255,.35) !important;
+  border-radius: 20px !important;
+  padding: 5px 12px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+#simpleApp .smp-field input,
+#simpleApp .smp-field select {
+  padding: 10px 12px !important;
+  border: 1.5px solid #e2e8f0 !important;
+  border-radius: 10px !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  background: #f8fafc !important;
+}
+#simpleApp .smp-field input:focus,
+#simpleApp .smp-field select:focus {
+  border-color: #2563eb !important;
+  background: #fff !important;
+  outline: none !important;
+}
 </style>
 </head>
 <body>
