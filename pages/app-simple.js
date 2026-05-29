@@ -84,26 +84,45 @@ function smpMatchShipping() {
 }
 
 /* ---- 仕入れ（OCR） ---- */
-function smpShowPreview(file) {
-  const area    = document.getElementById('smpOcrPreviewArea');
-  const img     = document.getElementById('smpOcrPreviewImg');
-  const pdfBox  = document.getElementById('smpOcrPreviewPdf');
-  const pdfName = document.getElementById('smpOcrPreviewPdfName');
-  if (!area) return;
+let _smpOcrFile = null;
 
-  area.style.display = 'block';
+function smpHandleOcrFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  _smpOcrFile = file;
 
-  if (file.type.startsWith('image/')) {
-    img.style.display = 'block';
-    pdfBox.style.display = 'none';
-    const reader = new FileReader();
-    reader.onload = e => { img.src = e.target.result; };
-    reader.readAsDataURL(file);
-  } else {
-    img.style.display = 'none';
-    pdfBox.style.display = 'block';
-    if (pdfName) pdfName.textContent = file.name;
+  const ocrLabel = document.getElementById('smpOcrFileName');
+  if (ocrLabel) ocrLabel.textContent = file.name;
+
+  // プレビュー表示（同期）
+  const area   = document.getElementById('smpOcrPreviewArea');
+  const img    = document.getElementById('smpOcrPreviewImg');
+  const pdfBox = document.getElementById('smpOcrPreviewPdf');
+  const pdfName= document.getElementById('smpOcrPreviewPdfName');
+
+  if (area) {
+    area.style.cssText = 'display:block !important; margin-bottom:10px; text-align:center';
+    const blobUrl = URL.createObjectURL(file);
+    if (file.type.startsWith('image/')) {
+      if (img) { img.src = blobUrl; img.style.display = 'block'; }
+      if (pdfBox) pdfBox.style.display = 'none';
+    } else {
+      if (img) img.style.display = 'none';
+      if (pdfBox) { pdfBox.src = blobUrl; pdfBox.style.display = 'block'; }
+    }
   }
+
+  // OCRボタンを有効化してガイドメッセージ更新
+  const ocrBtn = document.getElementById('smpOcrRunBtn');
+  if (ocrBtn) ocrBtn.disabled = false;
+  smpSetStatus('smpOcrStatus', '② 「AIで読み取る」を押してください', 'info');
+}
+
+function smpRunOcr() {
+  if (!_smpOcrFile) { alert('先にファイルを選んでください'); return; }
+  smpRunOcrProcess(_smpOcrFile);
+  const ocrBtn = document.getElementById('smpOcrRunBtn');
+  if (ocrBtn) ocrBtn.disabled = true;
 }
 
 function smpRunOcrProcess(file) {
@@ -364,18 +383,6 @@ function smpBindFileLabels() {
     }
   });
 
-  // OCRはプレビュー表示 + OCR処理
-  const ocrInput = document.getElementById('smpOcrFileInput');
-  const ocrLabel = document.getElementById('smpOcrFileName');
-  if (ocrInput) {
-    ocrInput.addEventListener('change', function() {
-      const file = this.files[0];
-      if (!file) return;
-      if (ocrLabel) ocrLabel.textContent = file.name;
-      smpShowPreview(file);
-      smpRunOcrProcess(file);
-    });
-  }
 }
 
 window.addEventListener('load', function() {
