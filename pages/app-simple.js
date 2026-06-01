@@ -813,6 +813,8 @@ function smpListToggle(kind) {
   if (sb) sb.classList.toggle('smp-choice-active', kind === 'sale');
   if (pb) pb.classList.toggle('smp-choice-active', kind === 'purchase');
   const fw = document.getElementById('smpListShipFilterWrap'); if (fw) fw.style.display = kind === 'sale' ? 'flex' : 'none';
+  const aw = document.getElementById('smpListAccWrap'); if (aw) aw.style.display = kind === 'sale' ? 'block' : 'none';
+  const cb = document.getElementById('smpListCsvBtn'); if (cb) cb.style.display = kind === 'sale' ? 'block' : 'none';
   const t = document.getElementById('smpListTitle'); if (t) t.textContent = kind === 'sale' ? '📋 売上一覧' : '🧾 仕入一覧';
   smpRenderList();
 }
@@ -842,9 +844,53 @@ function smpRenderList() {
   let arr = sales();
   const so = document.getElementById('smpListShipOnly');
   if (so && so.checked) arr = arr.filter(smpNeedsShip);
+  const accFilter = (document.getElementById('smpListAccFilter') || {}).value || 'all';
+  if (accFilter !== 'all') arr = arr.filter(r => (r.shop || '') === accFilter);
+  arr = smpSortByAccount(arr);
   if (countEl) countEl.textContent = arr.length + '件';
   if (!arr.length) { box.innerHTML = '<div style="font-size:12px;color:#94a3b8">該当する売上はありません</div>'; return; }
-  box.innerHTML = arr.map(smpSaleRowHtml).join('');
+  if (accFilter !== 'all') {
+    box.innerHTML = arr.map(smpSaleRowHtml).join('');
+    return;
+  }
+  // すべて：アカウント順にまとめて見出し付きで表示
+  let html = '', lastShop = null;
+  arr.forEach(r => {
+    const shop = r.shop || '(未設定)';
+    if (shop !== lastShop) {
+      const grp = arr.filter(x => (x.shop || '(未設定)') === shop);
+      const sub = grp.reduce((s, x) => s + num(x.amount || x.price), 0);
+      html += '<div class="smp-acc-group">' + smpEsc(shop) + '<span class="smp-acc-count">' + grp.length + '件・' + yen(sub) + '</span></div>';
+      lastShop = shop;
+    }
+    html += smpSaleRowHtml(r);
+  });
+  box.innerHTML = html;
+}
+
+/* アカウント順（ヤフオク1〜8→メルカリ等）で並べ替え。同一内は日付の新しい順 */
+function smpAccRank(shop) {
+  const i = SMP_ACCS.indexOf(shop || '');
+  return i < 0 ? 999 : i;
+}
+function smpSortByAccount(arr) {
+  return arr.slice().sort((a, b) => {
+    const ra = smpAccRank(a.shop), rb = smpAccRank(b.shop);
+    if (ra !== rb) return ra - rb;
+    return String(b.date || '').localeCompare(String(a.date || ''));
+  });
+}
+
+/* 全売上を1つのCSVでダウンロード（アカウント順） */
+function smpDownloadSalesCsv() {
+  const rows = [['日付', '月', '取込元', '商品名', '金額', '手数料', '送料', '利益', '商品ID', 'メモ']];
+  smpSortByAccount(sales()).forEach(r => {
+    const amt = num(r.amount || r.price), fee = num(r.fee), ship = num(r.ship || r.shipping);
+    const profit = (r.profit !== undefined && r.profit !== '') ? num(r.profit) : (amt - fee - ship);
+    rows.push([r.date || '', r.month || String(r.date || '').slice(0, 7), r.shop || '', r.name || '', amt, fee, ship, profit, r.itemId || r.id || '', r.memo || '']);
+  });
+  if (rows.length <= 1) { alert('売上データがありません'); return; }
+  if (typeof csvDownload === 'function') csvDownload(rows, '売上一覧_全件.csv');
 }
 
 /* データが存在する月の一覧 */

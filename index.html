@@ -656,6 +656,9 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
 /* 送料未入力（匿名配送除く）の警告 */
 .smp-ship-warn { display: inline-block; font-size: 10px; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
 .smp-recent-row.smp-need-ship { background: #fffdf5; }
+/* アカウント別の見出し */
+.smp-acc-group { font-size: 12px; font-weight: 900; color: #1e40af; background: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; padding: 7px 10px; margin: 14px 0 4px; }
+.smp-acc-count { font-weight: 700; color: #64748b; font-size: 11px; margin-left: 6px; }
 .smp-ship-alert { font-size: 12px; font-weight: 800; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; cursor: pointer; }
 .smp-ship-alert:hover { background: #fef3c7; }
 .smp-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -759,7 +762,10 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
 <div id="simpleApp">
   <div class="smp-header">
     <h1>⚡ かんたんモード</h1>
-    <button class="smp-back-btn" onclick="simpleToggle()">← フル画面に戻る</button>
+    <div style="display:flex;gap:8px;flex-shrink:0">
+      <button class="smp-back-btn" onclick="simpleTab('home')">🏠 ホーム</button>
+      <button class="smp-back-btn" onclick="simpleToggle()">← フル画面に戻る</button>
+    </div>
   </div>
   <div class="smp-content">
 
@@ -944,6 +950,29 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
           <input type="checkbox" id="smpListShipOnly" onchange="smpRenderList()">
           ⚠️ 送料未入力だけ表示（匿名配送は除く）
         </label>
+        <div class="smp-field" id="smpListAccWrap">
+          <label>アカウントで絞り込み・並び替え</label>
+          <select id="smpListAccFilter" onchange="smpRenderList()">
+            <option value="all">すべて（アカウント順にまとめて表示）</option>
+            <optgroup label="ヤフオク">
+              <option value="ヤフオク1">ヤフオク1</option>
+              <option value="ヤフオク2">ヤフオク2</option>
+              <option value="ヤフオク3">ヤフオク3</option>
+              <option value="ヤフオク4">ヤフオク4</option>
+              <option value="ヤフオク5">ヤフオク5</option>
+              <option value="ヤフオク6">ヤフオク6</option>
+              <option value="ヤフオク7">ヤフオク7</option>
+              <option value="ヤフオク8">ヤフオク8</option>
+            </optgroup>
+            <optgroup label="その他">
+              <option value="メルカリ">メルカリ</option>
+              <option value="メルカリShops">メルカリShops</option>
+              <option value="ラクマ">ラクマ</option>
+              <option value="その他">その他</option>
+            </optgroup>
+          </select>
+        </div>
+        <button class="smp-btn smp-btn-secondary" id="smpListCsvBtn" onclick="smpDownloadSalesCsv()" style="margin-bottom:10px">📥 売上を全部まとめてCSVダウンロード</button>
         <div id="smpListCount" style="font-size:11px;color:#94a3b8;margin-bottom:8px"></div>
         <div id="smpListBox"></div>
       </div>
@@ -2362,7 +2391,7 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
 <script src="pages/app-sync.js"></script>
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
-<script src="pages/app-simple.js?v=20260602h"></script>
+<script src="pages/app-simple.js?v=20260602i"></script>
 
 <script>
 function exportAllSettings() {
