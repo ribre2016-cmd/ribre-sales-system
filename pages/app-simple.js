@@ -45,6 +45,8 @@ function smpRenderHome() {
 /* ===== 取り込み（統合入力）: CSV・画像・キャプチャを1つの投入口で ===== */
 let _smpInboxFile = null;
 let _smpInboxMode = null; // 'ocr_sale' | 'ocr_purchase' | 'csv_sales' | 'csv_ship'
+let _smpInboxQueue = [];  // 複数ファイルを順番に処理するためのキュー
+let _smpInboxIndex = 0;
 
 function smpSetVal(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
 
@@ -54,26 +56,78 @@ function smpInboxHideAll() {
 }
 
 function smpInboxPick(input) {
-  const file = input && input.files && input.files[0];
-  if (!file) return;
-  _smpInboxFile = file;
+  if (!input || !input.files || !input.files.length) return;
+  smpInboxAddFiles(input.files);
+}
+
+/* 複数ファイルをキューに積んで先頭から処理開始 */
+function smpInboxAddFiles(fileList) {
+  const files = Array.prototype.slice.call(fileList || []);
+  if (!files.length) return;
+  _smpInboxQueue = files;
+  _smpInboxIndex = 0;
+  smpInboxStartItem();
+}
+
+/* キューの現在ファイルを処理（種類を聞く） */
+function smpInboxStartItem() {
+  if (_smpInboxIndex >= _smpInboxQueue.length) { smpInboxFinish(); return; }
+  _smpInboxFile = _smpInboxQueue[_smpInboxIndex];
   _smpInboxMode = null;
+  smpInboxHideAll();
+  const file = _smpInboxFile;
+  const total = _smpInboxQueue.length, cur = _smpInboxIndex + 1;
+  const prog = document.getElementById('smpInboxProgress');
+  if (prog) {
+    if (total > 1) { prog.style.display = 'block'; prog.textContent = '📂 ' + total + '件中 ' + cur + '件目： ' + file.name; }
+    else { prog.style.display = 'none'; prog.textContent = ''; }
+  }
   const nameEl = document.getElementById('smpInboxFileName');
   if (nameEl) nameEl.textContent = file.name;
-  smpInboxHideAll();
+  const prefix = total > 1 ? '(' + cur + '/' + total + ') ' : '';
   const isImage = (file.type || '').startsWith('image/');
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
   const isCsv = (file.type || '').indexOf('csv') >= 0 || /\.csv$/i.test(file.name);
   if (isImage || isPdf) {
     smpInboxShowPreview(file, isImage);
     const k = document.getElementById('smpInboxKindImg'); if (k) k.style.display = 'block';
-    smpSetStatus('smpInboxStatus', 'これは「売上」ですか？「仕入」ですか？', 'info');
+    smpSetStatus('smpInboxStatus', prefix + 'これは「売上」ですか？「仕入」ですか？', 'info');
   } else if (isCsv) {
     const k = document.getElementById('smpInboxKindCsv'); if (k) k.style.display = 'block';
-    smpSetStatus('smpInboxStatus', 'これは「売上CSV」ですか？「配送CSV」ですか？', 'info');
+    smpSetStatus('smpInboxStatus', prefix + 'これは「売上CSV」ですか？「配送CSV」ですか？', 'info');
   } else {
-    smpSetStatus('smpInboxStatus', '対応していない形式です（CSV・画像・PDF）', 'warn');
+    smpSetStatus('smpInboxStatus', prefix + '対応していない形式のためスキップしました', 'warn');
+    smpInboxNext();
   }
+}
+
+/* 次のファイルへ */
+function smpInboxNext() { _smpInboxIndex += 1; smpInboxStartItem(); }
+
+/* 1件処理し終えた後：残りがあれば次を聞く／最後なら片付け */
+function smpInboxAfterItem() {
+  smpRenderHome();
+  if (_smpInboxIndex + 1 < _smpInboxQueue.length) {
+    smpInboxNext();
+  } else {
+    smpInboxClearOnly();
+  }
+}
+
+function smpInboxFinish() {
+  smpInboxClearOnly();
+  smpSetStatus('smpInboxStatus', '✅ すべて完了しました', 'ok');
+  smpRenderHome();
+}
+
+/* 入力欄・キューを片付け（ステータス文は残す） */
+function smpInboxClearOnly() {
+  _smpInboxQueue = []; _smpInboxIndex = 0; _smpInboxFile = null; _smpInboxMode = null;
+  const f = document.getElementById('smpInboxFile'); if (f) f.value = '';
+  const img = document.getElementById('smpInboxImg'); if (img) img.src = '';
+  const prog = document.getElementById('smpInboxProgress'); if (prog) { prog.style.display = 'none'; prog.textContent = ''; }
+  const fn = document.getElementById('smpInboxFileName'); if (fn) fn.textContent = '';
+  smpInboxHideAll();
 }
 
 function smpInboxShowPreview(file, isImage) {
@@ -120,7 +174,7 @@ function smpInboxImportSales() {
     setTimeout(() => {
       const c = document.getElementById('yahooSalesCount') ? document.getElementById('yahooSalesCount').textContent : '?';
       smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}`, 'ok');
-      smpRenderHome();
+      smpInboxAfterItem();
     }, 800);
   } catch (e) { smpSetStatus('smpInboxStatus', '❌ エラー：' + e.message, 'err'); }
 }
@@ -143,7 +197,7 @@ function smpInboxImportShipping() {
           const m = document.getElementById('shipMatchCount') ? document.getElementById('shipMatchCount').textContent : '?';
           const u = document.getElementById('shipSalesUnmatched') ? document.getElementById('shipSalesUnmatched').textContent : '?';
           smpSetStatus('smpInboxStatus', `✅ 照合完了　一致：${m}　未一致：${u}（送料・伝票を売上に自動反映）`, 'ok');
-          smpRenderHome();
+          smpInboxAfterItem();
         }, 800);
       } catch (e) { smpSetStatus('smpInboxStatus', '❌ 照合エラー：' + e.message, 'err'); }
     }, 900);
@@ -203,16 +257,11 @@ function smpInboxSaveOcr() {
     addPurchase();
   }
   smpSetStatus('smpInboxStatus', '✅ ' + (kind === 'sale' ? '売上' : '仕入') + 'を登録しました', 'ok');
-  smpInboxReset();
-  smpRenderHome();
+  smpInboxAfterItem();
 }
 
 function smpInboxReset() {
-  _smpInboxFile = null; _smpInboxMode = null;
-  const f = document.getElementById('smpInboxFile'); if (f) f.value = '';
-  const fn = document.getElementById('smpInboxFileName'); if (fn) fn.textContent = '';
-  const img = document.getElementById('smpInboxImg'); if (img) img.src = '';
-  smpInboxHideAll();
+  smpInboxClearOnly();
   smpSetStatus('smpInboxStatus', 'ファイルを選ぶか貼り付けてください', 'info');
 }
 
@@ -679,26 +728,17 @@ function smpInboxBindPaste() {
     const inbox = document.querySelector('.smp-screen[data-screen="inbox"]');
     if (!inbox || !inbox.classList.contains('smp-screen-active')) return;
     const items = (e.clipboardData && e.clipboardData.items) ? e.clipboardData.items : [];
+    const imgs = [];
     for (let i = 0; i < items.length; i += 1) {
       const it = items[i];
       if (it && it.kind === 'file' && String(it.type || '').startsWith('image/')) {
         const raw = it.getAsFile();
         if (!raw) continue;
         const ext = String(raw.type || 'image/png').split('/')[1] || 'png';
-        const file = new File([raw], 'capture.' + ext, { type: raw.type || 'image/png' });
-        try {
-          const dt = new DataTransfer();
-          dt.items.add(file);
-          const input = document.getElementById('smpInboxFile');
-          if (input) { input.files = dt.files; smpInboxPick(input); }
-        } catch (err) {
-          _smpInboxFile = file;
-          smpInboxPick({ files: [file] });
-        }
-        e.preventDefault();
-        break;
+        imgs.push(new File([raw], 'capture' + (i + 1) + '.' + ext, { type: raw.type || 'image/png' }));
       }
     }
+    if (imgs.length) { e.preventDefault(); smpInboxAddFiles(imgs); }
   });
 }
 
