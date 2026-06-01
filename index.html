@@ -637,6 +637,14 @@ body.simple-mode #simpleApp { display: flex; }
 #simpleApp .smp-choice-btn { flex: 1; padding: 14px 8px; border: 1.5px solid #e2e8f0 !important; background: #f8fafc !important; color: #334155 !important; border-radius: 12px !important; font-size: 14px !important; font-weight: 800 !important; cursor: pointer; width: auto !important; margin: 0 !important; }
 #simpleApp .smp-choice-btn.smp-choice-active { border-color: #2563eb !important; background: #eff6ff !important; color: #1e40af !important; }
 .smp-inbox-zone { font-size: 14px; }
+/* === 最近の取引（修正・削除） === */
+.smp-recent-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+.smp-recent-row:last-child { border-bottom: none; }
+.smp-recent-info { flex: 1; min-width: 0; }
+.smp-recent-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.smp-recent-sub { font-size: 11px; color: #94a3b8; }
+#simpleApp select.smp-recent-acc { width: auto !important; min-width: 92px; padding: 6px 8px !important; font-size: 12px !important; border-radius: 8px !important; }
+#simpleApp button.smp-recent-del { width: auto !important; background: #fef2f2 !important; color: #dc2626 !important; border: 1px solid #fecaca !important; border-radius: 8px !important; padding: 6px 9px !important; font-size: 13px !important; margin: 0 !important; }
 .smp-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .smp-sum-card { background: #f8fafc; border-radius: 12px; padding: 12px 14px; border: 1px solid #e2e8f0; }
 .smp-sum-card.profit { background: #f0fdf4; border-color: #86efac; grid-column: 1/-1; }
@@ -746,7 +754,7 @@ body.simple-mode #simpleApp { display: flex; }
     <div class="smp-screen smp-screen-active" data-screen="home">
       <div class="smp-home-month" id="smpHomeMonth">📅 今月</div>
       <div class="smp-card smp-hero">
-        <div class="smp-hero-label">今月の利益</div>
+        <div class="smp-hero-label" id="smpHomeProfitLabel">今月の利益</div>
         <div class="smp-hero-value" id="smpHomeProfit">—</div>
         <div class="smp-hero-sub" id="smpHomeSub"></div>
       </div>
@@ -954,6 +962,13 @@ body.simple-mode #simpleApp { display: flex; }
           </div>
         </div>
         <button class="smp-btn smp-btn-secondary" style="margin-top:8px" onclick="simpleRenderSummary()">再集計</button>
+        <div id="smpAllCount" style="font-size:11px;color:#94a3b8;text-align:center;margin-top:8px"></div>
+      </div>
+      <!-- 最近の取引（アカウント修正・削除） -->
+      <div class="smp-card">
+        <h2>最近の取引（アカウント修正・削除）</h2>
+        <div class="smp-guide">取込元（アカウント）を間違えたら、右の選択で正しいものに変えられます。🗑で削除。</div>
+        <div id="smpRecentList"></div>
       </div>
     </div>
 
@@ -2314,7 +2329,7 @@ body.simple-mode #simpleApp { display: flex; }
 <script src="pages/app-sync.js"></script>
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
-<script src="pages/app-simple.js?v=20260602d"></script>
+<script src="pages/app-simple.js?v=20260602e"></script>
 
 <script>
 function exportAllSettings() {

@@ -11,16 +11,23 @@ function simpleTab(tab) {
   document.querySelectorAll('.smp-nav-item').forEach(b => b.classList.toggle('smp-nav-active', b.dataset.nav === tab));
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
   if (tab === 'home') smpRenderHome();
-  if (tab === 'summary') { simpleRenderSummary(); simpleRenderChart(); }
+  if (tab === 'summary') smpSummaryEnter();
   if (tab === 'manual') smpManualInit();
   const c = document.querySelector('.smp-content'); if (c) c.scrollTop = 0;
 }
 
-/* ホーム画面：今月のKPI＋3ヶ月グラフ */
+/* ホーム画面：今月（無ければ最新データ月）のKPI＋3ヶ月グラフ */
 function smpRenderHome() {
-  const month = today().slice(0, 7);
-  const s = sales().filter(r => (r.month || String(r.date || '').slice(0, 7)) === month);
-  const p = purchases().filter(r => (r.month || String(r.date || '').slice(0, 7)) === month);
+  const cur = today().slice(0, 7);
+  const inM = (r, m) => (r.month || String(r.date || '').slice(0, 7)) === m;
+  let month = cur;
+  const curHas = sales().some(r => inM(r, cur)) || purchases().some(r => inM(r, cur));
+  if (!curHas) {
+    const dm = smpDataMonths().sort().reverse();
+    if (dm.length) month = dm[0];
+  }
+  const s = sales().filter(r => inM(r, month));
+  const p = purchases().filter(r => inM(r, month));
   const totalSale = s.reduce((a, r) => a + num(r.amount || r.price), 0);
   const totalFee  = s.reduce((a, r) => a + num(r.fee), 0);
   const totalShip = s.reduce((a, r) => a + num(r.ship || r.shipping), 0);
@@ -33,7 +40,9 @@ function smpRenderHome() {
     if (color) el.style.color = color;
   };
   const ym = month.split('-');
-  set('smpHomeMonth', '📅 ' + ym[0] + '年' + Number(ym[1]) + '月');
+  const isCur = month === cur;
+  set('smpHomeMonth', '📅 ' + ym[0] + '年' + Number(ym[1]) + '月' + (isCur ? '' : '（最新データ）'));
+  set('smpHomeProfitLabel', (isCur ? '今月' : Number(ym[1]) + '月') + 'の利益');
   set('smpHomeProfit', (profit >= 0 ? '＋' : '') + yen(profit), profit >= 0 ? '#15803d' : '#dc2626');
   set('smpHomeSub', '売上 ' + yen(totalSale) + ' − 仕入 ' + yen(totalPur) + ' − 経費 ' + yen(totalFee + totalShip));
   set('smpHomeSale', yen(totalSale));
@@ -575,13 +584,33 @@ function smpRegisterPurchase() {
 }
 
 /* ---- 月次サマリー ---- */
+/* 集計タブを開いた時：選択月にデータが無ければ、データのある月へ自動で合わせる */
+function smpSummaryEnter() {
+  smpInitMonthOptions();
+  const sel = document.getElementById('smpSummaryMonth');
+  if (sel) {
+    const dm = smpDataMonths();
+    const v = sel.value;
+    const hasData = v === 'all' || dm.indexOf(v) >= 0;
+    if (!hasData && dm.length) {
+      const cur = today().slice(0, 7);
+      sel.value = dm.indexOf(cur) >= 0 ? cur : dm.slice().sort().reverse()[0];
+    }
+  }
+  simpleRenderSummary();
+  simpleRenderChart();
+}
+
 function simpleRenderSummary() {
   const sel = document.getElementById('smpSummaryMonth');
   if (!sel) return;
+  smpInitMonthOptions();              // データに合わせて月候補を更新（取込分も出る）
   const month = sel.value || today().slice(0, 7);
+  const all = month === 'all';
+  const inMonth = r => all || (r.month || String(r.date || '').slice(0, 7)) === month;
 
-  const s = sales().filter(r => (r.month || String(r.date||'').slice(0,7)) === month);
-  const p = purchases().filter(r => (r.month || String(r.date||'').slice(0,7)) === month);
+  const s = sales().filter(inMonth);
+  const p = purchases().filter(inMonth);
 
   const totalSale = s.reduce((a, r) => a + num(r.amount || r.price), 0);
   const totalFee  = s.reduce((a, r) => a + num(r.fee), 0);
@@ -602,20 +631,102 @@ function simpleRenderSummary() {
   set('smpTotalProfit', (profit >= 0 ? '+' : '') + yen(profit), profit >= 0 ? '#166534' : '#dc2626');
   set('smpSaleCount',  s.length + '件');
   set('smpPurCount',   p.length + '件');
+  set('smpAllCount', '全データ：売上 ' + sales().length + '件 / 仕入 ' + purchases().length + '件');
+  smpRenderRecent();
+}
+
+/* 最近の取引（タップでアカウント修正・削除） */
+function smpRenderRecent() {
+  const box = document.getElementById('smpRecentList');
+  if (!box) return;
+  const accs = ['ヤフオク1','ヤフオク2','ヤフオク3','ヤフオク4','ヤフオク5','ヤフオク6','ヤフオク7','ヤフオク8','メルカリ','メルカリShops','ラクマ','その他'];
+  const s = sales().slice(0, 20);
+  if (!s.length) { box.innerHTML = '<div style="font-size:12px;color:#94a3b8">まだ売上がありません</div>'; return; }
+  box.innerHTML = s.map((r, i) => {
+    const known = accs.indexOf(r.shop || '') >= 0;
+    const opts = accs.map(a => `<option value="${a}"${r.shop === a ? ' selected' : ''}>${a}</option>`).join('')
+      + (known ? '' : `<option value="${(r.shop || '')}" selected>${(r.shop || '(未設定)')}</option>`);
+    const name = String(r.name || '(無題)').replace(/[<>&]/g, m => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]));
+    return '<div class="smp-recent-row">' +
+      '<div class="smp-recent-info"><div class="smp-recent-name">' + name + '</div>' +
+      '<div class="smp-recent-sub">' + (r.date || '') + ' / ' + yen(r.amount || r.price || 0) + '</div></div>' +
+      '<select class="smp-recent-acc" onchange="smpFixSaleAccount(' + i + ', this.value)">' + opts + '</select>' +
+      '<button class="smp-recent-del" onclick="smpDeleteSale(' + i + ')">🗑</button>' +
+      '</div>';
+  }).join('');
+}
+
+/* ribre_yahoo_sales240 側も同期（取込データの一貫性維持） */
+function smpSyncYahoo(rec, shop, mode) {
+  try {
+    const key = 'ribre_yahoo_sales240';
+    const arr = JSON.parse(localStorage.getItem(key) || '[]');
+    const match = r => (rec.id && r.id === rec.id) || (rec.itemId && r.itemId === rec.itemId);
+    if (mode === 'delete') {
+      localStorage.setItem(key, JSON.stringify(arr.filter(r => !match(r))));
+    } else {
+      arr.forEach(r => { if (match(r)) r.shop = shop; });
+      localStorage.setItem(key, JSON.stringify(arr));
+    }
+  } catch (e) {}
+}
+
+function smpFixSaleAccount(i, shop) {
+  const a = sales();
+  if (!a[i]) return;
+  const rec = a[i];
+  a[i].shop = shop;
+  setLS(LS.sales, a);
+  smpSyncYahoo(rec, shop, 'edit');
+  smpRenderRecent();
+  smpRenderHome();
+}
+
+function smpDeleteSale(i) {
+  const a = sales();
+  if (!a[i]) return;
+  if (!confirm('この売上を削除しますか？')) return;
+  const rec = a[i];
+  a.splice(i, 1);
+  setLS(LS.sales, a);
+  smpSyncYahoo(rec, null, 'delete');
+  simpleRenderSummary();
+  smpRenderHome();
+}
+
+/* データが存在する月の一覧 */
+function smpDataMonths() {
+  const set = {};
+  const add = r => { const m = r.month || String(r.date || '').slice(0, 7); if (m) set[m] = 1; };
+  sales().forEach(add);
+  purchases().forEach(add);
+  return Object.keys(set);
 }
 
 function smpInitMonthOptions() {
   const sel = document.getElementById('smpSummaryMonth');
   if (!sel) return;
   const cur = today().slice(0, 7);
-  const opts = [];
+  const prev = sel.value;
+  const monthsSet = {};
   for (let i = 0; i < 6; i++) {
     const d = new Date();
     d.setMonth(d.getMonth() - i);
-    const m = d.toISOString().slice(0, 7);
-    opts.push(`<option value="${m}"${m === cur ? ' selected' : ''}>${m}</option>`);
+    monthsSet[d.toISOString().slice(0, 7)] = 1;
   }
-  sel.innerHTML = opts.join('');
+  smpDataMonths().forEach(m => { monthsSet[m] = 1; });
+  const months = Object.keys(monthsSet).sort().reverse();
+  sel.innerHTML = '<option value="all">全期間</option>' + months.map(m => `<option value="${m}">${m}</option>`).join('');
+  // 選択：前回値を維持／無ければ今月（データあれば）→最新データ月→全期間
+  let want = prev;
+  if (!want) {
+    const dm = smpDataMonths().sort().reverse();
+    if (dm.indexOf(cur) >= 0) want = cur;
+    else if (dm.length) want = dm[0];
+    else want = cur;
+  }
+  if (!Array.prototype.some.call(sel.options, o => o.value === want)) want = 'all';
+  sel.value = want;
 }
 
 /* ---- ユーティリティ ---- */
