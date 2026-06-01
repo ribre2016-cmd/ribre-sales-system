@@ -207,12 +207,63 @@ function smpInboxShowCsvPreview(file) {
   reader.readAsArrayBuffer(file);
 }
 
+/* ファイル名から取込元アカウントを推定 */
+function smpDetectAccount(name) {
+  name = String(name || '');
+  const y = name.match(/ヤフオク\s*([1-8])(?![0-9])/);
+  if (y) return 'ヤフオク' + y[1];
+  if (name.indexOf('メルカリShops') >= 0 || /mercari[\s_-]*shops/i.test(name)) return 'メルカリShops';
+  if (name.indexOf('メルカリ') >= 0 || /mercari/i.test(name)) return 'メルカリ';
+  if (name.indexOf('ラクマ') >= 0 || /rakuma/i.test(name)) return 'ラクマ';
+  return '';
+}
+
+/* CSV内の日付から「何月分か」を推定（非同期） */
+function smpDetectCsvMonths(file, cb) {
+  const reader = new FileReader();
+  reader.onload = function () {
+    let text = '';
+    try {
+      const buf = reader.result;
+      text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+      if (text.indexOf('�') >= 0) { try { text = new TextDecoder('shift-jis').decode(buf); } catch (e) {} }
+    } catch (e) {}
+    const set = {};
+    const re = /(20\d{2})[\-\/年.](\d{1,2})/g;
+    let mm;
+    while ((mm = re.exec(text))) { const n = +mm[2]; if (n >= 1 && n <= 12) set[mm[1] + '-' + ('0' + n).slice(-2)] = 1; }
+    const months = Object.keys(set).sort().map(x => { const p = x.split('-'); return p[0] + '年' + (+p[1]) + '月'; });
+    cb(months);
+  };
+  reader.onerror = function () { cb([]); };
+  reader.readAsArrayBuffer(file);
+}
+
+function smpInboxUpdateCsvInfo(acc) {
+  const info = document.getElementById('smpInboxCsvInfo');
+  if (!info || !_smpInboxFile) return;
+  info.style.display = 'block';
+  const head = acc ? '📥 ファイル名から「' + acc + '」を選択。' : '';
+  info.textContent = head + ' 📅 何月分か確認中...';
+  smpDetectCsvMonths(_smpInboxFile, function (months) {
+    const m = months.length ? months.join('・') + ' 分' : '月を特定できませんでした';
+    info.textContent = head + ' 📅 ' + m;
+  });
+}
+
 function smpInboxChoose(mode) {
   _smpInboxMode = mode;
   const hide = id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; };
   const show = id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; };
   hide('smpInboxKindImg'); hide('smpInboxKindCsv');
-  if (mode === 'csv_sales') { show('smpInboxSalesCsv'); smpSetStatus('smpInboxStatus', '取込元を選んで「取込する」を押してください', 'info'); }
+  if (mode === 'csv_sales') {
+    show('smpInboxSalesCsv');
+    const acc = smpDetectAccount(_smpInboxFile ? _smpInboxFile.name : '');
+    const sel = document.getElementById('smpInboxAccount');
+    if (acc && sel) sel.value = acc;
+    smpInboxUpdateCsvInfo(acc);
+    smpSetStatus('smpInboxStatus', '取込元と月を確認して「取込する」を押してください', 'info');
+  }
   else if (mode === 'csv_ship') { show('smpInboxShipCsv'); smpSetStatus('smpInboxStatus', '配送会社を選んで「取込んで照合する」を押してください', 'info'); }
   else {
     show('smpInboxOcr');
@@ -222,9 +273,29 @@ function smpInboxChoose(mode) {
   }
 }
 
+/* 取込済みCSVの記録（ファイル名＋サイズで判定） */
+function smpImportedSigs() {
+  try { return JSON.parse(localStorage.getItem('ribre_smp_imported_csv') || '[]'); } catch (e) { return []; }
+}
+function smpRecordImportSig(sig, acc) {
+  const a = smpImportedSigs();
+  if (!a.some(x => x.sig === sig)) {
+    a.unshift({ sig: sig, acc: acc });
+    try { localStorage.setItem('ribre_smp_imported_csv', JSON.stringify(a.slice(0, 200))); } catch (e) {}
+  }
+}
+
 function smpInboxImportSales() {
   if (!_smpInboxFile) { alert('ファイルを選んでください'); return; }
   const acc = document.getElementById('smpInboxAccount').value;
+  const sig = _smpInboxFile.name + '|' + _smpInboxFile.size;
+  if (smpImportedSigs().some(x => x.sig === sig)) {
+    if (!confirm('このCSV「' + _smpInboxFile.name + '」は取込済みです。\n更新（再取込）しますか？\n※同じ商品は重複せず、最新の内容に更新されます。')) {
+      smpSetStatus('smpInboxStatus', 'このCSVは取込済みのためスキップしました', 'info');
+      smpInboxAfterItem();
+      return;
+    }
+  }
   const oA = document.getElementById('yahooAccount'), oF = document.getElementById('yahooCsvFile');
   if (!oA || !oF) { alert('ページを再読み込みしてください'); return; }
   oA.value = acc;
@@ -234,7 +305,8 @@ function smpInboxImportSales() {
     importYahooSalesCsv();
     setTimeout(() => {
       const c = document.getElementById('yahooSalesCount') ? document.getElementById('yahooSalesCount').textContent : '?';
-      smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}`, 'ok');
+      smpRecordImportSig(sig, acc);
+      smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}（重複する商品は自動でまとめました）`, 'ok');
       smpInboxAfterItem();
     }, 800);
   } catch (e) { smpSetStatus('smpInboxStatus', '❌ エラー：' + e.message, 'err'); }
