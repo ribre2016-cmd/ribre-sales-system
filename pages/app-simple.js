@@ -93,6 +93,7 @@ function smpInboxStartItem() {
     const k = document.getElementById('smpInboxKindImg'); if (k) k.style.display = 'block';
     smpSetStatus('smpInboxStatus', prefix + 'これは「売上」ですか？「仕入」ですか？', 'info');
   } else if (isCsv) {
+    smpInboxShowCsvPreview(file);
     const k = document.getElementById('smpInboxKindCsv'); if (k) k.style.display = 'block';
     smpSetStatus('smpInboxStatus', prefix + 'これは「売上CSV」ですか？「配送CSV」ですか？', 'info');
   } else {
@@ -125,6 +126,7 @@ function smpInboxClearOnly() {
   _smpInboxQueue = []; _smpInboxIndex = 0; _smpInboxFile = null; _smpInboxMode = null;
   const f = document.getElementById('smpInboxFile'); if (f) f.value = '';
   const img = document.getElementById('smpInboxImg'); if (img) img.src = '';
+  const csv = document.getElementById('smpInboxCsv'); if (csv) { csv.style.display = 'none'; csv.innerHTML = ''; }
   const prog = document.getElementById('smpInboxProgress'); if (prog) { prog.style.display = 'none'; prog.textContent = ''; }
   const fn = document.getElementById('smpInboxFileName'); if (fn) fn.textContent = '';
   smpInboxHideAll();
@@ -134,8 +136,10 @@ function smpInboxShowPreview(file, isImage) {
   const area = document.getElementById('smpInboxPreview');
   const img = document.getElementById('smpInboxImg');
   const pdf = document.getElementById('smpInboxPdf');
+  const csv = document.getElementById('smpInboxCsv');
   if (!area) return;
   area.style.display = 'block';
+  if (csv) { csv.style.display = 'none'; csv.innerHTML = ''; }
   const url = URL.createObjectURL(file);
   if (isImage) {
     if (img) { img.src = url; img.style.display = 'block'; }
@@ -144,6 +148,47 @@ function smpInboxShowPreview(file, isImage) {
     if (img) img.style.display = 'none';
     if (pdf) { pdf.src = url; pdf.style.display = 'block'; }
   }
+}
+
+/* CSVの先頭数行を表でプレビュー（読み取り専用・取込には影響しない） */
+function smpInboxShowCsvPreview(file) {
+  const area = document.getElementById('smpInboxPreview');
+  const img = document.getElementById('smpInboxImg');
+  const pdf = document.getElementById('smpInboxPdf');
+  const csv = document.getElementById('smpInboxCsv');
+  if (!area || !csv) return;
+  area.style.display = 'block';
+  if (img) img.style.display = 'none';
+  if (pdf) pdf.style.display = 'none';
+  csv.style.display = 'block';
+  csv.innerHTML = '<div style="padding:10px;color:#64748b;font-size:12px">読み込み中...</div>';
+  const reader = new FileReader();
+  reader.onload = function () {
+    let text = '';
+    try {
+      const buf = reader.result;
+      text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+      if (text.indexOf('�') >= 0) { try { text = new TextDecoder('shift-jis').decode(buf); } catch (e) {} }
+    } catch (e) { text = ''; }
+    const esc = s => String(s || '').replace(/[<>&]/g, m => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]));
+    const lines = text.split(/\r?\n/).filter(l => l.length).slice(0, 6);
+    if (!lines.length) { csv.innerHTML = '<div style="padding:10px;color:#94a3b8;font-size:12px">プレビューできませんでした</div>'; return; }
+    let html = '<table style="border-collapse:collapse;width:100%;font-size:11px">';
+    lines.forEach((line, ri) => {
+      const cells = line.split(',').slice(0, 6);
+      html += '<tr>';
+      cells.forEach(c => {
+        const tag = ri === 0 ? 'th' : 'td';
+        const extra = ri === 0 ? 'background:#f1f5f9;font-weight:700;' : '';
+        html += '<' + tag + ' style="border:1px solid #e2e8f0;padding:4px 6px;white-space:nowrap;' + extra + '">' + esc(c) + '</' + tag + '>';
+      });
+      html += '</tr>';
+    });
+    html += '</table><div style="padding:6px;color:#94a3b8;font-size:10px">先頭の数行のみ表示（確認用）</div>';
+    csv.innerHTML = html;
+  };
+  reader.onerror = function () { csv.innerHTML = '<div style="padding:10px;color:#94a3b8;font-size:12px">プレビューできませんでした</div>'; };
+  reader.readAsArrayBuffer(file);
 }
 
 function smpInboxChoose(mode) {
