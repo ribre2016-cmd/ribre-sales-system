@@ -668,19 +668,68 @@ function smpEsc(s) { return String(s == null ? '' : s).replace(/[<>&]/g, m => ({
 function smpJs(s) { return "'" + String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; }
 function smpSaleId(r) { return String(r.id || r.itemId || ''); }
 
+const _smpUnlocked = new Set(); // 送料ロックを解除した売上id
+
 /* 売上1行のHTML（最近の取引・一覧で共通） */
 function smpSaleRowHtml(r) {
   const id = smpSaleId(r);
   const known = SMP_ACCS.indexOf(r.shop || '') >= 0;
   const opts = SMP_ACCS.map(a => `<option value="${a}"${r.shop === a ? ' selected' : ''}>${a}</option>`).join('')
     + (known ? '' : `<option value="${smpEsc(r.shop || '')}" selected>${smpEsc(r.shop || '(未設定)')}</option>`);
-  const warn = smpNeedsShip(r) ? '<span class="smp-ship-warn">⚠️送料未入力</span>' : '';
-  return '<div class="smp-recent-row' + (smpNeedsShip(r) ? ' smp-need-ship' : '') + '">' +
+  const needs = smpNeedsShip(r);
+  const warn = needs ? '<span class="smp-ship-warn">⚠️送料未入力</span>' : '';
+  const ship = num(r.ship || r.shipping || 0);
+  const editable = needs || _smpUnlocked.has(id);
+  let shipCtrl;
+  if (editable) {
+    shipCtrl = '<input class="smp-ship-input" type="number" inputmode="numeric" placeholder="送料¥" value="' + (ship > 0 ? ship : '') + '" onchange="smpSetShip(' + smpJs(id) + ', this.value)">';
+  } else {
+    shipCtrl = '<span class="smp-ship-locked">送料 ' + yen(ship) + ' 🔒</span>' +
+      '<button class="smp-ship-unlock" onclick="smpUnlockShip(' + smpJs(id) + ')">解除</button>';
+  }
+  return '<div class="smp-recent-row' + (needs ? ' smp-need-ship' : '') + '">' +
     '<div class="smp-recent-info"><div class="smp-recent-name">' + smpEsc(r.name || '(無題)') + warn + '</div>' +
     '<div class="smp-recent-sub">' + (r.date || '') + ' / ' + yen(r.amount || r.price || 0) + '</div></div>' +
+    '<div class="smp-recent-ctrls">' +
     '<select class="smp-recent-acc" onchange="smpFixSaleAccount(' + smpJs(id) + ', this.value)">' + opts + '</select>' +
+    shipCtrl +
     '<button class="smp-recent-del" onclick="smpDeleteSale(' + smpJs(id) + ')">🗑</button>' +
-    '</div>';
+    '</div></div>';
+}
+
+/* 入力済み送料のロック解除（編集可能にする） */
+function smpUnlockShip(id) {
+  _smpUnlocked.add(String(id));
+  smpRenderRecent();
+  smpRenderList();
+}
+
+/* 送料を入力・変更（利益も再計算、取込ストアにも反映） */
+function smpSetShip(id, val) {
+  const a = sales();
+  const i = smpSaleIndexById(id);
+  if (i < 0) return;
+  const v = num(val);
+  a[i].shipping = v;
+  a[i].ship = v;
+  const amount = num(a[i].amount || a[i].price);
+  const fee = num(a[i].fee);
+  a[i].profit = amount - fee - v;
+  if (v > 0 && !a[i].matchStatus) a[i].matchStatus = '手入力';
+  setLS(LS.sales, a);
+  smpSyncYahooShip(a[i], v, a[i].profit);
+  _smpUnlocked.delete(String(id));
+  smpAfterRecordChange();
+}
+
+function smpSyncYahooShip(rec, ship, profit) {
+  try {
+    const key = 'ribre_yahoo_sales240';
+    const arr = JSON.parse(localStorage.getItem(key) || '[]');
+    const match = r => (rec.id && r.id === rec.id) || (rec.itemId && r.itemId === rec.itemId);
+    arr.forEach(r => { if (match(r)) { r.shipping = ship; r.ship = ship; r.profit = profit; } });
+    localStorage.setItem(key, JSON.stringify(arr));
+  } catch (e) {}
 }
 
 function smpRenderRecent() {

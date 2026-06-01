@@ -641,9 +641,14 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
 #simpleApp .smp-choice-btn.smp-choice-active { border-color: #2563eb !important; background: #eff6ff !important; color: #1e40af !important; }
 .smp-inbox-zone { font-size: 14px; }
 /* === 最近の取引（修正・削除） === */
-.smp-recent-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+.smp-recent-row { display: block; padding: 10px 0; border-bottom: 1px solid #f1f5f9; }
 .smp-recent-row:last-child { border-bottom: none; }
-.smp-recent-info { flex: 1; min-width: 0; }
+.smp-recent-info { min-width: 0; margin-bottom: 6px; }
+.smp-recent-ctrls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.smp-recent-ctrls .smp-recent-del { margin-left: auto !important; }
+#simpleApp input.smp-ship-input { width: auto !important; max-width: 100px; min-width: 0 !important; padding: 6px 8px !important; font-size: 12px !important; border-radius: 8px !important; }
+.smp-ship-locked { font-size: 12px; font-weight: 700; color: #475569; background: #f1f5f9; border-radius: 8px; padding: 6px 8px; }
+#simpleApp button.smp-ship-unlock { width: auto !important; background: #eff6ff !important; color: #1e40af !important; border: 1px solid #bfdbfe !important; border-radius: 8px !important; padding: 6px 9px !important; font-size: 12px !important; font-weight: 700 !important; margin: 0 !important; }
 .smp-recent-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .smp-recent-sub { font-size: 11px; color: #94a3b8; }
 #simpleApp select.smp-recent-acc { width: auto !important; min-width: 92px; padding: 6px 8px !important; font-size: 12px !important; border-radius: 8px !important; }
@@ -2357,7 +2362,7 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
 <script src="pages/app-sync.js"></script>
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
-<script src="pages/app-simple.js?v=20260602g"></script>
+<script src="pages/app-simple.js?v=20260602h"></script>
 
 <script>
 function exportAllSettings() {
