@@ -645,6 +645,11 @@ body.simple-mode #simpleApp { display: flex; }
 .smp-recent-sub { font-size: 11px; color: #94a3b8; }
 #simpleApp select.smp-recent-acc { width: auto !important; min-width: 92px; padding: 6px 8px !important; font-size: 12px !important; border-radius: 8px !important; }
 #simpleApp button.smp-recent-del { width: auto !important; background: #fef2f2 !important; color: #dc2626 !important; border: 1px solid #fecaca !important; border-radius: 8px !important; padding: 6px 9px !important; font-size: 13px !important; margin: 0 !important; }
+/* 送料未入力（匿名配送除く）の警告 */
+.smp-ship-warn { display: inline-block; font-size: 10px; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
+.smp-recent-row.smp-need-ship { background: #fffdf5; }
+.smp-ship-alert { font-size: 12px; font-weight: 800; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; cursor: pointer; }
+.smp-ship-alert:hover { background: #fef3c7; }
 .smp-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .smp-sum-card { background: #f8fafc; border-radius: 12px; padding: 12px 14px; border: 1px solid #e2e8f0; }
 .smp-sum-card.profit { background: #f0fdf4; border-color: #86efac; grid-column: 1/-1; }
@@ -763,6 +768,7 @@ body.simple-mode #simpleApp { display: flex; }
         <div class="smp-kpi"><div class="smp-kpi-label">仕入</div><div class="smp-kpi-value" id="smpHomePur">—</div></div>
         <div class="smp-kpi"><div class="smp-kpi-label">件数</div><div class="smp-kpi-value" id="smpHomeCount">—</div></div>
       </div>
+      <div id="smpHomeShipWarn" class="smp-ship-alert" style="display:none" onclick="simpleTab('summary')"></div>
       <div class="smp-card">
         <h2>📊 3ヶ月の推移</h2>
         <div class="smp-chart-legend">
@@ -968,6 +974,7 @@ body.simple-mode #simpleApp { display: flex; }
       <div class="smp-card">
         <h2>最近の取引（アカウント修正・削除）</h2>
         <div class="smp-guide">取込元（アカウント）を間違えたら、右の選択で正しいものに変えられます。🗑で削除。</div>
+        <div id="smpShipWarn" style="display:none;font-size:12px;font-weight:800;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:10px"></div>
         <div id="smpRecentList"></div>
       </div>
     </div>
@@ -2329,7 +2336,7 @@ body.simple-mode #simpleApp { display: flex; }
 <script src="pages/app-sync.js"></script>
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
-<script src="pages/app-simple.js?v=20260602e"></script>
+<script src="pages/app-simple.js?v=20260602f"></script>
 
 <script>
 function exportAllSettings() {

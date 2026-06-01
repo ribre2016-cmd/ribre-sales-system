@@ -48,6 +48,12 @@ function smpRenderHome() {
   set('smpHomeSale', yen(totalSale));
   set('smpHomePur', yen(totalPur));
   set('smpHomeCount', s.length + '件');
+  const miss = smpShipMissingCount(sales());
+  const w = document.getElementById('smpHomeShipWarn');
+  if (w) {
+    if (miss > 0) { w.style.display = 'block'; w.textContent = '⚠️ 送料未入力の売上が ' + miss + ' 件（タップで確認）'; }
+    else { w.style.display = 'none'; }
+  }
   simpleRenderChart('smpHomeChart', 'smpHomeChartLabels');
 }
 
@@ -632,10 +638,30 @@ function simpleRenderSummary() {
   set('smpSaleCount',  s.length + '件');
   set('smpPurCount',   p.length + '件');
   set('smpAllCount', '全データ：売上 ' + sales().length + '件 / 仕入 ' + purchases().length + '件');
+  const missing = smpShipMissingCount(s);
+  const warnEl = document.getElementById('smpShipWarn');
+  if (warnEl) {
+    if (missing > 0) { warnEl.style.display = 'block'; warnEl.textContent = '⚠️ 送料が入っていない売上が ' + missing + ' 件あります（匿名配送は除く）'; }
+    else { warnEl.style.display = 'none'; }
+  }
   smpRenderRecent();
 }
 
-/* 最近の取引（タップでアカウント修正・削除） */
+/* 送料が入っていない売上か（匿名配送・配送一致・手入力済みは除く）— フル画面の shipOk と同基準 */
+function smpNeedsShip(r) {
+  if (num(r.ship || r.shipping || 0) > 0) return false;
+  const ms = String(r.matchStatus || '');
+  if (ms === '手入力' || ms === '匿名配送' || ms === '配送CSV一致' || ms === '配送一致') return false;
+  if (String(r.memo || '').includes('匿名')) return false;
+  return true;
+}
+
+/* 送料未入力の件数（匿名配送除く） */
+function smpShipMissingCount(list) {
+  return (list || []).filter(smpNeedsShip).length;
+}
+
+/* 最近の取引（タップでアカウント修正・削除／送料未入力を警告） */
 function smpRenderRecent() {
   const box = document.getElementById('smpRecentList');
   if (!box) return;
@@ -647,8 +673,9 @@ function smpRenderRecent() {
     const opts = accs.map(a => `<option value="${a}"${r.shop === a ? ' selected' : ''}>${a}</option>`).join('')
       + (known ? '' : `<option value="${(r.shop || '')}" selected>${(r.shop || '(未設定)')}</option>`);
     const name = String(r.name || '(無題)').replace(/[<>&]/g, m => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]));
-    return '<div class="smp-recent-row">' +
-      '<div class="smp-recent-info"><div class="smp-recent-name">' + name + '</div>' +
+    const warn = smpNeedsShip(r) ? '<span class="smp-ship-warn">⚠️送料未入力</span>' : '';
+    return '<div class="smp-recent-row' + (smpNeedsShip(r) ? ' smp-need-ship' : '') + '">' +
+      '<div class="smp-recent-info"><div class="smp-recent-name">' + name + warn + '</div>' +
       '<div class="smp-recent-sub">' + (r.date || '') + ' / ' + yen(r.amount || r.price || 0) + '</div></div>' +
       '<select class="smp-recent-acc" onchange="smpFixSaleAccount(' + i + ', this.value)">' + opts + '</select>' +
       '<button class="smp-recent-del" onclick="smpDeleteSale(' + i + ')">🗑</button>' +
