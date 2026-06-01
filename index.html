@@ -632,6 +632,11 @@ body.simple-mode #simpleApp { display: flex; }
 .smp-nav-ico { font-size: 21px; display: block; margin-bottom: 2px; filter: grayscale(1); opacity: .6; }
 .smp-nav-item.smp-nav-active { color: #2563eb; }
 .smp-nav-item.smp-nav-active .smp-nav-ico { filter: none; opacity: 1; }
+/* === 種類選択ボタン（売上/仕入・売上CSV/配送CSV） === */
+#simpleApp .smp-choice { display: flex; gap: 10px; margin-bottom: 12px; }
+#simpleApp .smp-choice-btn { flex: 1; padding: 14px 8px; border: 1.5px solid #e2e8f0 !important; background: #f8fafc !important; color: #334155 !important; border-radius: 12px !important; font-size: 14px !important; font-weight: 800 !important; cursor: pointer; width: auto !important; margin: 0 !important; }
+#simpleApp .smp-choice-btn.smp-choice-active { border-color: #2563eb !important; background: #eff6ff !important; color: #1e40af !important; }
+.smp-inbox-zone { font-size: 14px; }
 .smp-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .smp-sum-card { background: #f8fafc; border-radius: 12px; padding: 12px 14px; border: 1px solid #e2e8f0; }
 .smp-sum-card.profit { background: #f0fdf4; border-color: #86efac; grid-column: 1/-1; }
@@ -762,21 +767,117 @@ body.simple-mode #simpleApp { display: flex; }
       </div>
       <div class="smp-section-title">▼ やること</div>
       <div class="smp-actions">
-        <div class="smp-action" onclick="simpleTab('csv')"><span class="smp-action-emoji">📥</span>売上CSV取込</div>
-        <div class="smp-action" onclick="simpleTab('ocr')"><span class="smp-action-emoji">📦</span>仕入OCR登録</div>
-        <div class="smp-action" onclick="simpleTab('ship')"><span class="smp-action-emoji">🚚</span>配送照合</div>
-        <div class="smp-action" onclick="simpleTab('summary')"><span class="smp-action-emoji">📊</span>詳しく見る</div>
+        <div class="smp-action" onclick="simpleTab('inbox')"><span class="smp-action-emoji">📥</span>取り込み<br><span style="font-size:10px;color:#94a3b8;font-weight:600">CSV・画像・配送</span></div>
+        <div class="smp-action" onclick="simpleTab('manual')"><span class="smp-action-emoji">✍️</span>手入力</div>
+        <div class="smp-action" onclick="simpleTab('summary')"><span class="smp-action-emoji">📊</span>集計を見る</div>
       </div>
     </div>
 
     <!-- 売上CSV取込 -->
-    <div class="smp-screen" data-screen="csv">
+    <!-- 取り込み（CSV・画像・キャプチャを1つの投入口に統合） -->
+    <div class="smp-screen" data-screen="inbox">
       <div class="smp-card">
-        <h2><span class="smp-step">STEP 1</span>売上CSVを取り込む</h2>
-        <div class="smp-guide">ヤフオク・メルカリ・ラクマの売上CSVをここで取り込みます。</div>
-        <div class="smp-field">
-          <label>① 取込元を選ぶ</label>
-          <select id="smpPlatform">
+        <h2>📥 取り込み</h2>
+        <div class="smp-guide">CSV・画像・スクショをここに入れてください（貼り付けもOK）。中身が売上か仕入かを選びます。</div>
+        <label class="smp-dropzone smp-inbox-zone">
+          📄📷 ここをタップして選ぶ（CSV / 画像 / PDF）
+          <input type="file" id="smpInboxFile" accept=".csv,text/csv,application/pdf,.pdf,image/*" onchange="smpInboxPick(this)">
+          <div id="smpInboxFileName" style="font-size:12px;color:#64748b;margin-top:4px"></div>
+        </label>
+
+        <div id="smpInboxPreview" style="display:none;margin-bottom:10px;text-align:center">
+          <img id="smpInboxImg" style="max-width:100%;max-height:200px;border-radius:10px;border:1px solid #e2e8f0;object-fit:contain;display:none" alt="プレビュー">
+          <iframe id="smpInboxPdf" style="display:none;width:100%;height:260px;border:1px solid #e2e8f0;border-radius:10px" title="PDFプレビュー"></iframe>
+        </div>
+
+        <!-- 種類選択：画像/PDF -->
+        <div id="smpInboxKindImg" style="display:none">
+          <div class="smp-field"><label>これは？</label></div>
+          <div class="smp-choice">
+            <button class="smp-choice-btn" onclick="smpInboxChoose('ocr_sale')">📈 売上</button>
+            <button class="smp-choice-btn" onclick="smpInboxChoose('ocr_purchase')">📦 仕入</button>
+          </div>
+        </div>
+        <!-- 種類選択：CSV -->
+        <div id="smpInboxKindCsv" style="display:none">
+          <div class="smp-field"><label>これは？</label></div>
+          <div class="smp-choice">
+            <button class="smp-choice-btn" onclick="smpInboxChoose('csv_sales')">📥 売上CSV</button>
+            <button class="smp-choice-btn" onclick="smpInboxChoose('csv_ship')">🚚 配送CSV</button>
+          </div>
+        </div>
+
+        <!-- 売上CSV設定 -->
+        <div id="smpInboxSalesCsv" style="display:none">
+          <div class="smp-field">
+            <label>取込元（アカウント）</label>
+            <select id="smpInboxAccount">
+              <optgroup label="ヤフオク">
+                <option value="ヤフオク1">ヤフオク1</option>
+                <option value="ヤフオク2">ヤフオク2</option>
+                <option value="ヤフオク3">ヤフオク3</option>
+                <option value="ヤフオク4">ヤフオク4</option>
+                <option value="ヤフオク5">ヤフオク5</option>
+                <option value="ヤフオク6">ヤフオク6</option>
+                <option value="ヤフオク7">ヤフオク7</option>
+                <option value="ヤフオク8">ヤフオク8</option>
+              </optgroup>
+              <optgroup label="その他">
+                <option value="メルカリ">メルカリ</option>
+                <option value="メルカリShops">メルカリShops</option>
+                <option value="ラクマ">ラクマ</option>
+              </optgroup>
+            </select>
+          </div>
+          <button class="smp-btn" onclick="smpInboxImportSales()">取込する</button>
+        </div>
+
+        <!-- 配送CSV設定 -->
+        <div id="smpInboxShipCsv" style="display:none">
+          <div class="smp-field">
+            <label>配送会社</label>
+            <select id="smpInboxShipType">
+              <option value="yamato1">ヤマト（商品ID照合）</option>
+              <option value="yamato2">ヤマト（伝票番号照合）</option>
+              <option value="sagawa">佐川急便</option>
+            </select>
+          </div>
+          <button class="smp-btn smp-btn-green" onclick="smpInboxImportShipping()">取込んで照合する</button>
+        </div>
+
+        <!-- 画像OCR：読み取り＋確認 -->
+        <div id="smpInboxOcr" style="display:none">
+          <button class="smp-btn" id="smpInboxOcrBtn" onclick="smpInboxRunOcr()">AIで読み取る</button>
+          <div id="smpInboxFields" style="display:none">
+            <hr class="smp-divider">
+            <div class="smp-ocr-preview-title" id="smpInboxKindLabel">内容を確認して保存</div>
+            <div class="smp-field"><label>日付</label><input type="date" id="smpInboxDate"></div>
+            <div class="smp-field"><label id="smpInboxPartnerLabel">相手先</label><input type="text" id="smpInboxPartner"></div>
+            <div class="smp-field"><label>商品名</label><input type="text" id="smpInboxItem"></div>
+            <div class="smp-field"><label>金額（円）</label><input type="number" id="smpInboxAmount" inputmode="numeric"></div>
+            <button class="smp-btn smp-btn-green" onclick="smpInboxSaveOcr()">保存する</button>
+          </div>
+        </div>
+
+        <div class="smp-status smp-status-info" id="smpInboxStatus">ファイルを選ぶか貼り付けてください</div>
+        <button class="smp-btn smp-btn-secondary" onclick="smpInboxReset()">クリア</button>
+      </div>
+    </div>
+
+    <!-- 手入力（CSV/画像を使わず直接入力） -->
+    <div class="smp-screen" data-screen="manual">
+      <div class="smp-card">
+        <h2>✍️ 手入力</h2>
+        <div class="smp-guide">CSVや画像を使わず、売上・仕入を直接入力して登録します。</div>
+        <div class="smp-field"><label>種類</label></div>
+        <div class="smp-choice">
+          <button class="smp-choice-btn smp-choice-active" id="smpManSaleBtn" onclick="smpManualKind('sale')">📈 売上</button>
+          <button class="smp-choice-btn" id="smpManPurBtn" onclick="smpManualKind('purchase')">📦 仕入</button>
+        </div>
+        <div class="smp-field"><label>日付</label><input type="date" id="smpManDate"></div>
+        <div class="smp-field" id="smpManShopField">
+          <label>販売先（アカウント）</label>
+          <select id="smpManShop">
             <optgroup label="ヤフオク">
               <option value="ヤフオク1">ヤフオク1</option>
               <option value="ヤフオク2">ヤフオク2</option>
@@ -791,83 +892,18 @@ body.simple-mode #simpleApp { display: flex; }
               <option value="メルカリ">メルカリ</option>
               <option value="メルカリShops">メルカリShops</option>
               <option value="ラクマ">ラクマ</option>
+              <option value="その他">その他</option>
             </optgroup>
           </select>
         </div>
-        <div class="smp-field"><label>② CSVファイルを選ぶ</label></div>
-        <label class="smp-dropzone">
-          📄 ここをタップしてCSVを選ぶ
-          <input type="file" id="smpCsvFile" accept=".csv,text/csv">
-          <div id="smpCsvFileName" style="font-size:12px;color:#64748b;margin-top:4px"></div>
-        </label>
-        <button class="smp-btn" onclick="smpImportCsv()">③ 取込実行</button>
-        <div class="smp-status smp-status-info" id="smpCsvStatus">CSVファイルを選んで「取込実行」を押してください</div>
-      </div>
-      <div class="smp-card smp-next" style="background:#fff7ed;border:1px solid #fed7aa" onclick="simpleTab('ship')">
-        <div style="font-size:12px;font-weight:700;color:#92400e">次のステップ →</div>
-        <div style="font-size:12px;color:#78350f;margin-top:4px">ここをタップして「🚚 配送照合」へ進む</div>
-      </div>
-    </div>
-
-    <!-- 配送照合 -->
-    <div class="smp-screen" data-screen="ship">
-      <div class="smp-card">
-        <h2><span class="smp-step">STEP 2</span>配送CSVを照合する</h2>
-        <div class="smp-guide">ヤマト・佐川の配送CSVを取り込み、売上データと送料を自動照合します。</div>
-        <div class="smp-field">
-          <label>① 配送会社を選ぶ</label>
-          <select id="smpShipType">
-            <option value="yamato1">ヤマト（商品ID照合）</option>
-            <option value="yamato2">ヤマト（伝票番号照合）</option>
-            <option value="sagawa">佐川急便</option>
-          </select>
+        <div class="smp-field" id="smpManPartnerField" style="display:none">
+          <label>仕入先</label>
+          <input type="text" id="smpManPartner" placeholder="例：ハードオフ">
         </div>
-        <div class="smp-field"><label>② 配送CSVファイルを選ぶ</label></div>
-        <label class="smp-dropzone">
-          📄 ここをタップして配送CSVを選ぶ
-          <input type="file" id="smpShipFile" accept=".csv,text/csv">
-          <div id="smpShipFileName" style="font-size:12px;color:#64748b;margin-top:4px"></div>
-        </label>
-        <button class="smp-btn smp-btn-green" onclick="smpImportAndMatchShipping()">③ 取込んで照合する</button>
-        <div class="smp-status smp-status-info" id="smpShipStatus">配送CSVを選んで「取込んで照合する」を押してください</div>
-      </div>
-      <div class="smp-card smp-next" style="background:#fff7ed;border:1px solid #fed7aa" onclick="simpleTab('ocr')">
-        <div style="font-size:12px;font-weight:700;color:#92400e">次のステップ →</div>
-        <div style="font-size:12px;color:#78350f;margin-top:4px">ここをタップして「📦 仕入OCR」へ進む</div>
-      </div>
-    </div>
-
-    <!-- 仕入れOCR -->
-    <div class="smp-screen" data-screen="ocr">
-      <div class="smp-card">
-        <h2><span class="smp-step">STEP 3</span>仕入れをOCRで登録</h2>
-        <div class="smp-guide">領収書・レシートの画像やPDFを読み込んで仕入れ情報を自動入力します。</div>
-        <div class="smp-field"><label>① 画像またはPDFを選ぶ</label></div>
-        <label class="smp-dropzone">
-          📷 ここをタップして画像/PDFを選ぶ
-          <input type="file" id="smpOcrFileInput" accept="application/pdf,.pdf,image/*" onchange="smpHandleOcrFile(this)">
-          <div id="smpOcrFileName" style="font-size:12px;color:#64748b;margin-top:4px"></div>
-        </label>
-        <div id="smpOcrPreviewArea" style="display:none;margin-bottom:10px">
-          <img id="smpOcrPreviewImg" style="max-width:100%;max-height:220px;border-radius:10px;border:1px solid #e2e8f0;object-fit:contain;display:none" alt="プレビュー">
-          <iframe id="smpOcrPreviewPdf" style="display:none;width:100%;height:300px;border:1px solid #e2e8f0;border-radius:10px" title="PDFプレビュー"></iframe>
-        </div>
-        <button id="smpOcrRunBtn" class="smp-btn" style="margin-top:8px" disabled onclick="smpRunOcr()">② AIで読み取る</button>
-        <div class="smp-status smp-status-info" id="smpOcrStatus">① 画像を選んでください</div>
-        <hr class="smp-divider">
-        <div class="smp-ocr-preview">
-          <div class="smp-ocr-preview-title">③ OCR結果を確認・修正</div>
-          <div class="smp-field"><label>日付</label><input type="date" id="smpOcrDate"></div>
-          <div class="smp-field"><label>仕入れ先</label><input type="text" id="smpOcrVendor" placeholder="例：ハードオフ"></div>
-          <div class="smp-field"><label>商品名</label><input type="text" id="smpOcrItem" placeholder="例：革ジャケット"></div>
-          <div class="smp-field"><label>金額（円）</label><input type="number" id="smpOcrAmount" placeholder="0" inputmode="numeric"></div>
-        </div>
-        <button class="smp-btn smp-btn-green" onclick="smpRegisterPurchase()">④ 仕入れとして登録する</button>
-        <button class="smp-btn smp-btn-secondary" onclick="smpClearOcr()">クリア</button>
-      </div>
-      <div class="smp-card smp-next" style="background:#f0fdf4;border:1px solid #bbf7d0" onclick="simpleTab('summary')">
-        <div style="font-size:12px;font-weight:700;color:#166534">完了 →</div>
-        <div style="font-size:12px;color:#14532d;margin-top:4px">ここをタップして「📊 集計」で利益を確認</div>
+        <div class="smp-field"><label>商品名</label><input type="text" id="smpManItem" placeholder="例：革ジャケット"></div>
+        <div class="smp-field"><label>金額（円）</label><input type="number" id="smpManAmount" inputmode="numeric" placeholder="0"></div>
+        <button class="smp-btn smp-btn-green" onclick="smpManualRegister()">登録する</button>
+        <div class="smp-status smp-status-info" id="smpManStatus">種類を選んで入力してください</div>
       </div>
     </div>
 
@@ -922,8 +958,8 @@ body.simple-mode #simpleApp { display: flex; }
   </div>
   <nav class="smp-bottomnav">
     <div class="smp-nav-item smp-nav-active" data-nav="home"    onclick="simpleTab('home')"><span class="smp-nav-ico">🏠</span>ホーム</div>
-    <div class="smp-nav-item"                data-nav="csv"     onclick="simpleTab('csv')"><span class="smp-nav-ico">📥</span>取込</div>
-    <div class="smp-nav-item"                data-nav="ocr"     onclick="simpleTab('ocr')"><span class="smp-nav-ico">📦</span>OCR</div>
+    <div class="smp-nav-item"                data-nav="inbox"   onclick="simpleTab('inbox')"><span class="smp-nav-ico">📥</span>取り込み</div>
+    <div class="smp-nav-item"                data-nav="manual"  onclick="simpleTab('manual')"><span class="smp-nav-ico">✍️</span>手入力</div>
     <div class="smp-nav-item"                data-nav="summary" onclick="simpleTab('summary')"><span class="smp-nav-ico">📊</span>集計</div>
   </nav>
 </div>
@@ -2276,7 +2312,7 @@ body.simple-mode #simpleApp { display: flex; }
 <script src="pages/app-sync.js"></script>
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
-<script src="pages/app-simple.js?v=20260602a"></script>
+<script src="pages/app-simple.js?v=20260602b"></script>
 
 <script>
 function exportAllSettings() {

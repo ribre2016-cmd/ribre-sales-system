@@ -12,6 +12,7 @@ function simpleTab(tab) {
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
   if (tab === 'home') smpRenderHome();
   if (tab === 'summary') { simpleRenderSummary(); simpleRenderChart(); }
+  if (tab === 'manual') smpManualInit();
   const c = document.querySelector('.smp-content'); if (c) c.scrollTop = 0;
 }
 
@@ -39,6 +40,214 @@ function smpRenderHome() {
   set('smpHomePur', yen(totalPur));
   set('smpHomeCount', s.length + '件');
   simpleRenderChart('smpHomeChart', 'smpHomeChartLabels');
+}
+
+/* ===== 取り込み（統合入力）: CSV・画像・キャプチャを1つの投入口で ===== */
+let _smpInboxFile = null;
+let _smpInboxMode = null; // 'ocr_sale' | 'ocr_purchase' | 'csv_sales' | 'csv_ship'
+
+function smpSetVal(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
+
+function smpInboxHideAll() {
+  ['smpInboxPreview','smpInboxKindImg','smpInboxKindCsv','smpInboxSalesCsv','smpInboxShipCsv','smpInboxOcr','smpInboxFields']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+}
+
+function smpInboxPick(input) {
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+  _smpInboxFile = file;
+  _smpInboxMode = null;
+  const nameEl = document.getElementById('smpInboxFileName');
+  if (nameEl) nameEl.textContent = file.name;
+  smpInboxHideAll();
+  const isImage = (file.type || '').startsWith('image/');
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const isCsv = (file.type || '').indexOf('csv') >= 0 || /\.csv$/i.test(file.name);
+  if (isImage || isPdf) {
+    smpInboxShowPreview(file, isImage);
+    const k = document.getElementById('smpInboxKindImg'); if (k) k.style.display = 'block';
+    smpSetStatus('smpInboxStatus', 'これは「売上」ですか？「仕入」ですか？', 'info');
+  } else if (isCsv) {
+    const k = document.getElementById('smpInboxKindCsv'); if (k) k.style.display = 'block';
+    smpSetStatus('smpInboxStatus', 'これは「売上CSV」ですか？「配送CSV」ですか？', 'info');
+  } else {
+    smpSetStatus('smpInboxStatus', '対応していない形式です（CSV・画像・PDF）', 'warn');
+  }
+}
+
+function smpInboxShowPreview(file, isImage) {
+  const area = document.getElementById('smpInboxPreview');
+  const img = document.getElementById('smpInboxImg');
+  const pdf = document.getElementById('smpInboxPdf');
+  if (!area) return;
+  area.style.display = 'block';
+  const url = URL.createObjectURL(file);
+  if (isImage) {
+    if (img) { img.src = url; img.style.display = 'block'; }
+    if (pdf) pdf.style.display = 'none';
+  } else {
+    if (img) img.style.display = 'none';
+    if (pdf) { pdf.src = url; pdf.style.display = 'block'; }
+  }
+}
+
+function smpInboxChoose(mode) {
+  _smpInboxMode = mode;
+  const hide = id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; };
+  const show = id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; };
+  hide('smpInboxKindImg'); hide('smpInboxKindCsv');
+  if (mode === 'csv_sales') { show('smpInboxSalesCsv'); smpSetStatus('smpInboxStatus', '取込元を選んで「取込する」を押してください', 'info'); }
+  else if (mode === 'csv_ship') { show('smpInboxShipCsv'); smpSetStatus('smpInboxStatus', '配送会社を選んで「取込んで照合する」を押してください', 'info'); }
+  else {
+    show('smpInboxOcr');
+    const fields = document.getElementById('smpInboxFields'); if (fields) fields.style.display = 'none';
+    const btn = document.getElementById('smpInboxOcrBtn'); if (btn) btn.disabled = false;
+    smpSetStatus('smpInboxStatus', '「AIで読み取る」を押してください（' + (mode === 'ocr_sale' ? '売上' : '仕入') + '）', 'info');
+  }
+}
+
+function smpInboxImportSales() {
+  if (!_smpInboxFile) { alert('ファイルを選んでください'); return; }
+  const acc = document.getElementById('smpInboxAccount').value;
+  const oA = document.getElementById('yahooAccount'), oF = document.getElementById('yahooCsvFile');
+  if (!oA || !oF) { alert('ページを再読み込みしてください'); return; }
+  oA.value = acc;
+  const dt = new DataTransfer(); dt.items.add(_smpInboxFile); oF.files = dt.files;
+  smpSetStatus('smpInboxStatus', '取込中...', 'info');
+  try {
+    importYahooSalesCsv();
+    setTimeout(() => {
+      const c = document.getElementById('yahooSalesCount') ? document.getElementById('yahooSalesCount').textContent : '?';
+      smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}`, 'ok');
+      smpRenderHome();
+    }, 800);
+  } catch (e) { smpSetStatus('smpInboxStatus', '❌ エラー：' + e.message, 'err'); }
+}
+
+function smpInboxImportShipping() {
+  if (!_smpInboxFile) { alert('ファイルを選んでください'); return; }
+  const type = document.getElementById('smpInboxShipType').value;
+  const oT = document.getElementById('shipCsvType'), oF = document.getElementById('shipCsvFile');
+  if (!oT || !oF) { alert('ページを再読み込みしてください'); return; }
+  oT.value = type;
+  const dt = new DataTransfer(); dt.items.add(_smpInboxFile); oF.files = dt.files;
+  smpSetStatus('smpInboxStatus', '取込中...', 'info');
+  try {
+    importShippingCsv();
+    setTimeout(() => {
+      smpSetStatus('smpInboxStatus', '照合中...', 'info');
+      try {
+        matchShipping();
+        setTimeout(() => {
+          const m = document.getElementById('shipMatchCount') ? document.getElementById('shipMatchCount').textContent : '?';
+          const u = document.getElementById('shipSalesUnmatched') ? document.getElementById('shipSalesUnmatched').textContent : '?';
+          smpSetStatus('smpInboxStatus', `✅ 照合完了　一致：${m}　未一致：${u}（送料・伝票を売上に自動反映）`, 'ok');
+          smpRenderHome();
+        }, 800);
+      } catch (e) { smpSetStatus('smpInboxStatus', '❌ 照合エラー：' + e.message, 'err'); }
+    }, 900);
+  } catch (e) { smpSetStatus('smpInboxStatus', '❌ 取込エラー：' + e.message, 'err'); }
+}
+
+function smpInboxRunOcr() {
+  if (!_smpInboxFile) { alert('ファイルを選んでください'); return; }
+  const kind = _smpInboxMode === 'ocr_sale' ? 'sale' : 'purchase';
+  const oF = document.getElementById('ocrFile'), oK = document.getElementById('ocrKind');
+  if (!oF || !oK) { smpSetStatus('smpInboxStatus', '⚠ OCR機能が使えません。再読み込みしてください', 'warn'); return; }
+  oK.value = kind;
+  try { const dt = new DataTransfer(); dt.items.add(_smpInboxFile); oF.files = dt.files; } catch (e) {}
+  const btn = document.getElementById('smpInboxOcrBtn'); if (btn) btn.disabled = true;
+  smpSetStatus('smpInboxStatus', '📖 AIが読み取っています...（数秒かかります）', 'info');
+  try {
+    registerEvidence();
+    setTimeout(() => {
+      try { runOcr(); setTimeout(() => smpInboxSyncFields(kind), 4000); }
+      catch (e) { smpSetStatus('smpInboxStatus', '⚠ 読み取りエラー。下の欄に手入力して保存できます', 'warn'); smpInboxShowFields(kind); }
+    }, 500);
+  } catch (e) { smpSetStatus('smpInboxStatus', '⚠ ファイル登録エラー。下の欄に手入力して保存できます', 'warn'); smpInboxShowFields(kind); }
+}
+
+function smpInboxShowFields(kind) {
+  const f = document.getElementById('smpInboxFields'); if (f) f.style.display = 'block';
+  const pl = document.getElementById('smpInboxPartnerLabel'); if (pl) pl.textContent = kind === 'sale' ? '販売先' : '仕入先';
+  const kl = document.getElementById('smpInboxKindLabel'); if (kl) kl.textContent = (kind === 'sale' ? '売上' : '仕入') + '：内容を確認して保存';
+  const d = document.getElementById('smpInboxDate'); if (d && !d.value) d.value = today();
+}
+
+function smpInboxSyncFields(kind) {
+  const g = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const date = g('cDate'), vendor = g('cVendor'), item = g('cItem'), amount = g('cAmount');
+  smpInboxShowFields(kind);
+  smpSetVal('smpInboxDate', date || today());
+  smpSetVal('smpInboxPartner', vendor);
+  smpSetVal('smpInboxItem', item);
+  smpSetVal('smpInboxAmount', amount);
+  if (date || item || amount) smpSetStatus('smpInboxStatus', '✅ 読み取り完了。確認して「保存する」を押してください', 'ok');
+  else smpSetStatus('smpInboxStatus', '⚠ 読み取れませんでした。手入力して保存できます', 'warn');
+}
+
+function smpInboxSaveOcr() {
+  const kind = _smpInboxMode === 'ocr_sale' ? 'sale' : 'purchase';
+  const date = (document.getElementById('smpInboxDate').value || today());
+  const partner = (document.getElementById('smpInboxPartner').value || '').trim();
+  const item = (document.getElementById('smpInboxItem').value || '').trim();
+  const amount = num(document.getElementById('smpInboxAmount').value || 0);
+  if (!item) { alert('商品名を入力してください'); return; }
+  if (!amount) { alert('金額を入力してください'); return; }
+  if (kind === 'sale') {
+    smpSetVal('saleDate', date); smpSetVal('saleShop', partner || 'その他'); smpSetVal('saleName', item); smpSetVal('saleAmount', amount);
+    addSale();
+  } else {
+    smpSetVal('purDate', date); smpSetVal('purVendor', partner || 'その他'); smpSetVal('purName', item); smpSetVal('purAmount', amount);
+    addPurchase();
+  }
+  smpSetStatus('smpInboxStatus', '✅ ' + (kind === 'sale' ? '売上' : '仕入') + 'を登録しました', 'ok');
+  smpInboxReset();
+  smpRenderHome();
+}
+
+function smpInboxReset() {
+  _smpInboxFile = null; _smpInboxMode = null;
+  const f = document.getElementById('smpInboxFile'); if (f) f.value = '';
+  const fn = document.getElementById('smpInboxFileName'); if (fn) fn.textContent = '';
+  const img = document.getElementById('smpInboxImg'); if (img) img.src = '';
+  smpInboxHideAll();
+  smpSetStatus('smpInboxStatus', 'ファイルを選ぶか貼り付けてください', 'info');
+}
+
+/* ===== 手入力（CSV/画像を使わず直接登録） ===== */
+let _smpManKind = 'sale';
+function smpManualInit() {
+  const d = document.getElementById('smpManDate'); if (d && !d.value) d.value = today();
+  smpManualKind(_smpManKind);
+}
+function smpManualKind(kind) {
+  _smpManKind = kind;
+  const sb = document.getElementById('smpManSaleBtn'), pb = document.getElementById('smpManPurBtn');
+  if (sb) sb.classList.toggle('smp-choice-active', kind === 'sale');
+  if (pb) pb.classList.toggle('smp-choice-active', kind === 'purchase');
+  const shopF = document.getElementById('smpManShopField'); if (shopF) shopF.style.display = kind === 'sale' ? 'block' : 'none';
+  const partF = document.getElementById('smpManPartnerField'); if (partF) partF.style.display = kind === 'purchase' ? 'block' : 'none';
+}
+function smpManualRegister() {
+  const date = (document.getElementById('smpManDate').value || today());
+  const item = (document.getElementById('smpManItem').value || '').trim();
+  const amount = num(document.getElementById('smpManAmount').value || 0);
+  if (!item) { alert('商品名を入力してください'); return; }
+  if (!amount) { alert('金額を入力してください'); return; }
+  if (_smpManKind === 'sale') {
+    const shop = document.getElementById('smpManShop').value;
+    smpSetVal('saleDate', date); smpSetVal('saleShop', shop); smpSetVal('saleName', item); smpSetVal('saleAmount', amount);
+    addSale();
+  } else {
+    const vendor = (document.getElementById('smpManPartner').value || '').trim() || 'その他';
+    smpSetVal('purDate', date); smpSetVal('purVendor', vendor); smpSetVal('purName', item); smpSetVal('purAmount', amount);
+    addPurchase();
+  }
+  ['smpManItem', 'smpManAmount', 'smpManPartner'].forEach(id => smpSetVal(id, ''));
+  smpSetStatus('smpManStatus', '✅ ' + (_smpManKind === 'sale' ? '売上' : '仕入') + 'を登録しました', 'ok');
+  smpRenderHome();
 }
 
 /* ---- 売上CSV取込 ---- */
@@ -463,11 +672,40 @@ function smpBindFileLabels() {
 
 }
 
+/* 取り込み画面で画像を貼り付け（キャプチャ）対応 */
+function smpInboxBindPaste() {
+  window.addEventListener('paste', function(e) {
+    if (!document.body.classList.contains('simple-mode')) return;
+    const inbox = document.querySelector('.smp-screen[data-screen="inbox"]');
+    if (!inbox || !inbox.classList.contains('smp-screen-active')) return;
+    const items = (e.clipboardData && e.clipboardData.items) ? e.clipboardData.items : [];
+    for (let i = 0; i < items.length; i += 1) {
+      const it = items[i];
+      if (it && it.kind === 'file' && String(it.type || '').startsWith('image/')) {
+        const raw = it.getAsFile();
+        if (!raw) continue;
+        const ext = String(raw.type || 'image/png').split('/')[1] || 'png';
+        const file = new File([raw], 'capture.' + ext, { type: raw.type || 'image/png' });
+        try {
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          const input = document.getElementById('smpInboxFile');
+          if (input) { input.files = dt.files; smpInboxPick(input); }
+        } catch (err) {
+          _smpInboxFile = file;
+          smpInboxPick({ files: [file] });
+        }
+        e.preventDefault();
+        break;
+      }
+    }
+  });
+}
+
 window.addEventListener('load', function() {
   smpInitMonthOptions();
   smpBindFileLabels();
-  const od = document.getElementById('smpOcrDate');
-  if (od && !od.value) od.value = today();
+  smpInboxBindPaste();
   try {
     if (localStorage.getItem('ribre_simple_mode') === '1') {
       document.body.classList.add('simple-mode');
