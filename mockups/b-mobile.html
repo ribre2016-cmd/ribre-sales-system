@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>案B スマホアプリ風</title>
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+<div class="phone">
+  <div class="backbar"><a href="index.html">← 案の一覧へ戻る</a> ｜ <b>案B：スマホアプリ風（下タブ）</b></div>
+  <div class="topbar"><h1>RIBRE 売上管理</h1><span class="user">⚙ ribre2016 ▾</span></div>
+  <div class="content">
+
+    <section class="screen active" id="s-home">
+      <div class="section-title">📅 2026年6月</div>
+      <div class="card hero">
+        <div class="label">今月の利益</div><div class="value">＋¥48,500</div>
+        <div class="sub">売上 ¥120,000 − 仕入 ¥45,000 − 経費 ¥26,500</div>
+        <div><span class="delta">前月比 +¥12,000 ↑</span></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="k-label">売上</div><div class="k-value">¥120,000</div></div>
+        <div class="kpi"><div class="k-label">仕入</div><div class="k-value">¥45,000</div></div>
+        <div class="kpi"><div class="k-label">件数</div><div class="k-value">23件</div></div>
+      </div>
+      <div class="section-title">▼ やること</div>
+      <div class="actions">
+        <div class="action" onclick="go('import')"><span class="emoji">📥</span>売上CSV取込</div>
+        <div class="action" onclick="go('ocr')"><span class="emoji">📦</span>仕入OCR登録</div>
+        <div class="action" onclick="toast('配送照合へ（モック）')"><span class="emoji">🚚</span>配送照合</div>
+        <div class="action" onclick="go('summary')"><span class="emoji">📊</span>詳しく見る</div>
+      </div>
+    </section>
+
+    <section class="screen" id="s-import">
+      <div class="card">
+        <div class="wiz-title"><span class="num">1</span>売上CSVを取り込む</div>
+        <div class="guide">取込元を選んでCSVファイルを選択します。</div>
+        <div class="field"><label>取込元</label><select><option>ヤフオク1</option><option>メルカリ</option><option>ラクマ</option></select></div>
+        <div class="dropzone" onclick="this.nextElementSibling.style.display='block';this.style.background='#f0fdf4';this.style.borderColor='#16a34a'">📄 ここをタップしてCSVを選ぶ</div>
+        <div class="filechip" style="display:none">選択中：yahoo_sales_0601.csv ✓</div>
+        <button class="btn btn-primary" style="margin-top:14px" onclick="toast('取込しました！')">取込実行</button>
+      </div>
+    </section>
+
+    <section class="screen" id="s-ocr">
+      <div class="card">
+        <div class="wiz-title"><span class="num">1</span>仕入れをOCRで登録</div>
+        <div class="guide">領収書の画像/PDFを読み込んで自動入力します。</div>
+        <div class="dropzone" onclick="document.getElementById('of').style.display='block';this.style.background='#f0fdf4';this.style.borderColor='#16a34a'">📷 ここをタップして画像/PDFを選ぶ</div>
+        <div id="of" style="display:none;margin-top:14px">
+          <div class="field"><label>日付</label><input value="2026-06-01"></div>
+          <div class="field"><label>仕入れ先</label><input value="ハードオフ"></div>
+          <div class="field"><label>商品名</label><input value="革ジャケット"></div>
+          <div class="field"><label>金額（円）</label><input value="12000"></div>
+          <button class="btn btn-green" onclick="toast('仕入れを登録しました！')">登録する</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="s-summary">
+      <div class="card">
+        <h2>📊 3ヶ月の推移</h2>
+        <div class="legend"><span><span class="dot" style="background:#2563eb"></span>売上</span><span><span class="dot" style="background:#f59e0b"></span>仕入</span><span><span class="dot" style="background:#16a34a"></span>利益</span></div>
+        <div class="chart">
+          <div class="bar-group"><div class="bar sale" style="height:55%"></div><div class="bar pur" style="height:30%"></div><div class="bar profit" style="height:35%"></div></div>
+          <div class="bar-group"><div class="bar sale" style="height:72%"></div><div class="bar pur" style="height:38%"></div><div class="bar profit" style="height:48%"></div></div>
+          <div class="bar-group"><div class="bar sale" style="height:90%"></div><div class="bar pur" style="height:34%"></div><div class="bar profit" style="height:62%"></div></div>
+        </div>
+        <div class="chart-labels"><span>4月</span><span>5月</span><span>6月</span></div>
+      </div>
+      <div class="card">
+        <h2>最近の取引</h2>
+        <div class="tx"><div><div class="t-main">iPhone 15 Pro <span class="tag">ヤフオク1</span></div><div class="t-sub">6/01 売上</div></div><div class="t-amt in">+¥80,000</div></div>
+        <div class="tx"><div><div class="t-main">革ジャケット <span class="tag" style="background:#fef3c7;color:#92400e">仕入</span></div><div class="t-sub">6/01 ハードオフ</div></div><div class="t-amt out">−¥12,000</div></div>
+        <div class="tx"><div><div class="t-main">ブランドバッグ <span class="tag">メルカリ</span></div><div class="t-sub">5/31 売上</div></div><div class="t-amt in">+¥45,000</div></div>
+      </div>
+    </section>
+  </div>
+
+  <nav class="bottomnav">
+    <div class="nav-item active" data-s="home" onclick="go('home')"><span class="nav-ico">🏠</span>ホーム</div>
+    <div class="nav-item" data-s="import" onclick="go('import')"><span class="nav-ico">📥</span>取込</div>
+    <div class="nav-item" data-s="ocr" onclick="go('ocr')"><span class="nav-ico">📦</span>OCR</div>
+    <div class="nav-item" data-s="summary" onclick="go('summary')"><span class="nav-ico">📊</span>集計</div>
+  </nav>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+  function go(s){ document.querySelectorAll('.screen').forEach(function(el){el.classList.toggle('active',el.id==='s-'+s);}); document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.dataset.s===s);}); document.querySelector('.content').scrollTop=0; }
+  let _t; function toast(m){ var e=document.getElementById('toast'); e.textContent=m; e.classList.add('show'); clearTimeout(_t); _t=setTimeout(function(){e.classList.remove('show');},1800); }
+</script>
+</body></html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>案D ダッシュボード強化</title>
+<link rel="stylesheet" href="mock.css">
+<style>
+  .tabs { display:flex; gap:4px; background:#fff; border-bottom:2px solid #e5e7eb; position:sticky; top:0; z-index:9; }
+  .tab { flex:1; text-align:center; padding:11px 4px; font-size:12px; font-weight:700; color:#64748b; border-bottom:3px solid transparent; margin-bottom:-2px; cursor:pointer; }
+  .tab.active { color:#1e40af; border-bottom-color:#1e40af; }
+  .tab.done::after { content:' ✓'; color:#16a34a; }
+  .toolbar { display:flex; gap:8px; margin-bottom:12px; }
+  .toolbar input { flex:1; padding:9px 12px; border:1.5px solid #e2e8f0; border-radius:10px; font-size:13px; }
+  .toolbar .btn-sm { background:#2563eb; color:#fff; border:none; border-radius:10px; padding:0 14px; font-weight:800; font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { text-align:left; color:#64748b; font-weight:700; padding:7px 6px; border-bottom:1px solid #e2e8f0; font-size:11px; }
+  td { padding:8px 6px; border-bottom:1px solid #f1f5f9; font-weight:600; }
+  td.num { text-align:right; font-weight:800; }
+  .pill { font-size:10px; font-weight:800; padding:1px 7px; border-radius:20px; background:#dbeafe; color:#1e40af; }
+</style></head>
+<body>
+<div class="phone">
+  <div class="backbar"><a href="index.html">← 案の一覧へ戻る</a> ｜ <b>案D：ダッシュボード強化</b></div>
+  <div class="topbar"><h1>RIBRE 売上管理</h1><span class="user">⚙ ribre2016 ▾</span></div>
+  <div class="tabs">
+    <div class="tab active">📥 売上</div><div class="tab done">🚚 配送</div><div class="tab">📦 仕入</div><div class="tab">📊 集計</div>
+  </div>
+  <div class="content">
+    <div class="kpis" style="grid-template-columns:1fr 1fr;">
+      <div class="kpi" style="background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:1px solid #a7f3d0"><div class="k-label">今月の利益</div><div class="k-value" style="color:#15803d;font-size:22px">＋¥48,500</div></div>
+      <div class="kpi"><div class="k-label">今月の売上</div><div class="k-value">¥120,000</div></div>
+      <div class="kpi"><div class="k-label">仕入</div><div class="k-value">¥45,000</div></div>
+      <div class="kpi"><div class="k-label">件数</div><div class="k-value">23件</div></div>
+    </div>
+    <div class="card">
+      <h2>3ヶ月の推移</h2>
+      <div class="legend"><span><span class="dot" style="background:#2563eb"></span>売上</span><span><span class="dot" style="background:#f59e0b"></span>仕入</span><span><span class="dot" style="background:#16a34a"></span>利益</span></div>
+      <div class="chart" style="height:100px">
+        <div class="bar-group"><div class="bar sale" style="height:55%"></div><div class="bar pur" style="height:30%"></div><div class="bar profit" style="height:35%"></div></div>
+        <div class="bar-group"><div class="bar sale" style="height:72%"></div><div class="bar pur" style="height:38%"></div><div class="bar profit" style="height:48%"></div></div>
+        <div class="bar-group"><div class="bar sale" style="height:90%"></div><div class="bar pur" style="height:34%"></div><div class="bar profit" style="height:62%"></div></div>
+      </div>
+      <div class="chart-labels"><span>4月</span><span>5月</span><span>6月</span></div>
+    </div>
+    <div class="card">
+      <h2 style="display:flex;justify-content:space-between;align-items:center">売上一覧 <span style="font-size:11px;color:#2563eb">CSV出力</span></h2>
+      <div class="toolbar"><input placeholder="🔍 商品名・伝票番号で検索"><button class="btn-sm">絞込</button></div>
+      <table>
+        <tr><th>日付</th><th>商品</th><th>先</th><th class="num">金額</th></tr>
+        <tr><td>6/01</td><td>iPhone 15 Pro</td><td><span class="pill">ヤフ1</span></td><td class="num">¥80,000</td></tr>
+        <tr><td>5/31</td><td>ブランドバッグ</td><td><span class="pill">メルカリ</span></td><td class="num">¥45,000</td></tr>
+        <tr><td>5/30</td><td>スニーカー</td><td><span class="pill">ラクマ</span></td><td class="num">¥18,000</td></tr>
+        <tr><td>5/29</td><td>腕時計</td><td><span class="pill">ヤフ2</span></td><td class="num">¥32,000</td></tr>
+        <tr><td>5/28</td><td>ゲーム機</td><td><span class="pill">ヤフ1</span></td><td class="num">¥24,000</td></tr>
+      </table>
+    </div>
+    <div class="badge-note">案D：今のタブUIを活かしつつ、数字カード・グラフ・検索付き一覧を強化。データをよく見る人・PC利用向き。</div>
+  </div>
+</div>
+<script>
+  document.querySelectorAll('.tab').forEach(function(t){ t.onclick=function(){ document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');}); t.classList.add('active'); }; });
+</script>
+</body></html>

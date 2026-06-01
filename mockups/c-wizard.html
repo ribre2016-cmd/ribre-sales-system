@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>案C ウィザード型</title>
+<link rel="stylesheet" href="mock.css">
+<style>
+  .wiz-screen { display:none; } .wiz-screen.active { display:block; animation: fade .2s ease; }
+  .done-card { text-align:center; padding:30px 18px; }
+  .done-card .check { font-size:54px; }
+</style></head>
+<body>
+<div class="phone">
+  <div class="backbar"><a href="index.html">← 案の一覧へ戻る</a> ｜ <b>案C：ウィザード型（1本道）</b></div>
+  <div class="topbar"><h1>かんたん入力</h1><span class="user">⚙ ribre2016</span></div>
+  <div class="content">
+    <div class="steps" id="dots"></div>
+    <div class="step-count" id="scount">ステップ 1 / 4</div>
+
+    <!-- STEP1 取込元 -->
+    <div class="wiz-screen active" data-step="0">
+      <div class="card">
+        <div class="wiz-title"><span class="num">1</span>どこの売上ですか？</div>
+        <div class="guide">取込元（出品先）を選んでください。</div>
+        <div class="field"><label>取込元</label><select><option>ヤフオク1</option><option>メルカリ</option><option>ラクマ</option></select></div>
+        <div class="wiz-nav"><button class="btn btn-primary" onclick="step(1)">次へ →</button></div>
+      </div>
+    </div>
+    <!-- STEP2 CSV -->
+    <div class="wiz-screen" data-step="1">
+      <div class="card">
+        <div class="wiz-title"><span class="num">2</span>CSVファイルを選ぶ</div>
+        <div class="guide">売上CSVファイルを選択してください。</div>
+        <div class="dropzone" onclick="this.nextElementSibling.style.display='block';this.style.background='#f0fdf4';this.style.borderColor='#16a34a'">📄 ここをタップしてCSVを選ぶ</div>
+        <div class="filechip" style="display:none">yahoo_sales_0601.csv ✓</div>
+        <div class="wiz-nav"><button class="btn btn-ghost" onclick="step(0)">← 戻る</button><button class="btn btn-primary" onclick="step(2)">次へ →</button></div>
+      </div>
+    </div>
+    <!-- STEP3 確認 -->
+    <div class="wiz-screen" data-step="2">
+      <div class="card">
+        <div class="wiz-title"><span class="num">3</span>内容を確認</div>
+        <div class="guide">取り込む内容を確認してください。</div>
+        <div class="kpis"><div class="kpi"><div class="k-label">件数</div><div class="k-value">12件</div></div><div class="kpi"><div class="k-label">売上</div><div class="k-value">¥86,000</div></div><div class="kpi"><div class="k-label">取込元</div><div class="k-value" style="font-size:13px">ヤフオク1</div></div></div>
+        <div class="wiz-nav"><button class="btn btn-ghost" onclick="step(1)">← 戻る</button><button class="btn btn-green" onclick="step(3)">取込する</button></div>
+      </div>
+    </div>
+    <!-- STEP4 完了 -->
+    <div class="wiz-screen" data-step="3">
+      <div class="card done-card">
+        <div class="check">✅</div>
+        <div class="wiz-title" style="justify-content:center;margin-top:8px">取込が完了しました！</div>
+        <div class="sub" style="color:#166534;margin:6px 0 16px">12件・¥86,000 を登録しました</div>
+        <button class="btn btn-primary" onclick="step(0)">最初に戻る</button>
+        <button class="btn btn-ghost" onclick="toast('集計へ（モック）')">集計を見る</button>
+      </div>
+    </div>
+
+    <div class="badge-note">案C：質問に答えて「次へ」を押すだけ。今どこかが進捗バーで分かり、操作ミスが起きにくい。完全初心者向け。</div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+  var TOTAL = 4, cur = 0;
+  function renderDots(){
+    var h='';
+    for(var i=0;i<TOTAL;i++){
+      var cls = i<cur?'done':(i===cur?'now':'');
+      h += '<span class="step-dot '+cls+'"></span>';
+      if(i<TOTAL-1) h += '<span class="step-line '+(i<cur?'done':'')+'"></span>';
+    }
+    document.getElementById('dots').innerHTML = h;
+    document.getElementById('scount').textContent = 'ステップ '+(cur+1)+' / '+TOTAL;
+  }
+  function step(n){
+    cur=n;
+    document.querySelectorAll('.wiz-screen').forEach(function(el){el.classList.toggle('active',+el.dataset.step===n);});
+    renderDots(); document.querySelector('.content').scrollTop=0;
+  }
+  let _t; function toast(m){ var e=document.getElementById('toast'); e.textContent=m; e.classList.add('show'); clearTimeout(_t); _t=setTimeout(function(){e.classList.remove('show');},1800); }
+  renderDots();
+</script>
+</body></html>

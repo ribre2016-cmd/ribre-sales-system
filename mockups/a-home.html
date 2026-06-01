@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>案A ホーム画面型</title>
+<link rel="stylesheet" href="mock.css">
+<style>
+  .big-actions { display:grid; grid-template-columns:1fr; gap:10px; }
+  .big-action { display:flex; align-items:center; gap:14px; background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:16px; cursor:pointer; font-weight:800; font-size:15px; transition:.12s; }
+  .big-action:hover { border-color:#2563eb; transform:translateY(-1px); box-shadow:0 4px 12px rgba(37,99,235,.12); }
+  .big-action .ico { font-size:28px; width:46px; height:46px; display:flex; align-items:center; justify-content:center; background:#eff6ff; border-radius:12px; }
+  .big-action .arrow { margin-left:auto; color:#cbd5e1; font-size:20px; }
+</style></head>
+<body>
+<div class="phone">
+  <div class="backbar"><a href="index.html">← 案の一覧へ戻る</a> ｜ <b>案A：ホーム画面型</b></div>
+  <div class="topbar"><h1>RIBRE 売上管理</h1><span class="user">⚙ ribre2016 ▾</span></div>
+  <div class="content">
+    <div class="section-title">📅 2026年6月 のまとめ</div>
+    <div class="card hero">
+      <div class="label">今月の利益</div>
+      <div class="value">＋¥48,500</div>
+      <div class="sub">売上 ¥120,000 − 仕入 ¥45,000 − 経費 ¥26,500</div>
+      <div><span class="delta">前月比 +¥12,000 ↑</span></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="k-label">売上</div><div class="k-value">¥120,000</div></div>
+      <div class="kpi"><div class="k-label">仕入</div><div class="k-value">¥45,000</div></div>
+      <div class="kpi"><div class="k-label">件数</div><div class="k-value">23件</div></div>
+    </div>
+    <div class="section-title">▼ やることを選ぶ</div>
+    <div class="big-actions">
+      <div class="big-action" onclick="toast('売上CSV取込へ（モック）')"><span class="ico">📥</span>売上CSVを取り込む<span class="arrow">›</span></div>
+      <div class="big-action" onclick="toast('仕入OCR登録へ（モック）')"><span class="ico">📦</span>仕入れをOCRで登録<span class="arrow">›</span></div>
+      <div class="big-action" onclick="toast('配送照合へ（モック）')"><span class="ico">🚚</span>配送CSVを照合する<span class="arrow">›</span></div>
+      <div class="big-action" onclick="toast('集計へ（モック）')"><span class="ico">📊</span>売上を詳しく見る<span class="arrow">›</span></div>
+    </div>
+    <div class="badge-note">案A：開いた瞬間に「今月の成績」と「やること」が分かる。ナビは画面上部。初心者に最適。</div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+  let _t; function toast(m){ var e=document.getElementById('toast'); e.textContent=m; e.classList.add('show'); clearTimeout(_t); _t=setTimeout(function(){e.classList.remove('show');},1800); }
+</script>
+</body></html>

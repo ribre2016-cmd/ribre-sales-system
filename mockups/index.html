@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RIBRE UIモックアップ 一覧</title>
+<link rel="stylesheet" href="mock.css">
+<style>
+  .wrap { max-width: 460px; margin: 0 auto; padding: 20px 16px 40px; }
+  .head { text-align:center; margin-bottom:20px; }
+  .head h1 { font-size:20px; font-weight:900; color:#0f172a; }
+  .head p { font-size:13px; color:#64748b; margin-top:6px; }
+  .mock-card { display:block; background:#fff; border:1.5px solid #e2e8f0; border-radius:16px; padding:18px; margin-bottom:14px; text-decoration:none; color:inherit; transition:.12s; }
+  .mock-card:hover { border-color:#2563eb; transform:translateY(-2px); box-shadow:0 6px 16px rgba(37,99,235,.12); }
+  .mock-card .mtitle { font-size:16px; font-weight:900; color:#1e40af; display:flex; align-items:center; gap:8px; }
+  .mock-card .mtitle .emoji { font-size:24px; }
+  .mock-card .mdesc { font-size:13px; color:#475569; margin-top:8px; line-height:1.6; }
+  .mock-card .mfor { font-size:11px; font-weight:800; color:#16a34a; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:20px; padding:3px 10px; display:inline-block; margin-top:10px; }
+  .mock-card .go { float:right; color:#cbd5e1; font-size:22px; }
+  .note { text-align:center; font-size:11px; color:#94a3b8; margin-top:18px; }
+</style></head>
+<body style="background:#eef2f7;">
+<div class="wrap">
+  <div class="head">
+    <h1>📐 UIモックアップ 4案</h1>
+    <p>カードをタップすると、その案の画面が開きます。<br>気に入ったものを教えてください。</p>
+  </div>
+
+  <a class="mock-card" href="a-home.html">
+    <div class="mtitle"><span class="emoji">🏠</span>案A：ホーム画面型<span class="go">›</span></div>
+    <div class="mdesc">開いた瞬間に「今月の利益」と「やること」の大きなボタンが並ぶ。迷わず始められる。</div>
+    <span class="mfor">初心者・シンプル重視</span>
+  </a>
+
+  <a class="mock-card" href="b-mobile.html">
+    <div class="mtitle"><span class="emoji">📱</span>案B：スマホアプリ風<span class="go">›</span></div>
+    <div class="mdesc">画面下に固定タブ（ホーム/取込/OCR/集計）。スマホで親指だけで操作でき、現場向き。</div>
+    <span class="mfor">スマホで使う人</span>
+  </a>
+
+  <a class="mock-card" href="c-wizard.html">
+    <div class="mtitle"><span class="emoji">🧭</span>案C：ウィザード型<span class="go">›</span></div>
+    <div class="mdesc">質問に答えて「次へ」を押すだけの1本道。進捗バー付きで今どこか分かり、ミスしにくい。</div>
+    <span class="mfor">完全初心者向け</span>
+  </a>
+
+  <a class="mock-card" href="d-dashboard.html">
+    <div class="mtitle"><span class="emoji">📊</span>案D：ダッシュボード強化<span class="go">›</span></div>
+    <div class="mdesc">今のタブUIを活かしつつ、数字カード・グラフ・検索付き一覧を強化。データをよく見る人向け。</div>
+    <span class="mfor">経営判断・PC利用向き</span>
+  </a>
+
+  <div class="note">これらは見た目確認用の使い捨てモックアップです（実データではありません）</div>
+</div>
+</body></html>
