@@ -1,0 +1,30 @@
+# === APIキー・機密情報（公開リポジトリに絶対push しない）===
+config_api_key.txt
+*.key
+.env
+.env.*
+secrets.*
+
+# === ローカル設定 ===
+.claude/settings.local.json
+.vscode/
+.idea/
+
+# === スクリーンショット・作業用画像 ===
+スクリーンショット*.png
+screenshot*.png
+
+# === OS生成ファイル ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Python（旧 app.py 用。残す場合の生成物）===
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# === ログ・一時ファイル ===
+*.log
+*.tmp
