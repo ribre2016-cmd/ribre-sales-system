@@ -611,6 +611,27 @@ body.simple-mode #simpleApp { display: flex; }
 .smp-next:active { transform: translateY(0); }
 /* 利益を主役に大きく */
 .smp-sum-card.profit .smp-sum-value { font-size: 30px; }
+/* === ホーム画面（統合版UI） === */
+.smp-home-month { font-size: 12px; font-weight: 800; color: #64748b; margin: 2px 2px 8px; }
+#simpleApp .smp-hero { background: linear-gradient(135deg,#ecfdf5,#d1fae5); border: 1px solid #a7f3d0; }
+.smp-hero-label { font-size: 12px; font-weight: 700; color: #047857; }
+.smp-hero-value { font-size: 38px; font-weight: 900; color: #15803d; line-height: 1.1; margin: 4px 0; }
+.smp-hero-sub { font-size: 12px; color: #166534; font-weight: 600; }
+.smp-kpis { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.smp-kpi { background: #fff; border-radius: 12px; padding: 10px 8px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.smp-kpi-label { font-size: 10px; color: #64748b; font-weight: 700; }
+.smp-kpi-value { font-size: 16px; font-weight: 900; margin-top: 3px; }
+.smp-section-title { font-size: 12px; font-weight: 800; color: #64748b; margin: 4px 4px 8px; }
+.smp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.smp-action { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 16px 12px; text-align: center; cursor: pointer; font-weight: 800; font-size: 13px; color: #0f172a; transition: .12s; }
+.smp-action:hover { border-color: #2563eb; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(37,99,235,.15); }
+.smp-action-emoji { font-size: 26px; display: block; margin-bottom: 6px; }
+/* === ボトムナビ === */
+.smp-bottomnav { background: #fff; border-top: 1px solid #e5e7eb; display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px 0 8px; flex-shrink: 0; }
+.smp-nav-item { text-align: center; cursor: pointer; color: #94a3b8; font-size: 10px; font-weight: 700; padding: 4px 0; }
+.smp-nav-ico { font-size: 21px; display: block; margin-bottom: 2px; filter: grayscale(1); opacity: .6; }
+.smp-nav-item.smp-nav-active { color: #2563eb; }
+.smp-nav-item.smp-nav-active .smp-nav-ico { filter: none; opacity: 1; }
 .smp-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .smp-sum-card { background: #f8fafc; border-radius: 12px; padding: 12px 14px; border: 1px solid #e2e8f0; }
 .smp-sum-card.profit { background: #f0fdf4; border-color: #86efac; grid-column: 1/-1; }
@@ -714,13 +735,39 @@ body.simple-mode #simpleApp { display: flex; }
     <h1>⚡ かんたんモード</h1>
     <button class="smp-back-btn" onclick="simpleToggle()">← フル画面に戻る</button>
   </div>
-  <div class="smp-tabs">
-    <button class="smp-tab-btn"                data-tab="csv"     onclick="simpleTab('csv')">📥 売上CSV</button>
-    <button class="smp-tab-btn"                data-tab="ship"    onclick="simpleTab('ship')">🚚 配送照合</button>
-    <button class="smp-tab-btn"                data-tab="ocr"     onclick="simpleTab('ocr')">📦 仕入OCR</button>
-    <button class="smp-tab-btn smp-tab-active" data-tab="summary" onclick="simpleTab('summary')">📊 集計</button>
-  </div>
   <div class="smp-content">
+
+    <!-- ホーム画面 -->
+    <div class="smp-screen smp-screen-active" data-screen="home">
+      <div class="smp-home-month" id="smpHomeMonth">📅 今月</div>
+      <div class="smp-card smp-hero">
+        <div class="smp-hero-label">今月の利益</div>
+        <div class="smp-hero-value" id="smpHomeProfit">—</div>
+        <div class="smp-hero-sub" id="smpHomeSub"></div>
+      </div>
+      <div class="smp-kpis">
+        <div class="smp-kpi"><div class="smp-kpi-label">売上</div><div class="smp-kpi-value" id="smpHomeSale">—</div></div>
+        <div class="smp-kpi"><div class="smp-kpi-label">仕入</div><div class="smp-kpi-value" id="smpHomePur">—</div></div>
+        <div class="smp-kpi"><div class="smp-kpi-label">件数</div><div class="smp-kpi-value" id="smpHomeCount">—</div></div>
+      </div>
+      <div class="smp-card">
+        <h2>📊 3ヶ月の推移</h2>
+        <div class="smp-chart-legend">
+          <span class="smp-legend-dot" style="background:#2563eb"></span>売上
+          <span class="smp-legend-dot" style="background:#f59e0b;margin-left:12px"></span>仕入れ
+          <span class="smp-legend-dot" style="background:#16a34a;margin-left:12px"></span>利益
+        </div>
+        <canvas id="smpHomeChart" height="140" style="width:100%;display:block;margin-top:10px"></canvas>
+        <div id="smpHomeChartLabels" class="smp-chart-labels"></div>
+      </div>
+      <div class="smp-section-title">▼ やること</div>
+      <div class="smp-actions">
+        <div class="smp-action" onclick="simpleTab('csv')"><span class="smp-action-emoji">📥</span>売上CSV取込</div>
+        <div class="smp-action" onclick="simpleTab('ocr')"><span class="smp-action-emoji">📦</span>仕入OCR登録</div>
+        <div class="smp-action" onclick="simpleTab('ship')"><span class="smp-action-emoji">🚚</span>配送照合</div>
+        <div class="smp-action" onclick="simpleTab('summary')"><span class="smp-action-emoji">📊</span>詳しく見る</div>
+      </div>
+    </div>
 
     <!-- 売上CSV取込 -->
     <div class="smp-screen" data-screen="csv">
@@ -825,7 +872,7 @@ body.simple-mode #simpleApp { display: flex; }
     </div>
 
     <!-- 月次サマリー -->
-    <div class="smp-screen smp-screen-active" data-screen="summary">
+    <div class="smp-screen" data-screen="summary">
       <!-- 3ヶ月グラフ -->
       <div class="smp-card">
         <h2>📊 3ヶ月グラフ</h2>
@@ -873,6 +920,12 @@ body.simple-mode #simpleApp { display: flex; }
     </div>
 
   </div>
+  <nav class="smp-bottomnav">
+    <div class="smp-nav-item smp-nav-active" data-nav="home"    onclick="simpleTab('home')"><span class="smp-nav-ico">🏠</span>ホーム</div>
+    <div class="smp-nav-item"                data-nav="csv"     onclick="simpleTab('csv')"><span class="smp-nav-ico">📥</span>取込</div>
+    <div class="smp-nav-item"                data-nav="ocr"     onclick="simpleTab('ocr')"><span class="smp-nav-ico">📦</span>OCR</div>
+    <div class="smp-nav-item"                data-nav="summary" onclick="simpleTab('summary')"><span class="smp-nav-ico">📊</span>集計</div>
+  </nav>
 </div>
 
 <header>
@@ -2223,7 +2276,7 @@ body.simple-mode #simpleApp { display: flex; }
 <script src="pages/app-sync.js"></script>
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
-<script src="pages/app-simple.js?v=20260601b"></script>
+<script src="pages/app-simple.js?v=20260602a"></script>
 
 <script>
 function exportAllSettings() {

@@ -3,13 +3,42 @@
 function simpleToggle() {
   const on = document.body.classList.toggle('simple-mode');
   try { localStorage.setItem('ribre_simple_mode', on ? '1' : ''); } catch(e) {}
-  if (on) { simpleTab('summary'); simpleRenderSummary(); simpleRenderChart(); }
+  if (on) { simpleTab('home'); }
 }
 
 function simpleTab(tab) {
   document.querySelectorAll('.smp-tab-btn').forEach(b => b.classList.toggle('smp-tab-active', b.dataset.tab === tab));
+  document.querySelectorAll('.smp-nav-item').forEach(b => b.classList.toggle('smp-nav-active', b.dataset.nav === tab));
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
+  if (tab === 'home') smpRenderHome();
   if (tab === 'summary') { simpleRenderSummary(); simpleRenderChart(); }
+  const c = document.querySelector('.smp-content'); if (c) c.scrollTop = 0;
+}
+
+/* ホーム画面：今月のKPI＋3ヶ月グラフ */
+function smpRenderHome() {
+  const month = today().slice(0, 7);
+  const s = sales().filter(r => (r.month || String(r.date || '').slice(0, 7)) === month);
+  const p = purchases().filter(r => (r.month || String(r.date || '').slice(0, 7)) === month);
+  const totalSale = s.reduce((a, r) => a + num(r.amount || r.price), 0);
+  const totalFee  = s.reduce((a, r) => a + num(r.fee), 0);
+  const totalShip = s.reduce((a, r) => a + num(r.ship || r.shipping), 0);
+  const totalPur  = p.reduce((a, r) => a + num(r.total || r.amount), 0);
+  const profit    = totalSale - totalFee - totalShip - totalPur;
+  const set = (id, v, color) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = v;
+    if (color) el.style.color = color;
+  };
+  const ym = month.split('-');
+  set('smpHomeMonth', '📅 ' + ym[0] + '年' + Number(ym[1]) + '月');
+  set('smpHomeProfit', (profit >= 0 ? '＋' : '') + yen(profit), profit >= 0 ? '#15803d' : '#dc2626');
+  set('smpHomeSub', '売上 ' + yen(totalSale) + ' − 仕入 ' + yen(totalPur) + ' − 経費 ' + yen(totalFee + totalShip));
+  set('smpHomeSale', yen(totalSale));
+  set('smpHomePur', yen(totalPur));
+  set('smpHomeCount', s.length + '件');
+  simpleRenderChart('smpHomeChart', 'smpHomeChartLabels');
 }
 
 /* ---- 売上CSV取込 ---- */
@@ -301,8 +330,10 @@ function smpSetStatus(id, msg, type) {
 }
 
 /* ---- 3ヶ月グラフ ---- */
-function simpleRenderChart() {
-  const canvas = document.getElementById('smpChart');
+function simpleRenderChart(canvasId, labelsId) {
+  canvasId = canvasId || 'smpChart';
+  labelsId = labelsId || 'smpChartLabels';
+  const canvas = document.getElementById(canvasId);
   if (!canvas) return;
 
   // 直近3ヶ月のデータを取得
@@ -329,7 +360,7 @@ function simpleRenderChart() {
   });
 
   // ラベル更新
-  const labelEl = document.getElementById('smpChartLabels');
+  const labelEl = document.getElementById(labelsId);
   if (labelEl) labelEl.innerHTML = months.map(m => `<span>${m.slice(5)}月</span>`).join('');
 
   // Canvas描画
@@ -440,9 +471,7 @@ window.addEventListener('load', function() {
   try {
     if (localStorage.getItem('ribre_simple_mode') === '1') {
       document.body.classList.add('simple-mode');
-      simpleTab('summary');
-      simpleRenderSummary();
-      simpleRenderChart();
+      simpleTab('home');
     }
   } catch(e) {}
 });
