@@ -35,6 +35,7 @@ function smpImportCsv() {
     setTimeout(() => {
       const count = document.getElementById('yahooSalesCount')?.textContent || '?';
       smpSetStatus('smpCsvStatus', `✅ 取込完了：${count}`, 'ok');
+      smpMarkDone('csv');
       simpleRenderSummary();
     }, 800);
   } catch(e) {
@@ -76,10 +77,49 @@ function smpMatchShipping() {
       const matched   = document.getElementById('shipMatchCount')?.textContent || '?';
       const unmatched = document.getElementById('shipSalesUnmatched')?.textContent || '?';
       smpSetStatus('smpShipStatus', `✅ 照合完了　一致：${matched}　未一致：${unmatched}`, 'ok');
+      smpMarkDone('ship');
       simpleRenderSummary();
     }, 800);
   } catch(e) {
     smpSetStatus('smpShipStatus', '❌ エラー：' + e.message, 'err');
+  }
+}
+
+/* 取込→照合をワンタップで連続実行 */
+function smpImportAndMatchShipping() {
+  const file = document.getElementById('smpShipFile').files[0];
+  const type = document.getElementById('smpShipType').value;
+  if (!file) { alert('配送CSVファイルを選んでください'); return; }
+
+  const origType = document.getElementById('shipCsvType');
+  const origFile = document.getElementById('shipCsvFile');
+  if (!origType || !origFile) { alert('ページを再読み込みしてください'); return; }
+
+  origType.value = type;
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  origFile.files = dt.files;
+
+  smpSetStatus('smpShipStatus', '取込中...', 'info');
+  try {
+    importShippingCsv();
+    setTimeout(() => {
+      smpSetStatus('smpShipStatus', '照合中...', 'info');
+      try {
+        matchShipping();
+        setTimeout(() => {
+          const matched   = document.getElementById('shipMatchCount')?.textContent || '?';
+          const unmatched = document.getElementById('shipSalesUnmatched')?.textContent || '?';
+          smpSetStatus('smpShipStatus', `✅ 完了！　一致：${matched}　未一致：${unmatched}`, 'ok');
+          smpMarkDone('ship');
+          simpleRenderSummary();
+        }, 800);
+      } catch(e) {
+        smpSetStatus('smpShipStatus', '❌ 照合エラー：' + e.message, 'err');
+      }
+    }, 900);
+  } catch(e) {
+    smpSetStatus('smpShipStatus', '❌ 取込エラー：' + e.message, 'err');
   }
 }
 
@@ -198,6 +238,7 @@ function smpRegisterPurchase() {
   });
   document.getElementById('smpOcrFileInput').value = '';
   smpSetStatus('smpOcrStatus', '✅ 仕入れを登録しました', 'ok');
+  smpMarkDone('ocr');
   simpleRenderSummary();
 }
 
@@ -226,7 +267,7 @@ function simpleRenderSummary() {
   set('smpTotalFee',   yen(totalFee));
   set('smpTotalShip',  yen(totalShip));
   set('smpTotalPur',   yen(totalPur));
-  set('smpTotalProfit', yen(profit), profit >= 0 ? '#166534' : '#dc2626');
+  set('smpTotalProfit', (profit >= 0 ? '+' : '') + yen(profit), profit >= 0 ? '#166534' : '#dc2626');
   set('smpSaleCount',  s.length + '件');
   set('smpPurCount',   p.length + '件');
 }
@@ -246,6 +287,12 @@ function smpInitMonthOptions() {
 }
 
 /* ---- ユーティリティ ---- */
+/* タブに完了チェック✓を付ける */
+function smpMarkDone(tab) {
+  const btn = document.querySelector('.smp-tab-btn[data-tab="' + tab + '"]');
+  if (btn) btn.classList.add('smp-tab-done');
+}
+
 function smpSetStatus(id, msg, type) {
   const el = document.getElementById(id);
   if (!el) return;

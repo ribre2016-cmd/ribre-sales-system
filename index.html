@@ -600,9 +600,17 @@ body.simple-mode #simpleApp { display: flex; }
 .smp-btn.smp-btn-secondary:hover { background: #e2e8f0; }
 .smp-status { font-size: 12px; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin-top: 8px; min-height: 36px; }
 .smp-status-info   { background: #eff6ff; color: #1d4ed8; }
-.smp-status-ok     { background: #f0fdf4; color: #166534; }
-.smp-status-warn   { background: #fffbeb; color: #92400e; }
-.smp-status-err    { background: #fef2f2; color: #b91c1c; }
+.smp-status-ok     { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; border-left: 5px solid #16a34a; font-size: 14px; padding: 13px 14px; }
+.smp-status-warn   { background: #fffbeb; color: #92400e; border-left: 5px solid #f59e0b; }
+.smp-status-err    { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-left: 5px solid #dc2626; font-size: 14px; padding: 13px 14px; }
+/* タブ完了チェック */
+.smp-tab-btn.smp-tab-done::after { content: ' ✓'; color: #16a34a; font-weight: 900; }
+/* 次のステップ誘導カード（タップで移動） */
+.smp-next { cursor: pointer; transition: transform .1s, box-shadow .1s; }
+.smp-next:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+.smp-next:active { transform: translateY(0); }
+/* 利益を主役に大きく */
+.smp-sum-card.profit .smp-sum-value { font-size: 30px; }
 .smp-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .smp-sum-card { background: #f8fafc; border-radius: 12px; padding: 12px 14px; border: 1px solid #e2e8f0; }
 .smp-sum-card.profit { background: #f0fdf4; border-color: #86efac; grid-column: 1/-1; }
@@ -748,9 +756,9 @@ body.simple-mode #simpleApp { display: flex; }
         <button class="smp-btn" onclick="smpImportCsv()">③ 取込実行</button>
         <div class="smp-status smp-status-info" id="smpCsvStatus">CSVファイルを選んで「取込実行」を押してください</div>
       </div>
-      <div class="smp-card" style="background:#fff7ed;border:1px solid #fed7aa">
-        <div style="font-size:12px;font-weight:700;color:#92400e">次のステップ</div>
-        <div style="font-size:12px;color:#78350f;margin-top:4px">取込後は「🚚 配送照合」タブで送料を照合してください</div>
+      <div class="smp-card smp-next" style="background:#fff7ed;border:1px solid #fed7aa" onclick="simpleTab('ship')">
+        <div style="font-size:12px;font-weight:700;color:#92400e">次のステップ →</div>
+        <div style="font-size:12px;color:#78350f;margin-top:4px">ここをタップして「🚚 配送照合」へ進む</div>
       </div>
     </div>
 
@@ -773,9 +781,12 @@ body.simple-mode #simpleApp { display: flex; }
           <input type="file" id="smpShipFile" accept=".csv,text/csv">
           <div id="smpShipFileName" style="font-size:12px;color:#64748b;margin-top:4px"></div>
         </label>
-        <button class="smp-btn" onclick="smpImportShipping()">③ 配送CSV取込</button>
-        <button class="smp-btn smp-btn-green" onclick="smpMatchShipping()">④ 売上と照合する</button>
-        <div class="smp-status smp-status-info" id="smpShipStatus">配送CSVを選んで「配送CSV取込」→「照合」の順に押してください</div>
+        <button class="smp-btn smp-btn-green" onclick="smpImportAndMatchShipping()">③ 取込んで照合する</button>
+        <div class="smp-status smp-status-info" id="smpShipStatus">配送CSVを選んで「取込んで照合する」を押してください</div>
+      </div>
+      <div class="smp-card smp-next" style="background:#fff7ed;border:1px solid #fed7aa" onclick="simpleTab('ocr')">
+        <div style="font-size:12px;font-weight:700;color:#92400e">次のステップ →</div>
+        <div style="font-size:12px;color:#78350f;margin-top:4px">ここをタップして「📦 仕入OCR」へ進む</div>
       </div>
     </div>
 
@@ -806,6 +817,10 @@ body.simple-mode #simpleApp { display: flex; }
         </div>
         <button class="smp-btn smp-btn-green" onclick="smpRegisterPurchase()">④ 仕入れとして登録する</button>
         <button class="smp-btn smp-btn-secondary" onclick="smpClearOcr()">クリア</button>
+      </div>
+      <div class="smp-card smp-next" style="background:#f0fdf4;border:1px solid #bbf7d0" onclick="simpleTab('summary')">
+        <div style="font-size:12px;font-weight:700;color:#166534">完了 →</div>
+        <div style="font-size:12px;color:#14532d;margin-top:4px">ここをタップして「📊 集計」で利益を確認</div>
       </div>
     </div>
 
@@ -2208,7 +2223,7 @@ body.simple-mode #simpleApp { display: flex; }
 <script src="pages/app-sync.js"></script>
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
-<script src="pages/app-simple.js"></script>
+<script src="pages/app-simple.js?v=20260601b"></script>
 
 <script>
 function exportAllSettings() {
