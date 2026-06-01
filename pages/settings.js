@@ -55,60 +55,7 @@ function saveOpenAI() {
   renderList('settingsList', [{ type: 'OK', msg: 'OpenAI APIキーを保存しました' }]);
 }
 
-async function signUp() {
-  const e = document.getElementById('email').value.trim(),
-    p = document.getElementById('password').value.trim(),
-    r = document.getElementById('role').value;
-  if (!e || !p) {
-    alert('メールとパスワードを入力');
-    return;
-  }
-  const res = await authFetch('signup', { email: e, password: p, data: { role: r } });
-  renderList('settingsList', [
-    {
-      type: res.error ? 'ERROR' : 'OK',
-      level: res.error ? 'danger' : 'ok',
-      msg: res.error ? res.error.message : '登録しました。ログインしてください'
-    }
-  ]);
-}
-async function signIn() {
-  const e = document.getElementById('email').value.trim(),
-    p = document.getElementById('password').value.trim(),
-    r = document.getElementById('role').value;
-  if (!e || !p) {
-    alert('メールとパスワードを入力');
-    return;
-  }
-  const res = await authFetch('token?grant_type=password', { email: e, password: p });
-  if (res.error) {
-    renderList('settingsList', [{ type: 'ERROR', level: 'danger', msg: res.error.message }]);
-    return;
-  }
-  const raw = res.data || {};
-  const s = {
-    access_token: raw.access_token || (raw.session && raw.session.access_token) || '',
-    refresh_token: raw.refresh_token || (raw.session && raw.session.refresh_token) || '',
-    token_type: raw.token_type || (raw.session && raw.session.token_type) || 'bearer',
-    expires_at: raw.expires_at || (raw.session && raw.session.expires_at) || 0,
-    expires_in: raw.expires_in || (raw.session && raw.session.expires_in) || 0,
-    user: raw.user || (raw.session && raw.session.user) || null,
-    email: e,
-    role: r
-  };
-  setLS(LS.sess, s);
-  localStorage.setItem('ribre_current_user140', e);
-  localStorage.setItem('ribre_current_role140', r);
-  refreshAll();
-  renderList('settingsList', [{ type: 'OK', msg: 'ログインしました：' + e }]);
-}
-function signOut() {
-  localStorage.removeItem(LS.sess);
-  localStorage.removeItem('ribre_current_user140');
-  localStorage.removeItem('ribre_current_role140');
-  refreshAll();
-  renderList('settingsList', [{ type: 'OK', msg: 'ログアウトしました' }]);
-}
+/* signUp / signIn / signOut は services/supabase-auth.js に一本化（重複定義を削除） */
 
 function ver300Logs() {
   try {
