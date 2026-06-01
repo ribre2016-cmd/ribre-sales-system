@@ -544,7 +544,10 @@ body.simple-mode > main   { display: none; }
 body.simple-mode #opsFixedBar { display: none; }
 body.simple-mode #emergencyBanner { display: none; }
 body.simple-mode #simpleApp { display: flex; }
-#simpleApp { display: none; flex-direction: column; min-height: 100vh; background: #f1f5f9; font-family: inherit; }
+body.simple-mode { background: #e2e8f0; }
+body.simple-mode .ver310-fixed-action { display: none !important; }
+#simpleApp { display: none; flex-direction: column; min-height: 100vh; background: #f1f5f9; font-family: inherit; max-width: 480px; margin: 0 auto; box-shadow: 0 0 30px rgba(0,0,0,.08); }
+#simpleApp input[type="checkbox"] { width: auto !important; min-width: 0 !important; }
 .smp-header {
   background: #1e40af; color: #fff; padding: 14px 18px;
   display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
@@ -768,7 +771,7 @@ body.simple-mode #simpleApp { display: flex; }
         <div class="smp-kpi"><div class="smp-kpi-label">仕入</div><div class="smp-kpi-value" id="smpHomePur">—</div></div>
         <div class="smp-kpi"><div class="smp-kpi-label">件数</div><div class="smp-kpi-value" id="smpHomeCount">—</div></div>
       </div>
-      <div id="smpHomeShipWarn" class="smp-ship-alert" style="display:none" onclick="simpleTab('summary')"></div>
+      <div id="smpHomeShipWarn" class="smp-ship-alert" style="display:none" onclick="smpOpenList('sale', true)"></div>
       <div class="smp-card">
         <h2>📊 3ヶ月の推移</h2>
         <div class="smp-chart-legend">
@@ -783,7 +786,8 @@ body.simple-mode #simpleApp { display: flex; }
       <div class="smp-actions">
         <div class="smp-action" onclick="simpleTab('inbox')"><span class="smp-action-emoji">📥</span>取り込み<br><span style="font-size:10px;color:#94a3b8;font-weight:600">CSV・画像・配送</span></div>
         <div class="smp-action" onclick="simpleTab('manual')"><span class="smp-action-emoji">✍️</span>手入力</div>
-        <div class="smp-action" onclick="simpleTab('summary')"><span class="smp-action-emoji">📊</span>集計を見る</div>
+        <div class="smp-action" onclick="smpOpenList('sale', false)"><span class="smp-action-emoji">📋</span>売上一覧</div>
+        <div class="smp-action" onclick="smpOpenList('purchase', false)"><span class="smp-action-emoji">🧾</span>仕入一覧</div>
       </div>
     </div>
 
@@ -923,6 +927,23 @@ body.simple-mode #simpleApp { display: flex; }
       </div>
     </div>
 
+    <!-- 売上／仕入 一覧 -->
+    <div class="smp-screen" data-screen="list">
+      <div class="smp-card">
+        <h2 id="smpListTitle">📋 売上一覧</h2>
+        <div class="smp-choice">
+          <button class="smp-choice-btn smp-choice-active" id="smpListSaleBtn" onclick="smpListToggle('sale')">📈 売上</button>
+          <button class="smp-choice-btn" id="smpListPurBtn" onclick="smpListToggle('purchase')">📦 仕入</button>
+        </div>
+        <label id="smpListShipFilterWrap" style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#92400e;margin-bottom:10px;cursor:pointer">
+          <input type="checkbox" id="smpListShipOnly" onchange="smpRenderList()">
+          ⚠️ 送料未入力だけ表示（匿名配送は除く）
+        </label>
+        <div id="smpListCount" style="font-size:11px;color:#94a3b8;margin-bottom:8px"></div>
+        <div id="smpListBox"></div>
+      </div>
+    </div>
+
     <!-- 月次サマリー -->
     <div class="smp-screen" data-screen="summary">
       <!-- 3ヶ月グラフ -->
@@ -974,7 +995,7 @@ body.simple-mode #simpleApp { display: flex; }
       <div class="smp-card">
         <h2>最近の取引（アカウント修正・削除）</h2>
         <div class="smp-guide">取込元（アカウント）を間違えたら、右の選択で正しいものに変えられます。🗑で削除。</div>
-        <div id="smpShipWarn" style="display:none;font-size:12px;font-weight:800;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:10px"></div>
+        <div id="smpShipWarn" onclick="smpOpenList('sale', true)" style="display:none;cursor:pointer;font-size:12px;font-weight:800;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin-bottom:10px"></div>
         <div id="smpRecentList"></div>
       </div>
     </div>
@@ -2336,7 +2357,7 @@ body.simple-mode #simpleApp { display: flex; }
 <script src="pages/app-sync.js"></script>
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
-<script src="pages/app-simple.js?v=20260602f"></script>
+<script src="pages/app-simple.js?v=20260602g"></script>
 
 <script>
 function exportAllSettings() {
