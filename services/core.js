@@ -92,6 +92,16 @@ function sb() {
   if (v && v.url && v.key) return v;
   return SB_DEFAULT;
 }
+/* 設定が空なら既定のSupabase接続をlocalStorageへ自動セット
+   （ver460/ver500等は localStorage を直接読むため、ここで入れておく） */
+(function seedSupabaseConfig() {
+  try {
+    var cur = JSON.parse(localStorage.getItem('ribre_supabase_config_v121') || '{}');
+    if (!cur || !cur.url || !cur.key) {
+      localStorage.setItem('ribre_supabase_config_v121', JSON.stringify(SB_DEFAULT));
+    }
+  } catch (e) {}
+})();
 function sess() {
   const s = get(LS.sess, {});
   if (s && s.access_token) return s;
