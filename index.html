@@ -973,7 +973,11 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
             </optgroup>
           </select>
         </div>
-        <button class="smp-btn smp-btn-secondary" id="smpListCsvBtn" onclick="smpDownloadSalesCsv()" style="margin-bottom:10px">📥 売上を全部まとめてCSVダウンロード</button>
+        <div class="smp-field" id="smpListMonthWrap">
+          <label>年月で絞り込み（一覧・CSVに反映）</label>
+          <select id="smpListMonth" onchange="smpRenderList()"></select>
+        </div>
+        <button class="smp-btn smp-btn-secondary" id="smpListCsvBtn" onclick="smpDownloadSalesCsv()" style="margin-bottom:10px">📥 売上CSVダウンロード</button>
         <div id="smpListCount" style="font-size:11px;color:#94a3b8;margin-bottom:8px"></div>
         <div id="smpListBox"></div>
       </div>
@@ -2392,7 +2396,7 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
 <script src="pages/app-sync.js"></script>
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
-<script src="pages/app-simple.js?v=20260602j"></script>
+<script src="pages/app-simple.js?v=20260602k"></script>
 
 <script>
 function exportAllSettings() {

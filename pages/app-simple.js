@@ -886,8 +886,10 @@ function smpListToggle(kind) {
   if (pb) pb.classList.toggle('smp-choice-active', kind === 'purchase');
   const fw = document.getElementById('smpListShipFilterWrap'); if (fw) fw.style.display = kind === 'sale' ? 'flex' : 'none';
   const aw = document.getElementById('smpListAccWrap'); if (aw) aw.style.display = kind === 'sale' ? 'block' : 'none';
+  const mw = document.getElementById('smpListMonthWrap'); if (mw) mw.style.display = kind === 'sale' ? 'block' : 'none';
   const cb = document.getElementById('smpListCsvBtn'); if (cb) cb.style.display = kind === 'sale' ? 'block' : 'none';
   const t = document.getElementById('smpListTitle'); if (t) t.textContent = kind === 'sale' ? '📋 売上一覧' : '🧾 仕入一覧';
+  if (kind === 'sale') smpListBuildMonths();
   smpRenderList();
 }
 function smpOpenList(kind, shipOnly) {
@@ -918,6 +920,8 @@ function smpRenderList() {
   if (so && so.checked) arr = arr.filter(smpNeedsShip);
   const accFilter = (document.getElementById('smpListAccFilter') || {}).value || 'all';
   if (accFilter !== 'all') arr = arr.filter(r => (r.shop || '') === accFilter);
+  const monFilter = (document.getElementById('smpListMonth') || {}).value || 'all';
+  if (monFilter !== 'all') arr = arr.filter(r => (r.month || String(r.date || '').slice(0, 7)) === monFilter);
   arr = smpSortByAccount(arr);
   if (countEl) countEl.textContent = arr.length + '件';
   if (!arr.length) { box.innerHTML = '<div style="font-size:12px;color:#94a3b8">該当する売上はありません</div>'; return; }
@@ -953,16 +957,36 @@ function smpSortByAccount(arr) {
   });
 }
 
-/* 全売上を1つのCSVでダウンロード（アカウント順） */
+/* 年月セレクタを売上データの月で構築 */
+function smpListBuildMonths() {
+  const sel = document.getElementById('smpListMonth');
+  if (!sel) return;
+  const prev = sel.value;
+  const set = {};
+  sales().forEach(r => { const m = r.month || String(r.date || '').slice(0, 7); if (m) set[m] = 1; });
+  const months = Object.keys(set).sort().reverse();
+  sel.innerHTML = '<option value="all">すべての月</option>' +
+    months.map(m => { const p = m.split('-'); return '<option value="' + m + '">' + p[0] + '年' + (+p[1]) + '月</option>'; }).join('');
+  if (prev && Array.prototype.some.call(sel.options, o => o.value === prev)) sel.value = prev; else sel.value = 'all';
+}
+
+/* 売上をCSVでダウンロード（選択中のアカウント・年月の範囲、アカウント順） */
 function smpDownloadSalesCsv() {
+  let arr = sales();
+  const acc = (document.getElementById('smpListAccFilter') || {}).value || 'all';
+  const mon = (document.getElementById('smpListMonth') || {}).value || 'all';
+  if (acc !== 'all') arr = arr.filter(r => (r.shop || '') === acc);
+  if (mon !== 'all') arr = arr.filter(r => (r.month || String(r.date || '').slice(0, 7)) === mon);
+  arr = smpSortByAccount(arr);
   const rows = [['日付', '月', '取込元', '商品名', '金額', '手数料', '送料', '利益', '商品ID', 'メモ']];
-  smpSortByAccount(sales()).forEach(r => {
+  arr.forEach(r => {
     const amt = num(r.amount || r.price), fee = num(r.fee), ship = num(r.ship || r.shipping);
     const profit = (r.profit !== undefined && r.profit !== '') ? num(r.profit) : (amt - fee - ship);
     rows.push([r.date || '', r.month || String(r.date || '').slice(0, 7), r.shop || '', r.name || '', amt, fee, ship, profit, r.itemId || r.id || '', r.memo || '']);
   });
-  if (rows.length <= 1) { alert('売上データがありません'); return; }
-  if (typeof csvDownload === 'function') csvDownload(rows, '売上一覧_全件.csv');
+  if (rows.length <= 1) { alert('該当する売上データがありません'); return; }
+  const part = (acc !== 'all' ? acc : '全アカウント') + '_' + (mon !== 'all' ? mon : '全期間');
+  if (typeof csvDownload === 'function') csvDownload(rows, '売上_' + part + '.csv');
 }
 
 /* データが存在する月の一覧 */
