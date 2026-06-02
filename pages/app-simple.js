@@ -10,7 +10,7 @@ function simpleTab(tab) {
   document.querySelectorAll('.smp-tab-btn').forEach(b => b.classList.toggle('smp-tab-active', b.dataset.tab === tab));
   document.querySelectorAll('.smp-nav-item').forEach(b => b.classList.toggle('smp-nav-active', b.dataset.nav === tab));
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
-  if (tab === 'home') smpRenderHome();
+  if (tab === 'home') { smpRenderAuth(); smpRenderHome(); }
   if (tab === 'summary') smpSummaryEnter();
   if (tab === 'manual') smpManualInit();
   if (tab === 'list') smpRenderList();
@@ -56,6 +56,154 @@ function smpRenderHome() {
     else { w.style.display = 'none'; }
   }
   simpleRenderChart('smpHomeChart', 'smpHomeChartLabels');
+}
+
+/* ===== ログイン（Google / メール）＋端末またぎ同期 ===== */
+function smpRenderAuth() {
+  const out = document.getElementById('smpAuthOut');
+  const inn = document.getElementById('smpAuthIn');
+  if (!out || !inn) return;
+  const em = (typeof email === 'function') ? email() : '';
+  if (em) {
+    out.style.display = 'none';
+    inn.style.display = 'block';
+    const u = document.getElementById('smpAuthUser'); if (u) u.textContent = em;
+  } else {
+    out.style.display = 'block';
+    inn.style.display = 'none';
+  }
+}
+function smpAuthStatus(msg, type) {
+  const el = document.getElementById('smpAuthStatus');
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent = msg;
+  el.className = 'smp-status smp-status-' + (type || 'info');
+}
+function smpMarketOf(shop) {
+  shop = String(shop || '');
+  if (shop.indexOf('メルカリ') >= 0) return 'メルカリ';
+  if (shop.indexOf('ヤフオク') >= 0) return 'ヤフオク';
+  if (shop.indexOf('ラクマ') >= 0) return 'ラクマ';
+  return 'その他';
+}
+function smpGoogleLogin() {
+  const c = sb();
+  if (!c.url || !c.key) { smpAuthStatus('先に「← フル画面に戻る → 設定」でSupabase URL/Keyを保存してください', 'warn'); return; }
+  const redirect = location.origin + location.pathname;
+  location.href = c.url.replace(/\/$/, '') + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(redirect);
+}
+/* OAuthリダイレクト後のhash(access_token)を処理 */
+function smpHandleOAuthRedirect() {
+  if (!location.hash || location.hash.indexOf('access_token=') < 0) return false;
+  const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const at = h.get('access_token');
+  if (!at) return false;
+  const expIn = +(h.get('expires_in') || 3600);
+  const session = {
+    access_token: at,
+    refresh_token: h.get('refresh_token') || '',
+    token_type: h.get('token_type') || 'bearer',
+    expires_in: expIn,
+    expires_at: +(h.get('expires_at') || (Math.floor(Date.now() / 1000) + expIn)),
+    user: null, email: '', role: 'staff'
+  };
+  try { setLS(LS.sess, session); } catch (e) {}
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  if (!document.body.classList.contains('simple-mode')) {
+    document.body.classList.add('simple-mode');
+    try { localStorage.setItem('ribre_simple_mode', '1'); } catch (e) {}
+  }
+  const c = sb();
+  fetch(c.url.replace(/\/$/, '') + '/auth/v1/user', { headers: { apikey: c.key, Authorization: 'Bearer ' + at } })
+    .then(r => r.json())
+    .then(u => {
+      session.user = u; session.email = (u && u.email) || '';
+      try { setLS(LS.sess, session); localStorage.setItem('ribre_current_user140', session.email); } catch (e) {}
+      smpAfterLogin();
+    })
+    .catch(function () { smpAfterLogin(); });
+  return true;
+}
+async function smpEmailLogin() {
+  const e = (document.getElementById('smpAuthEmail').value || '').trim();
+  const p = (document.getElementById('smpAuthPass').value || '').trim();
+  if (!e || !p) { smpAuthStatus('メールとパスワードを入力してください', 'warn'); return; }
+  smpSetVal('email', e); smpSetVal('password', p); smpSetVal('role', 'staff');
+  smpAuthStatus('ログイン中...', 'info');
+  try { await signIn(); } catch (err) {}
+  if (typeof email === 'function' && email()) { await smpAfterLogin(); }
+  else { smpAuthStatus('ログインできませんでした（メール/パスワードを確認）', 'err'); }
+}
+async function smpEmailSignup() {
+  const e = (document.getElementById('smpAuthEmail').value || '').trim();
+  const p = (document.getElementById('smpAuthPass').value || '').trim();
+  if (!e || !p) { smpAuthStatus('メールとパスワードを入力してください', 'warn'); return; }
+  smpSetVal('email', e); smpSetVal('password', p); smpSetVal('role', 'staff');
+  smpAuthStatus('登録中...', 'info');
+  try { await signUp(); } catch (err) {}
+  smpAuthStatus('登録しました。続けて「ログイン」を押してください', 'ok');
+}
+/* ローカルの売上/仕入をクラウドへ（移行用・正準スキーマ・upsert） */
+async function smpUploadAllToCloud(em) {
+  const c = sb();
+  if (!c.url || !c.key) return { err: 'no config' };
+  const s = sess();
+  const token = s.access_token || c.key;
+  const headers = { apikey: c.key, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' };
+  const base = c.url.replace(/\/$/, '') + '/rest/v1/';
+  const sBody = sales().map(r => {
+    const amt = num(r.amount || r.price), fee = num(r.fee), ship = num(r.ship || r.shipping);
+    const profit = (r.profit !== undefined && r.profit !== '') ? num(r.profit) : (amt - fee - ship);
+    const itemId = String(r.itemId || r.id || ('mig_' + (r.date || '') + '_' + (r.name || '') + '_' + amt)).slice(0, 120);
+    return { user_email: em, sale_date: r.date || null, month: r.month || String(r.date || '').slice(0, 7), market: smpMarketOf(r.shop), account: r.shop || '', item_id: itemId, item_name: r.name || '', amount: amt, fee: fee, shipping_fee: ship, profit: profit, slip_number: r.slip || '', status: r.matchStatus || '移行', memo: r.memo || '', source: '移行(かんたん)' };
+  });
+  const pBody = purchases().map(r => {
+    const total = num(r.total || r.amount);
+    return { user_email: em, purchase_date: r.date || null, month: r.month || String(r.date || '').slice(0, 7), vendor: r.vendor || '', item_name: r.name || '', cost: total, total: total, invoice_number: '', status: r.matchStatus || '移行', memo: r.memo || '', source: '移行(かんたん)' };
+  });
+  let okS = 0, okP = 0, err = null;
+  try { if (sBody.length) { const res = await fetch(base + 'sales?on_conflict=user_email,item_id', { method: 'POST', headers: headers, body: JSON.stringify(sBody) }); if (res.ok) okS = sBody.length; else err = await res.text(); } } catch (e) { err = e.message; }
+  try { if (pBody.length) { const res = await fetch(base + 'purchases', { method: 'POST', headers: headers, body: JSON.stringify(pBody) }); if (res.ok) okP = pBody.length; else err = err || await res.text(); } } catch (e) { err = err || e.message; }
+  return { okS: okS, okP: okP, err: err };
+}
+async function smpAfterLogin() {
+  smpRenderAuth();
+  const em = (typeof email === 'function') ? email() : '';
+  if (!em) return;
+  const migKey = 'ribre_smp_migrated_' + em;
+  if (!localStorage.getItem(migKey)) {
+    if (sales().length || purchases().length) {
+      smpAuthStatus('このPCのデータをアカウントへ移行中...', 'info');
+      const r = await smpUploadAllToCloud(em);
+      if (r.err) smpAuthStatus('移行で一部エラー: ' + String(r.err).slice(0, 80), 'warn');
+      else smpAuthStatus('移行完了（売上' + r.okS + '・仕入' + r.okP + '）', 'ok');
+    }
+    try { localStorage.setItem(migKey, new Date().toISOString()); } catch (e) {}
+  }
+  smpAuthStatus('クラウドから読込中...', 'info');
+  try { await ver460LoadNow(); } catch (e) {}
+  smpRenderAuth(); smpRenderHome();
+  const act = document.querySelector('.smp-screen.smp-screen-active');
+  if (act && act.dataset.screen === 'summary') simpleRenderSummary();
+  smpAuthStatus('✅ ログイン中：' + em, 'ok');
+}
+function smpCloudReload() {
+  smpAuthStatus('クラウドから読込中...', 'info');
+  Promise.resolve().then(async () => {
+    try { await ver460LoadNow(); } catch (e) {}
+    smpRenderHome();
+    const act = document.querySelector('.smp-screen.smp-screen-active');
+    if (act && act.dataset.screen === 'summary') simpleRenderSummary();
+    smpAuthStatus('✅ 読込完了', 'ok');
+  });
+}
+function smpLogout() {
+  try { localStorage.removeItem(LS.sess); } catch (e) {}
+  try { localStorage.removeItem('ribre_current_user140'); localStorage.removeItem('ribre_current_role140'); } catch (e) {}
+  try { refreshAll(); } catch (e) {}
+  smpRenderAuth(); smpRenderHome();
+  smpAuthStatus('ログアウトしました（このPCのデータは残ります）', 'info');
 }
 
 /* ===== 取り込み（統合入力）: CSV・画像・キャプチャを1つの投入口で ===== */
@@ -1197,10 +1345,13 @@ window.addEventListener('load', function() {
   smpInitMonthOptions();
   smpBindFileLabels();
   smpInboxBindPaste();
+  var oauth = false;
+  try { oauth = smpHandleOAuthRedirect(); } catch (e) {}
   try {
-    if (localStorage.getItem('ribre_simple_mode') === '1') {
+    if (oauth || localStorage.getItem('ribre_simple_mode') === '1') {
       document.body.classList.add('simple-mode');
       simpleTab('home');
     }
   } catch(e) {}
+  try { smpRenderAuth(); } catch (e) {}
 });
