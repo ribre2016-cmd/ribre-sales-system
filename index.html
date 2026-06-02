@@ -794,7 +794,8 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
             </div>
             <button class="smp-btn smp-btn-secondary" style="width:auto !important;flex-shrink:0" onclick="smpLogout()">ログアウト</button>
           </div>
-          <button class="smp-btn smp-btn-secondary" style="margin-top:10px" onclick="smpCloudReload()">☁ クラウドから再読込</button>
+          <button class="smp-btn smp-btn-green" style="margin-top:10px" onclick="smpCloudSave()">💾 今のデータをクラウドに保存</button>
+          <button class="smp-btn smp-btn-secondary" onclick="smpCloudReload()">☁ クラウドから読み込む（上書き）</button>
         </div>
         <div class="smp-status smp-status-info" id="smpAuthStatus" style="display:none"></div>
       </div>
@@ -2423,7 +2424,7 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
 <script src="pages/app-sync.js"></script>
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
-<script src="pages/app-simple.js?v=20260602l"></script>
+<script src="pages/app-simple.js?v=20260602m"></script>
 
 <script>
 function exportAllSettings() {

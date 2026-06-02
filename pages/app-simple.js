@@ -145,6 +145,22 @@ async function smpEmailSignup() {
   smpAuthStatus('登録しました。続けて「ログイン」を押してください', 'ok');
 }
 /* ローカルの売上/仕入をクラウドへ（移行用・正準スキーマ・upsert） */
+/* クラウド送信用の payload（売上/仕入）を現在のローカルデータから作る */
+function smpBuildCloudBodies(em) {
+  const sBody = sales().map(r => {
+    const amt = num(r.amount || r.price), fee = num(r.fee), ship = num(r.ship || r.shipping);
+    const profit = (r.profit !== undefined && r.profit !== '') ? num(r.profit) : (amt - fee - ship);
+    const itemId = String(r.itemId || r.id || ('mig_' + (r.date || '') + '_' + (r.name || '') + '_' + amt)).slice(0, 120);
+    return { user_email: em, sale_date: r.date || null, month: r.month || String(r.date || '').slice(0, 7), market: smpMarketOf(r.shop), account: r.shop || '', item_id: itemId, item_name: r.name || '', amount: amt, fee: fee, shipping_fee: ship, profit: profit, slip_number: r.slip || '', status: r.matchStatus || '手入力', memo: r.memo || '', source: 'かんたん' };
+  });
+  const pBody = purchases().map(r => {
+    const total = num(r.total || r.amount);
+    return { user_email: em, purchase_date: r.date || null, month: r.month || String(r.date || '').slice(0, 7), vendor: r.vendor || '', item_name: r.name || '', cost: total, total: total, invoice_number: '', status: r.matchStatus || '手入力', memo: r.memo || '', source: 'かんたん' };
+  });
+  return { sBody: sBody, pBody: pBody };
+}
+
+/* 初回移行：ローカル→クラウド（upsert/merge。既存クラウドは消さない） */
 async function smpUploadAllToCloud(em) {
   const c = sb();
   if (!c.url || !c.key) return { err: 'no config' };
@@ -152,20 +168,37 @@ async function smpUploadAllToCloud(em) {
   const token = s.access_token || c.key;
   const headers = { apikey: c.key, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' };
   const base = c.url.replace(/\/$/, '') + '/rest/v1/';
-  const sBody = sales().map(r => {
-    const amt = num(r.amount || r.price), fee = num(r.fee), ship = num(r.ship || r.shipping);
-    const profit = (r.profit !== undefined && r.profit !== '') ? num(r.profit) : (amt - fee - ship);
-    const itemId = String(r.itemId || r.id || ('mig_' + (r.date || '') + '_' + (r.name || '') + '_' + amt)).slice(0, 120);
-    return { user_email: em, sale_date: r.date || null, month: r.month || String(r.date || '').slice(0, 7), market: smpMarketOf(r.shop), account: r.shop || '', item_id: itemId, item_name: r.name || '', amount: amt, fee: fee, shipping_fee: ship, profit: profit, slip_number: r.slip || '', status: r.matchStatus || '移行', memo: r.memo || '', source: '移行(かんたん)' };
-  });
-  const pBody = purchases().map(r => {
-    const total = num(r.total || r.amount);
-    return { user_email: em, purchase_date: r.date || null, month: r.month || String(r.date || '').slice(0, 7), vendor: r.vendor || '', item_name: r.name || '', cost: total, total: total, invoice_number: '', status: r.matchStatus || '移行', memo: r.memo || '', source: '移行(かんたん)' };
-  });
+  const { sBody, pBody } = smpBuildCloudBodies(em);
   let okS = 0, okP = 0, err = null;
   try { if (sBody.length) { const res = await fetch(base + 'sales?on_conflict=user_email,item_id', { method: 'POST', headers: headers, body: JSON.stringify(sBody) }); if (res.ok) okS = sBody.length; else err = await res.text(); } } catch (e) { err = e.message; }
   try { if (pBody.length) { const res = await fetch(base + 'purchases', { method: 'POST', headers: headers, body: JSON.stringify(pBody) }); if (res.ok) okP = pBody.length; else err = err || await res.text(); } } catch (e) { err = err || e.message; }
   return { okS: okS, okP: okP, err: err };
+}
+
+/* 手動保存：このPCの「今のデータ」でクラウドを置き換える（自分の行を消して入れ直し） */
+async function smpCloudSave() {
+  const em = (typeof email === 'function') ? email() : '';
+  if (!em) { smpAuthStatus('先にログインしてください', 'warn'); return; }
+  const c = sb();
+  if (!c.url || !c.key) { smpAuthStatus('Supabase設定がありません', 'warn'); return; }
+  if (!confirm('このPCの「今のデータ」をクラウドに保存します。\nクラウド側のこのアカウントのデータは、今の内容に置き換わります。\nよろしいですか？')) return;
+  const s = sess();
+  const token = s.access_token || c.key;
+  const base = c.url.replace(/\/$/, '') + '/rest/v1/';
+  const delH = { apikey: c.key, Authorization: 'Bearer ' + token };
+  const insH = { apikey: c.key, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', Prefer: 'return=minimal' };
+  const q = '?user_email=eq.' + encodeURIComponent(em);
+  smpAuthStatus('クラウドに保存中...', 'info');
+  try {
+    await fetch(base + 'sales' + q, { method: 'DELETE', headers: delH });
+    await fetch(base + 'purchases' + q, { method: 'DELETE', headers: delH });
+    const { sBody, pBody } = smpBuildCloudBodies(em);
+    let err = null;
+    if (sBody.length) { const r = await fetch(base + 'sales', { method: 'POST', headers: insH, body: JSON.stringify(sBody) }); if (!r.ok) err = await r.text(); }
+    if (pBody.length) { const r = await fetch(base + 'purchases', { method: 'POST', headers: insH, body: JSON.stringify(pBody) }); if (!r.ok) err = err || await r.text(); }
+    if (err) smpAuthStatus('保存で一部エラー: ' + String(err).slice(0, 80), 'warn');
+    else smpAuthStatus('✅ クラウドに保存しました（売上' + sBody.length + '・仕入' + pBody.length + '）', 'ok');
+  } catch (e) { smpAuthStatus('保存エラー: ' + e.message, 'err'); }
 }
 async function smpAfterLogin() {
   smpRenderAuth();
@@ -189,6 +222,7 @@ async function smpAfterLogin() {
   smpAuthStatus('✅ ログイン中：' + em, 'ok');
 }
 function smpCloudReload() {
+  if (!confirm('クラウドの内容をこのPCに読み込みます。\nこのPCの今の表示は、クラウドの内容に置き換わります。\n（先に保存したい場合は「クラウドに保存」を押してください）\nよろしいですか？')) return;
   smpAuthStatus('クラウドから読込中...', 'info');
   Promise.resolve().then(async () => {
     try { await ver460LoadNow(); } catch (e) {}
