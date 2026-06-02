@@ -19,12 +19,12 @@ function ver520Yen(n) {
   return (Number(n) || 0).toLocaleString() + '円';
 }
 function ver520Today() {
-  const d = new Date().toISOString().slice(0, 10);
+  const d = typeof today === 'function' ? today() : new Date().toISOString().slice(0, 10);
   document.getElementById('ver520Date').value = d;
   ver520BuildDaily();
 }
 function ver520DateValue() {
-  return (document.getElementById('ver520Date').value || new Date().toISOString().slice(0, 10)).trim();
+  return (document.getElementById('ver520Date').value || (typeof today === 'function' ? today() : new Date().toISOString().slice(0, 10))).trim();
 }
 function ver520Sales() {
   let prod = [];
@@ -237,7 +237,7 @@ window.ver520ExportReport = ver520ExportReport;
 window.addEventListener('load', () => {
   setTimeout(() => {
     try {
-      document.getElementById('ver520Date').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('ver520Date').value = typeof today === 'function' ? today() : new Date().toISOString().slice(0, 10);
     } catch (e) {}
   }, 1200);
 });

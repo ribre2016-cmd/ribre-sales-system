@@ -13,7 +13,26 @@ function num(v) {
   const n = Number(String(v ?? '').replace(/[¥,円,\s]/g, ''));
   return Number.isFinite(n) ? n : 0;
 }
-function today() { return new Date().toISOString().slice(0, 10); }
+function localDateString(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+function today() { return localDateString(); }
+function escHtml(v) {
+  return String(v ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+function safeLevel(v) {
+  const s = String(v || 'ok');
+  return /^[a-z0-9_-]+$/i.test(s) ? s : 'ok';
+}
 function get(k, d) {
   try {
     return JSON.parse(localStorage.getItem(k) || JSON.stringify(d));
@@ -85,6 +104,35 @@ function sales() { return get(LS.sales, []); }
 function purchases() { return get(LS.purchases, []); }
 function evidences() { return get(LS.ev, []); }
 function candidates() { return get(LS.cand, []); }
+function createLocalSnapshot(reason) {
+  const snap = {
+    reason: String(reason || 'manual'),
+    createdAt: new Date().toISOString(),
+    createdAtLocal: new Date().toLocaleString('ja-JP'),
+    sales: sales(),
+    purchases: purchases(),
+    yahooSales: get('ribre_yahoo_sales240', []),
+    evidences: evidences(),
+    candidates: candidates()
+  };
+  const rows = get('ribre_auto_snapshots_v1', []);
+  rows.unshift(snap);
+  try {
+    localStorage.setItem('ribre_auto_snapshots_v1', JSON.stringify(rows.slice(0, 10)));
+  } catch (e) {
+    try {
+      const light = rows.slice(0, 5).map((x) => ({
+        reason: x.reason,
+        createdAt: x.createdAt,
+        createdAtLocal: x.createdAtLocal,
+        salesCount: (x.sales || []).length,
+        purchasesCount: (x.purchases || []).length
+      }));
+      localStorage.setItem('ribre_auto_snapshots_v1', JSON.stringify(light));
+    } catch (err) {}
+  }
+  return snap;
+}
 /* 既定のSupabase接続（公開用 publishable キー。RLSで保護）。設定画面で上書きも可能 */
 var SB_DEFAULT = { url: 'https://wjsfunuzosyuknlzglyl.supabase.co', key: 'sb_publishable_aaEHWK1idj8w-9V4jQd6qg_kYMknHPk' };
 function sb() {
@@ -127,11 +175,11 @@ function renderList(id, rows) {
     .map(
       (r) =>
         '<div class="row ' +
-        (r.level || 'ok') +
+        safeLevel(r.level) +
         '"><span>' +
-        r.msg +
+        escHtml(r.msg) +
         '</span><span class="badge">' +
-        r.type +
+        escHtml(r.type) +
         '</span></div>'
     )
     .join('');

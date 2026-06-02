@@ -15,7 +15,7 @@ function ver320Render(rows) {
   const box = document.getElementById('autosyncList');
   if (!box) return;
   box.innerHTML = (rows || [])
-    .map((r) => '<div class="row ' + (r.level || 'ok') + '"><span>' + r.msg + '</span><span class="badge">' + r.type + '</span></div>')
+    .map((r) => '<div class="row ' + safeLevel(r.level) + '"><span>' + escHtml(r.msg) + '</span><span class="badge">' + escHtml(r.type) + '</span></div>')
     .join('');
 }
 function ver320Set(id, v) {
@@ -159,7 +159,7 @@ function ver540Render(rows) {
   if (!box) return;
   box.innerHTML = (rows || [])
     .slice(0, 500)
-    .map((r) => '<div class="row ' + (r.level || 'ok') + '"><span>' + r.msg + '</span><span class="badge">' + r.type + '</span></div>')
+    .map((r) => '<div class="row ' + safeLevel(r.level) + '"><span>' + escHtml(r.msg) + '</span><span class="badge">' + escHtml(r.type) + '</span></div>')
     .join('');
 }
 function ver540Set(id, v) {
@@ -351,6 +351,9 @@ async function ver540Pull() {
   }
 
   const payload = row.payload || {};
+  if (typeof createLocalSnapshot === 'function') {
+    createLocalSnapshot('before ver540 pull');
+  }
   if (payload.sales) {
     localStorage.setItem('ribre_full_sales221', JSON.stringify(payload.sales));
     localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(payload.sales));

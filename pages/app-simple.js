@@ -918,7 +918,15 @@ function smpShipMissingCount(list) {
 
 /* 最近の取引（タップでアカウント修正・削除／送料未入力を警告） */
 const SMP_ACCS = ['ヤフオク1','ヤフオク2','ヤフオク3','ヤフオク4','ヤフオク5','ヤフオク6','ヤフオク7','ヤフオク8','メルカリ','メルカリShops','ラクマ','その他'];
-function smpEsc(s) { return String(s == null ? '' : s).replace(/[<>&]/g, m => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m])); }
+function smpEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (m) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[m]));
+}
 function smpJs(s) { return "'" + String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; }
 function smpSaleId(r) { return String(r.id || r.itemId || ''); }
 

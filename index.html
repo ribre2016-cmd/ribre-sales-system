@@ -626,15 +626,17 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
 .smp-kpi-value { font-size: 16px; font-weight: 900; margin-top: 3px; }
 .smp-section-title { font-size: 12px; font-weight: 800; color: #64748b; margin: 4px 4px 8px; }
 .smp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.smp-action { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 16px 12px; text-align: center; cursor: pointer; font-weight: 800; font-size: 13px; color: #0f172a; transition: .12s; }
+.smp-action { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px 12px; text-align: center; cursor: pointer; font-weight: 800; font-size: 13px; color: #0f172a; transition: .12s; }
 .smp-action:hover { border-color: #2563eb; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(37,99,235,.15); }
-.smp-action-emoji { font-size: 26px; display: block; margin-bottom: 6px; }
+.smp-action-emoji { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px; border-radius: 10px; background: #eff6ff; color: #2563eb; }
+.smp-action-emoji .ui-icon { width: 20px; height: 20px; }
 /* === ボトムナビ === */
 .smp-bottomnav { background: #fff; border-top: 1px solid #e5e7eb; display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px 0 8px; flex-shrink: 0; }
 .smp-nav-item { text-align: center; cursor: pointer; color: #94a3b8; font-size: 10px; font-weight: 700; padding: 4px 0; }
-.smp-nav-ico { font-size: 21px; display: block; margin-bottom: 2px; filter: grayscale(1); opacity: .6; }
+.smp-nav-ico { display: flex; justify-content: center; margin-bottom: 3px; opacity: .72; color: #64748b; }
+.smp-nav-ico .ui-icon { width: 19px; height: 19px; }
 .smp-nav-item.smp-nav-active { color: #2563eb; }
-.smp-nav-item.smp-nav-active .smp-nav-ico { filter: none; opacity: 1; }
+.smp-nav-item.smp-nav-active .smp-nav-ico { opacity: 1; color: #2563eb; }
 /* === 種類選択ボタン（売上/仕入・売上CSV/配送CSV） === */
 #simpleApp .smp-choice { display: flex; gap: 10px; margin-bottom: 12px; }
 #simpleApp .smp-choice-btn { flex: 1; padding: 14px 8px; border: 1.5px solid #e2e8f0 !important; background: #f8fafc !important; color: #334155 !important; border-radius: 12px !important; font-size: 14px !important; font-weight: 800 !important; cursor: pointer; width: auto !important; margin: 0 !important; }
@@ -2425,6 +2427,7 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
 <script src="pages/app-mobile.js"></script>
 <script src="pages/app-report.js"></script>
 <script src="pages/app-simple.js?v=20260602m"></script>
+<script src="services/icons.js?v=20260602a"></script>
 
 <script>
 function exportAllSettings() {

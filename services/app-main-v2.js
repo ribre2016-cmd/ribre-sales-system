@@ -230,11 +230,12 @@ function renderSales() {
     else if (!shipOk) anomaly = 'sale-ns';
     const isLocked = String(x.memo || '').includes('[LOCK]');
     const memoRaw = String(x.memo || '');
-    const memoDisplay = memoRaw
+    let memoDisplay = memoRaw
       .replace(/\s*\/\s*\[LOCK\]|\[LOCK\]\s*\/\s*/g, '')
       .replace('[LOCK]', '')
       .replace(/\[USERMEMO\]\s*/g, '')
       .trim();
+    memoDisplay = escHtml(memoDisplay);
     const hasUserMemo = memoRaw.includes('[USERMEMO]');
     const profitTd = profit < 0
       ? '<td class="sale-loss-cell">' + yen(profit) + '</td>'
@@ -242,10 +243,10 @@ function renderSales() {
     return '<tr class="' + cls + (anomaly ? ' ' + anomaly : '') + (isLocked ? ' sale-locked' : '') + '">' +
       '<td><input type="checkbox" class="sales-row-cb" data-id="' + origIdx + '" onchange="updateSalesSelectCount()"></td>' +
       '<td>' + (i + 1) + '</td>' +
-      '<td>' + (x.date || '') + '</td>' +
-      '<td>' + (x.shop || '') + '</td>' +
-      '<td>' + (x.itemId || '') + '</td>' +
-      '<td>' + (x.name || '') + '</td>' +
+      '<td>' + escHtml(x.date || '') + '</td>' +
+      '<td>' + escHtml(x.shop || '') + '</td>' +
+      '<td>' + escHtml(x.itemId || '') + '</td>' +
+      '<td>' + escHtml(x.name || '') + '</td>' +
       '<td>' + yen(x.fee || 0) + '</td>' +
       '<td>' + yen(x.shipping || 0) + '</td>' +
       profitTd +
@@ -274,15 +275,15 @@ function renderPurchases() {
       .map(
         (x) =>
           '<tr><td>' +
-          x.date +
+          escHtml(x.date) +
           '</td><td>' +
-          x.vendor +
+          escHtml(x.vendor) +
           '</td><td>' +
-          x.name +
+          escHtml(x.name) +
           '</td><td>' +
           yen(x.total || x.amount) +
           '</td><td>' +
-          x.memo +
+          escHtml(x.memo) +
           '</td></tr>'
       )
       .join('') +
