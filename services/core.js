@@ -85,7 +85,13 @@ function sales() { return get(LS.sales, []); }
 function purchases() { return get(LS.purchases, []); }
 function evidences() { return get(LS.ev, []); }
 function candidates() { return get(LS.cand, []); }
-function sb() { return get(LS.sb, {}); }
+/* 既定のSupabase接続（公開用 publishable キー。RLSで保護）。設定画面で上書きも可能 */
+var SB_DEFAULT = { url: 'https://wjsfunuzosyuknlzglyl.supabase.co', key: 'sb_publishable_aaEHWK1idj8w-9V4jQd6qg_kYMknHPk' };
+function sb() {
+  var v = get(LS.sb, {});
+  if (v && v.url && v.key) return v;
+  return SB_DEFAULT;
+}
 function sess() {
   const s = get(LS.sess, {});
   if (s && s.access_token) return s;
