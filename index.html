@@ -624,6 +624,12 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
 .smp-kpi { background: #fff; border-radius: 12px; padding: 10px 8px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .smp-kpi-label { font-size: 10px; color: #64748b; font-weight: 700; }
 .smp-kpi-value { font-size: 16px; font-weight: 900; margin-top: 3px; }
+.smp-flow { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:12px; margin-bottom:12px; }
+.smp-flow-title { font-size:12px; color:#475569; font-weight:900; margin-bottom:8px; }
+.smp-flow-steps { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+.smp-flow-step { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:8px 6px; text-align:center; font-size:11px; font-weight:800; color:#334155; cursor:pointer; }
+.smp-flow-step:hover { background:#eff6ff; border-color:#bfdbfe; color:#1d4ed8; }
+.smp-flow-num { display:block; color:#2563eb; font-size:10px; margin-bottom:2px; }
 .smp-section-title { font-size: 12px; font-weight: 800; color: #64748b; margin: 4px 4px 8px; }
 .smp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .smp-action { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px 12px; text-align: center; cursor: pointer; font-weight: 800; font-size: 13px; color: #0f172a; transition: .12s; }
@@ -811,6 +817,15 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
         <div class="smp-kpi"><div class="smp-kpi-label">売上</div><div class="smp-kpi-value" id="smpHomeSale">—</div></div>
         <div class="smp-kpi"><div class="smp-kpi-label">仕入</div><div class="smp-kpi-value" id="smpHomePur">—</div></div>
         <div class="smp-kpi"><div class="smp-kpi-label">件数</div><div class="smp-kpi-value" id="smpHomeCount">—</div></div>
+      </div>
+      <div class="smp-flow">
+        <div class="smp-flow-title">今日の流れ</div>
+        <div class="smp-flow-steps">
+          <div class="smp-flow-step" onclick="simpleTab('inbox')"><span class="smp-flow-num">1</span>取り込み</div>
+          <div class="smp-flow-step" onclick="smpOpenList('sale', true)"><span class="smp-flow-num">2</span>配送確認</div>
+          <div class="smp-flow-step" onclick="smpOpenList('sale', false)"><span class="smp-flow-num">3</span>売上確認</div>
+          <div class="smp-flow-step" onclick="simpleTab('summary')"><span class="smp-flow-num">4</span>集計</div>
+        </div>
       </div>
       <div id="smpHomeShipWarn" class="smp-ship-alert" style="display:none" onclick="smpOpenList('sale', true)"></div>
       <div class="smp-card">
@@ -2187,8 +2202,8 @@ body.simple-mode .ver310-fixed-action { display: none !important; }
       <button onclick="ver540StartSync()" class="green">自動同期開始</button>
       <button onclick="ver540StopSync()">停止</button>
       <button onclick="ver540ManualSync()" class="green">今すぐ同期</button>
-      <button onclick="ver540Pull()">本番→端末</button>
-      <button onclick="ver540Push()">端末→本番</button>
+      <button onclick="ver540Pull()" title="本番データをこの端末へ受信します">受信</button>
+      <button onclick="ver540Push()" title="この端末のデータを本番へ送信します">送信</button>
       <button onclick="ver540ShowHistory()" class="secondary">同期履歴</button>
     </div>
     <div id="ver540SafetyHint" class="safe-hint ok">同期前に端末データの状態を確認します。</div>

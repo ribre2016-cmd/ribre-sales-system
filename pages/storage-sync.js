@@ -177,10 +177,13 @@ function ver540RenderSafetyHint() {
   const dirty = typeof ver320CurrentDirty === 'function' ? ver320CurrentDirty() : localStorage.getItem('ribre_dirty320') === '1';
   const snapshots = get('ribre_auto_snapshots_v1', []);
   const latest = snapshots && snapshots[0] && snapshots[0].createdAtLocal ? snapshots[0].createdAtLocal : '';
+  const localSales = typeof sales === 'function' ? sales().length : 0;
+  const localPurchases = typeof purchases === 'function' ? purchases().length : 0;
+  const counts = '端末: 売上' + localSales + '件 / 仕入' + localPurchases + '件';
   el.className = 'safe-hint ' + (dirty ? 'warn' : 'ok');
   el.textContent = dirty
-    ? '端末に未同期の変更があります。本番→端末の前に自動バックアップを作成します。'
-    : '同期できます。' + (latest ? ' 直近バックアップ: ' + latest : '');
+    ? '未同期の変更があります。受信前に自動バックアップを作成します。' + counts
+    : '同期できます。' + counts + (latest ? ' / 直近バックアップ: ' + latest : '');
 }
 function ver540Config() {
   try {
