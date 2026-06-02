@@ -39,6 +39,11 @@ function ver320Hash() {
     return String(Date.now());
   }
 }
+function ver320CurrentDirty() {
+  const last = localStorage.getItem('ribre_last_hash320') || '';
+  const now = ver320Hash();
+  return localStorage.getItem('ribre_dirty320') === '1' || (!!last && last !== now);
+}
 function ver320MarkDirty(reason) {
   localStorage.setItem('ribre_dirty320', '1');
   localStorage.setItem('ribre_dirty_reason320', reason || '変更あり');
@@ -62,11 +67,10 @@ function ver320ToggleAutoSync() {
   ver320Render([{ type: '設定', msg: '自動同期を ' + (now ? 'OFF' : 'ON') + ' にしました' }]);
 }
 function ver320CheckDirty() {
-  const last = localStorage.getItem('ribre_last_hash320') || '';
-  const now = ver320Hash();
-  const dirty = localStorage.getItem('ribre_dirty320') === '1' || last !== now;
+  const dirty = ver320CurrentDirty();
   localStorage.setItem('ribre_dirty320', dirty ? '1' : '0');
   ver320Refresh();
+  if (typeof ver540RenderSafetyHint === 'function') ver540RenderSafetyHint();
   ver320Render([{ type: dirty ? '変更あり' : 'OK', level: dirty ? 'warn' : 'ok', msg: dirty ? '未同期の変更があります' : '未同期変更はありません' }]);
 }
 async function ver320SyncNow() {
@@ -150,6 +154,7 @@ window.addEventListener('load', () => {
     ver320Refresh();
     ver320WrapChangeFunctions();
     ver320Render([{ type: '案内', msg: '自動同期をONにすると、登録後にクラウド保存を実行します' }]);
+    if (typeof ver540RenderSafetyHint === 'function') ver540RenderSafetyHint();
   }, 1600);
 });
 
@@ -165,6 +170,17 @@ function ver540Render(rows) {
 function ver540Set(id, v) {
   const el = document.getElementById(id);
   if (el) el.textContent = v;
+}
+function ver540RenderSafetyHint() {
+  const el = document.getElementById('ver540SafetyHint');
+  if (!el) return;
+  const dirty = typeof ver320CurrentDirty === 'function' ? ver320CurrentDirty() : localStorage.getItem('ribre_dirty320') === '1';
+  const snapshots = get('ribre_auto_snapshots_v1', []);
+  const latest = snapshots && snapshots[0] && snapshots[0].createdAtLocal ? snapshots[0].createdAtLocal : '';
+  el.className = 'safe-hint ' + (dirty ? 'warn' : 'ok');
+  el.textContent = dirty
+    ? '端末に未同期の変更があります。本番→端末の前に自動バックアップを作成します。'
+    : '同期できます。' + (latest ? ' 直近バックアップ: ' + latest : '');
 }
 function ver540Config() {
   try {
@@ -318,6 +334,8 @@ async function ver540Push() {
   }
 
   localStorage.setItem('ribre_last_push540', JSON.stringify(payload));
+  localStorage.setItem('ribre_dirty320', '0');
+  localStorage.setItem('ribre_last_hash320', typeof ver320Hash === 'function' ? ver320Hash() : '');
   ver540SaveHistory('送信', 'sales ' + sales.length + '件 / purchases ' + purchases.length + '件');
   ver540Render([
     { type: '送信', msg: 'sales ' + sales.length + '件' },
@@ -325,6 +343,7 @@ async function ver540Push() {
     { type: '端末', msg: ver540Device() }
   ]);
   ver540Set('ver540Status', '送信OK');
+  ver540RenderSafetyHint();
   return { authRequired: false };
 }
 async function ver540Pull() {
@@ -332,6 +351,12 @@ async function ver540Pull() {
   if (!email) {
     ver540HandleAuthRequired();
     return { authRequired: true };
+  }
+  const dirty = typeof ver320CurrentDirty === 'function' ? ver320CurrentDirty() : localStorage.getItem('ribre_dirty320') === '1';
+  if (dirty && !confirm('端末に未同期の変更があります。本番データを受信すると端末側の売上・仕入が上書きされます。自動バックアップを作成して続けますか？')) {
+    ver540RenderSafetyHint();
+    ver540Render([{ type: '中止', level: 'warn', msg: '本番→端末の受信を中止しました' }]);
+    return { authRequired: false, cancelled: true };
   }
   const r = await ver540Rest('sync_logs', '?select=*&user_email=eq.' + encodeURIComponent(email) + '&order=synced_at.desc&limit=1');
   if (r.error) {
@@ -366,6 +391,9 @@ async function ver540Pull() {
   } catch (e) {}
 
   ver540SaveHistory('受信', 'sales ' + (payload.sales || []).length + '件');
+  localStorage.setItem('ribre_dirty320', '0');
+  localStorage.setItem('ribre_last_hash320', typeof ver320Hash === 'function' ? ver320Hash() : '');
+  ver540RenderSafetyHint();
   ver540Render([
     { type: '受信', msg: 'sales ' + (payload.sales || []).length + '件' },
     { type: '受信', msg: 'purchases ' + (payload.purchases || []).length + '件' },
@@ -398,6 +426,7 @@ async function ver540ManualSync() {
   localStorage.setItem('ribre_sync_count540', String(c));
   ver540Set('ver540SyncCount', c + '回');
   ver540Set('ver540CurrentDevice', ver540Device());
+  ver540RenderSafetyHint();
 }
 function ver540StartSync() {
   const intervalEl = document.getElementById('ver540Interval');
