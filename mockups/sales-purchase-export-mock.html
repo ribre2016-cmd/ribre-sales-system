@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RIBRE 売上・仕入 Excel出力モック</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Yu Gothic", "Meiryo", system-ui, sans-serif;
+  background: #eef2f7;
+  color: #0f172a;
+}
+.page { max-width: 1480px; margin: 0 auto; padding: 22px; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 18px; background: #123a7a; color: #fff; border-radius: 8px;
+}
+.topbar h1 { margin: 0; font-size: 21px; letter-spacing: 0; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+button {
+  border: 0; border-radius: 6px; padding: 10px 14px; font-weight: 800;
+  background: #16a34a; color: #fff; cursor: default;
+}
+button.secondary { background: #e2e8f0; color: #0f172a; }
+select, input {
+  width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 8px;
+  font: inherit; font-weight: 800; color: #0f172a; background: #fff;
+}
+.lead {
+  margin: 14px 0 18px; color: #475569; font-weight: 700; line-height: 1.55;
+}
+.grid { display: grid; grid-template-columns: 420px 1fr; gap: 18px; align-items: start; }
+.panel { background: #fff; border: 1px solid #dbe3ef; border-radius: 8px; overflow: hidden; box-shadow: 0 6px 18px rgba(15,23,42,.06); }
+.panel.export-panel { min-width: 0; }
+.panel-head { padding: 14px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+.panel-head h2 { margin: 0 0 4px; font-size: 17px; }
+.panel-head p { margin: 0; font-size: 12px; color: #64748b; font-weight: 700; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 14px 16px; background: #fff; }
+.kpi { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; }
+.kpi .label { font-size: 11px; color: #64748b; font-weight: 800; }
+.kpi .value { margin-top: 4px; font-size: 18px; font-weight: 900; }
+.kpi.profit .value { color: #15803d; }
+.kpi.tax .value { color: #b45309; }
+.kpi.unit .value { color: #0369a1; }
+.section { padding: 14px 16px 16px; }
+.section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.section-title h3 { margin: 0; font-size: 15px; }
+.title-actions { display: flex; align-items: center; gap: 8px; }
+.add-button { background: #2563eb; padding: 7px 10px; font-size: 12px; border-radius: 6px; }
+.badge { font-size: 11px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 999px; padding: 4px 8px; font-weight: 800; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sales-export-table { table-layout: fixed; font-size: 11px; }
+.sales-export-table th:nth-child(1), .sales-export-table td:nth-child(1) { width: 42px; }
+.sales-export-table th:nth-child(2), .sales-export-table td:nth-child(2) { width: 86px; }
+.sales-export-table th:nth-child(3), .sales-export-table td:nth-child(3) { width: 86px; }
+.sales-export-table th:nth-child(4), .sales-export-table td:nth-child(4) { width: 108px; }
+.sales-export-table th:nth-child(5), .sales-export-table td:nth-child(5) { width: auto; }
+.sales-export-table th:nth-child(6), .sales-export-table td:nth-child(6) { width: 76px; }
+.sales-export-table th:nth-child(7), .sales-export-table td:nth-child(7),
+.sales-export-table th:nth-child(8), .sales-export-table td:nth-child(8),
+.sales-export-table th:nth-child(9), .sales-export-table td:nth-child(9),
+.sales-export-table th:nth-child(10), .sales-export-table td:nth-child(10),
+.sales-export-table th:nth-child(11), .sales-export-table td:nth-child(11) { width: 68px; }
+.sales-export-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+th {
+  background: #eaf1fb; color: #334155; text-align: left; padding: 8px 7px;
+  border: 1px solid #cbd5e1; white-space: nowrap;
+}
+td { padding: 7px; border: 1px solid #e2e8f0; vertical-align: top; }
+td.num, th.num { text-align: right; }
+tr:nth-child(even) td { background: #fafcff; }
+.tabs { display: flex; gap: 6px; padding: 12px 16px 0; border-bottom: 1px solid #e2e8f0; background: #fff; }
+.tab { padding: 8px 12px; border: 1px solid #dbeafe; border-bottom: 0; border-radius: 6px 6px 0 0; color: #1d4ed8; background: #eff6ff; font-size: 12px; font-weight: 900; }
+.tab.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+.note { margin-top: 10px; font-size: 12px; color: #64748b; font-weight: 700; line-height: 1.5; }
+.flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.step { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; background: #f8fafc; font-size: 12px; font-weight: 800; }
+.step span { display: block; color: #2563eb; font-size: 11px; margin-bottom: 3px; }
+.type-manager { display: grid; grid-template-columns: 1fr 120px; gap: 8px; margin-bottom: 10px; }
+.type-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.type-tag { padding: 6px 8px; border-radius: 999px; background: #eef6ff; border: 1px solid #bfdbfe; color: #1e40af; font-size: 11px; font-weight: 900; }
+.type-tag.purchase { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px 14px; }
+.mini-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; background: #fbfdff; }
+.mini-card .label { color: #64748b; font-size: 11px; font-weight: 900; }
+.mini-card .value { margin-top: 3px; font-size: 16px; font-weight: 900; }
+.charts { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.chart-box { border: 1px solid #dbe3ef; border-radius: 6px; padding: 12px; background: #fff; }
+.chart-title { margin: 0 0 10px; font-size: 13px; font-weight: 900; color: #334155; }
+.bar-chart { height: 150px; display: flex; align-items: end; gap: 8px; border-left: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; padding: 8px 8px 0; }
+.bar-item { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: end; gap: 5px; height: 100%; }
+.bar { width: 100%; max-width: 34px; background: #2563eb; border-radius: 5px 5px 0 0; position: relative; }
+.bar.profit { background: #16a34a; }
+.bar.tax { background: #f59e0b; }
+.bar span { position: absolute; left: 50%; top: -18px; transform: translateX(-50%); font-size: 10px; font-weight: 900; color: #475569; white-space: nowrap; }
+.bar-label { font-size: 10px; color: #64748b; font-weight: 900; white-space: nowrap; }
+.ocr-panel { margin-top: 12px; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #f8fafc; }
+.ocr-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; border-bottom: 1px solid #dbe3ef; background: #eef6ff; }
+.ocr-head h4 { margin: 0; font-size: 14px; }
+.ocr-mode { display: flex; gap: 6px; }
+.ocr-mode span { padding: 5px 8px; border-radius: 999px; background: #fff; border: 1px solid #bfdbfe; color: #1d4ed8; font-size: 11px; font-weight: 900; }
+.ocr-mode span.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+.ocr-body { display: grid; grid-template-columns: 240px 1fr; gap: 12px; padding: 12px; }
+.ocr-drop { min-height: 190px; border: 2px dashed #93c5fd; border-radius: 8px; display: grid; place-items: center; text-align: center; padding: 14px; background: #fff; color: #1e3a8a; font-weight: 900; }
+.ocr-form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.ocr-field { display: grid; gap: 4px; }
+.ocr-field label { color: #64748b; font-size: 11px; font-weight: 900; }
+.ocr-field.wide { grid-column: 1 / -1; }
+.ocr-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
+.ocr-footer .secondary { background: #e2e8f0; color: #0f172a; }
+@media (max-width: 1280px) {
+  .grid { grid-template-columns: 1fr; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .flow { grid-template-columns: 1fr; }
+  .summary-grid, .charts { grid-template-columns: 1fr; }
+  .ocr-body { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="topbar">
+    <h1>RIBRE 売上・仕入 Excel出力モック</h1>
+    <div class="actions">
+      <button>Excel出力</button>
+      <button class="secondary">表示月: 2026年5月</button>
+    </div>
+  </div>
+  <div class="lead">
+    現在の「仕入れ」シートは、上側に仕入れ、下側に売上が横並びで混在しています。モックでは月を指定したら、仕入れ・売上・集計が読みやすい表として出る形にしています。
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>案A: 既存Excelを見やすく整理</h2>
+        <p>同じシート内で、月次サマリー、仕入れ明細、売上明細を縦に分ける案</p>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="label">仕入合計</div><div class="value">517,582円</div></div>
+        <div class="kpi"><div class="label">売上合計</div><div class="value">1,802,977円</div></div>
+        <div class="kpi"><div class="label">経費/差引</div><div class="value">367,071円</div></div>
+        <div class="kpi profit"><div class="label">利益</div><div class="value">1,591,919円</div></div>
+      </div>
+      <div class="section">
+        <div class="section-title"><h3>仕入れ明細</h3><span class="badge">6件</span></div>
+        <table>
+          <thead><tr><th>No</th><th>仕入れ先</th><th>日付</th><th class="num">金額</th><th>種別</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>高島</td><td>2026-05-09</td><td class="num">127,050</td><td>出張買取</td></tr>
+            <tr><td>2</td><td>志木</td><td>2026-05-10</td><td class="num">11,424</td><td>出張買取</td></tr>
+            <tr><td>3</td><td>入間</td><td>2026-05-17</td><td class="num">98,820</td><td>出張買取</td></tr>
+            <tr><td>4</td><td>志木</td><td>2026-05-20</td><td class="num">39,748</td><td>出張買取</td></tr>
+            <tr><td>5</td><td>エコ</td><td>2026-05-26</td><td class="num">180,000</td><td>出張買取</td></tr>
+            <tr><td>6</td><td>志木</td><td>2026-05-30</td><td class="num">60,540</td><td>出張買取</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="section">
+        <div class="section-title"><h3>売上明細</h3><span class="badge">例: EC/Book/小売</span></div>
+        <table>
+          <thead><tr><th>No</th><th>日付</th><th>販売先</th><th class="num">金額</th><th>種別</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>2026-05-11</td><td>Book</td><td class="num">86,858</td><td>EC</td></tr>
+            <tr><td>2</td><td>2026-05-12</td><td>山田</td><td class="num">457,600</td><td>EC</td></tr>
+            <tr><td>3</td><td>2026-05-10</td><td>澤田</td><td class="num">11,000</td><td>EC</td></tr>
+            <tr><td>4</td><td>2026-05-19</td><td>Book</td><td class="num">27,163</td><td>EC</td></tr>
+            <tr><td>5</td><td>2026-05-21</td><td>小売</td><td class="num">110,000</td><td>店頭</td></tr>
+          </tbody>
+        </table>
+        <div class="note">既存Excelに近いまま整えるならこの形。印刷・確認はしやすいですが、アプリからの自動出力には少し制約があります。</div>
+      </div>
+    </section>
+
+    <section class="panel export-panel">
+      <div class="panel-head">
+        <h2>案B: フル画面からExcel出力</h2>
+        <p>アプリ側に「売上」「仕入」「月次集計」を表示し、そのままExcel出力する案</p>
+      </div>
+      <div class="tabs">
+        <div class="tab active">月次サマリー</div>
+        <div class="tab">売上明細</div>
+        <div class="tab">仕入明細</div>
+        <div class="tab">元データ</div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="label">売上</div><div class="value">1,958,990円</div></div>
+        <div class="kpi"><div class="label">仕入</div><div class="value">517,582円</div></div>
+        <div class="kpi"><div class="label">手数料/送料</div><div class="value">367,071円</div></div>
+        <div class="kpi profit"><div class="label">利益</div><div class="value">1,074,337円</div></div>
+      </div>
+      <div class="summary-grid">
+        <div class="mini-card">
+          <div class="label">税抜売上</div>
+          <div class="value">1,780,900円</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">消費税（売上内税 10%換算）</div>
+          <div class="value">178,090円</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">商品数 / 平均単価</div>
+          <div class="value">727件 / 2,695円</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">1件あたり利益</div>
+          <div class="value">1,478円</div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title"><h3>推移グラフ</h3><span class="badge">Excelにもグラフ出力</span></div>
+        <div class="charts">
+          <div class="chart-box">
+            <p class="chart-title">四半期グラフ（売上・利益）</p>
+            <div class="bar-chart">
+              <div class="bar-item"><div class="bar" style="height:58%"><span>428万</span></div><div class="bar-label">1Q売上</div></div>
+              <div class="bar-item"><div class="bar profit" style="height:36%"><span>241万</span></div><div class="bar-label">1Q利益</div></div>
+              <div class="bar-item"><div class="bar" style="height:76%"><span>562万</span></div><div class="bar-label">2Q売上</div></div>
+              <div class="bar-item"><div class="bar profit" style="height:49%"><span>318万</span></div><div class="bar-label">2Q利益</div></div>
+              <div class="bar-item"><div class="bar" style="height:64%"><span>473万</span></div><div class="bar-label">3Q売上</div></div>
+              <div class="bar-item"><div class="bar profit" style="height:42%"><span>275万</span></div><div class="bar-label">3Q利益</div></div>
+              <div class="bar-item"><div class="bar" style="height:70%"><span>518万</span></div><div class="bar-label">4Q売上</div></div>
+              <div class="bar-item"><div class="bar profit" style="height:44%"><span>289万</span></div><div class="bar-label">4Q利益</div></div>
+            </div>
+          </div>
+          <div class="chart-box">
+            <p class="chart-title">年間グラフ（月別売上・消費税）</p>
+            <div class="bar-chart">
+              <div class="bar-item"><div class="bar" style="height:63%"><span>268万</span></div><div class="bar-label">3月</div></div>
+              <div class="bar-item"><div class="bar" style="height:54%"><span>230万</span></div><div class="bar-label">4月</div></div>
+              <div class="bar-item"><div class="bar" style="height:46%"><span>196万</span></div><div class="bar-label">5月</div></div>
+              <div class="bar-item"><div class="bar tax" style="height:18%"><span>17.8万</span></div><div class="bar-label">5月税</div></div>
+              <div class="bar-item"><div class="bar" style="height:41%"><span>175万</span></div><div class="bar-label">6月</div></div>
+              <div class="bar-item"><div class="bar" style="height:59%"><span>252万</span></div><div class="bar-label">7月</div></div>
+              <div class="bar-item"><div class="bar" style="height:50%"><span>214万</span></div><div class="bar-label">8月</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="note">グラフは出力Excelでは「月次サマリー」シートに配置する想定です。売上・利益・消費税・平均単価を同じ画面で確認できます。</div>
+      </div>
+      <div class="section">
+        <div class="section-title">
+          <h3>売上明細（アプリ表示と同じ列）</h3>
+          <div class="title-actions"><button class="add-button">追加</button><span class="badge">Excel出力対象</span></div>
+        </div>
+        <div class="ocr-panel">
+          <div class="ocr-head">
+            <h4>OCR取込画面（売上追加）</h4>
+            <div class="ocr-mode"><span class="active">伝票</span><span>レシート</span><span>手入力</span></div>
+          </div>
+          <div class="ocr-body">
+            <div class="ocr-drop">画像・PDFをここに追加<br>またはカメラで撮影</div>
+            <div class="ocr-form">
+              <div class="ocr-field"><label>日付</label><input value="2026-05-21"></div>
+              <div class="ocr-field"><label>販売先</label><input value="小売"></div>
+              <div class="ocr-field"><label>金額</label><input value="110,000"></div>
+              <div class="ocr-field"><label>消費税</label><input value="10,000"></div>
+              <div class="ocr-field"><label>手数料</label><input value="0"></div>
+              <div class="ocr-field"><label>種別</label><select><option>EC</option><option selected>店頭</option><option>Book</option><option>小売</option><option>委託販売</option></select></div>
+            </div>
+          </div>
+          <div class="ocr-footer"><button class="secondary">キャンセル</button><button>明細に追加</button></div>
+        </div>
+        <div class="type-manager">
+          <input value="委託販売" aria-label="売上種別を追加">
+          <button>種別追加</button>
+        </div>
+        <div class="type-tags">
+          <span class="type-tag">EC</span>
+          <span class="type-tag">店頭</span>
+          <span class="type-tag">Book</span>
+          <span class="type-tag">小売</span>
+          <span class="type-tag">委託販売</span>
+        </div>
+        <div class="note">ここで登録した種別が、売上明細のプルダウンに出る想定です。</div>
+        <table class="sales-export-table">
+          <thead><tr><th>No</th><th>日付</th><th>販売先</th><th>商品ID</th><th>内容</th><th>種別</th><th class="num">手数料</th><th class="num">送料</th><th class="num">消費税</th><th class="num">利益</th><th class="num">金額</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>2026-05-31</td><td>ヤフオク1</td><td>l1146087031</td><td>1G5 ゲームソフト PS...</td><td><select><option selected>EC</option><option>店頭</option><option>Book</option><option>小売</option><option>委託販売</option></select></td><td class="num">249</td><td class="num">220</td><td class="num">255</td><td class="num">2,331</td><td class="num">2,800</td></tr>
+            <tr><td>2</td><td>2026-05-31</td><td>ヤフオク1</td><td>k528723104</td><td>三菱 A6M5c 零式艦上戦闘機...</td><td><select><option selected>EC</option><option>店頭</option><option>Book</option><option>小売</option><option>委託販売</option></select></td><td class="num">125</td><td class="num">1,100</td><td class="num">214</td><td class="num">1,132</td><td class="num">2,357</td></tr>
+            <tr><td>3</td><td>2026-05-30</td><td>ヤフオク2</td><td>m1227700401</td><td>1KC8 CD / ユーロビート...</td><td><select><option selected>EC</option><option>店頭</option><option>Book</option><option>小売</option><option>委託販売</option></select></td><td class="num">139</td><td class="num">220</td><td class="num">155</td><td class="num">1,341</td><td class="num">1,700</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="section">
+        <div class="section-title">
+          <h3>仕入明細（アプリに追加する列）</h3>
+          <div class="title-actions"><button class="add-button">追加</button><span class="badge">Excel出力対象</span></div>
+        </div>
+        <div class="ocr-panel">
+          <div class="ocr-head">
+            <h4>OCR取込画面（仕入れ追加）</h4>
+            <div class="ocr-mode"><span class="active">領収書</span><span>請求書</span><span>手入力</span></div>
+          </div>
+          <div class="ocr-body">
+            <div class="ocr-drop">画像・PDFをここに追加<br>またはカメラで撮影</div>
+            <div class="ocr-form">
+              <div class="ocr-field"><label>日付</label><input value="2026-05-30"></div>
+              <div class="ocr-field"><label>仕入れ先</label><input value="志木"></div>
+              <div class="ocr-field"><label>金額</label><input value="60,540"></div>
+              <div class="ocr-field"><label>消費税</label><input value="5,504"></div>
+              <div class="ocr-field"><label>手数料</label><input value="0"></div>
+              <div class="ocr-field"><label>種別</label><select><option selected>出張買取</option><option>店頭買取</option><option>宅配買取</option><option>業者仕入</option></select></div>
+            </div>
+          </div>
+          <div class="ocr-footer"><button class="secondary">キャンセル</button><button>明細に追加</button></div>
+        </div>
+        <div class="type-manager">
+          <input value="宅配買取" aria-label="仕入れ種別を追加">
+          <button>種別追加</button>
+        </div>
+        <div class="type-tags">
+          <span class="type-tag purchase">出張買取</span>
+          <span class="type-tag purchase">店頭買取</span>
+          <span class="type-tag purchase">宅配買取</span>
+          <span class="type-tag purchase">業者仕入</span>
+        </div>
+        <div class="note">ここで登録した種別が、仕入明細のプルダウンに出る想定です。</div>
+        <table>
+          <thead><tr><th>No</th><th>日付</th><th>仕入れ先</th><th class="num">金額</th><th>種別</th><th>メモ</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>2026-05-09</td><td>高島</td><td class="num">127,050</td><td><select><option selected>出張買取</option><option>店頭買取</option><option>宅配買取</option><option>業者仕入</option></select></td><td>高島5/9</td></tr>
+            <tr><td>2</td><td>2026-05-10</td><td>志木</td><td class="num">11,424</td><td><select><option selected>出張買取</option><option>店頭買取</option><option>宅配買取</option><option>業者仕入</option></select></td><td>志木5/10</td></tr>
+            <tr><td>3</td><td>2026-05-17</td><td>入間</td><td class="num">98,820</td><td><select><option selected>出張買取</option><option>店頭買取</option><option>宅配買取</option><option>業者仕入</option></select></td><td>入間5/17</td></tr>
+          </tbody>
+        </table>
+        <div class="flow">
+          <div class="step"><span>1. 月を選ぶ</span>2026年5月など指定</div>
+          <div class="step"><span>2. 画面で確認</span>売上と仕入を別表で確認</div>
+          <div class="step"><span>3. Excel出力</span>サマリー・売上・仕入をタブ分け</div>
+        </div>
+        <div class="note">おすすめはこちら。アプリのデータから直接Excelを作るので、転記ミスや既存シートの崩れを減らせます。</div>
+      </div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

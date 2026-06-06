@@ -115,6 +115,21 @@ function ver460MapProdSales(rows) {
     source: 'Supabase本番DB Ver60.0'
   }));
 }
+function ver460MapProdPurchases(rows) {
+  return (rows || []).map((x) => ({
+    id: x.id || ('p_' + (x.purchase_date || '') + '_' + (x.item_name || '')),
+    date: x.purchase_date || '',
+    month: x.month || String(x.purchase_date || '').slice(0, 7),
+    vendor: x.vendor || '',
+    name: x.item_name || '',
+    amount: Number(x.total || x.cost || 0),
+    total: Number(x.total || x.cost || 0),
+    invoiceNo: x.invoice_number || '',
+    matchStatus: x.status || '本番DB',
+    memo: x.memo || '',
+    source: 'Supabase本番DB Ver60.0'
+  }));
+}
 async function ver460LoadNow() {
   const email = ver460Email();
   if (!email) {
@@ -132,8 +147,10 @@ async function ver460LoadNow() {
     return;
   }
   const mapped = ver460MapProdSales(sales.data || []);
+  const mappedPurchases = ver460MapProdPurchases(purchases.data || []);
   localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(mapped));
   localStorage.setItem('ribre_full_sales221', JSON.stringify(mapped));
+  localStorage.setItem('ribre_full_purchases221', JSON.stringify(mappedPurchases));
   localStorage.setItem('ribre_prod_sales460', JSON.stringify(sales.data || []));
   localStorage.setItem('ribre_prod_purchases460', JSON.stringify(purchases.data || []));
   const at = new Date().toLocaleString('ja-JP');
@@ -218,6 +235,7 @@ window.ver460Url = ver460Url;
 window.ver460DeviceName = ver460DeviceName;
 window.ver460Rest = ver460Rest;
 window.ver460MapProdSales = ver460MapProdSales;
+window.ver460MapProdPurchases = ver460MapProdPurchases;
 window.ver460LoadNow = ver460LoadNow;
 window.ver460Refresh = ver460Refresh;
 window.ver460ToggleAutoReload = ver460ToggleAutoReload;

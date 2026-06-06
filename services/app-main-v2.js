@@ -303,6 +303,7 @@ function addSale() {
   const a = sales();
   a.unshift(row);
   setLS(LS.sales, a);
+  if (document.body.classList.contains('simple-mode') && typeof smpScheduleAutosave === 'function') smpScheduleAutosave('add-sale');
   refreshAll();
 }
 function addPurchase() {
@@ -319,6 +320,7 @@ function addPurchase() {
   const a = purchases();
   a.unshift(row);
   setLS(LS.purchases, a);
+  if (document.body.classList.contains('simple-mode') && typeof smpScheduleAutosave === 'function') smpScheduleAutosave('add-purchase');
   refreshAll();
 }
 function exportSalesCsv() {

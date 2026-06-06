@@ -69,7 +69,8 @@
 
   function enhanceButton(btn, forcedIcon) {
     if (!btn || btn.dataset.iconEnhanced === '1') return;
-    const name = forcedIcon || inferIcon(btn.textContent, btn.getAttribute('onclick'), btn.id);
+    if (btn.dataset.noIcon === '1') return;
+    const name = forcedIcon || btn.dataset.icon || inferIcon(btn.textContent, btn.getAttribute('onclick'), btn.id);
     if (!name) return;
     btn.dataset.iconEnhanced = '1';
     btn.classList.add('has-ui-icon');

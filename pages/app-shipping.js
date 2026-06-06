@@ -238,6 +238,7 @@ function matchShipping() {
     }
   });
   setLS(LS.sales, s);
+  shipMarkChanged('shipping-match');
   refreshAll();
   const salesResults = [];
   s.forEach(x => {
@@ -282,6 +283,36 @@ function yRows() {
 function ySave(arr) {
   localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(arr.slice(0, 20000)));
   setLS(LS.sales, arr.slice(0, 20000));
+  shipMarkChanged('sales-sync');
+}
+const Y_SALES_ACCOUNT_ORDER = ['ヤフオク1', 'ヤフオク2', 'ヤフオク3', 'ヤフオク4', 'ヤフオク5', 'ヤフオク6', 'ヤフオク7', 'ヤフオク8', 'メルカリShops'];
+function yNormalizeAccountName(name) {
+  const z = '０１２３４５６７８９';
+  return String(name || '').replace(/[０-９]/g, (ch) => String(z.indexOf(ch))).replace(/\s+/g, '');
+}
+function yAccountRank(name) {
+  const normalized = yNormalizeAccountName(name);
+  const idx = Y_SALES_ACCOUNT_ORDER.indexOf(normalized);
+  return idx >= 0 ? idx : 999;
+}
+function ySortImportedSalesRows(rows) {
+  return (rows || [])
+    .map((row, idx) => ({ row, idx }))
+    .sort((a, b) => {
+      const accountDiff = yAccountRank(a.row.shop) - yAccountRank(b.row.shop);
+      if (accountDiff) return accountDiff;
+      const ao = Number(a.row.order);
+      const bo = Number(b.row.order);
+      const orderDiff = (Number.isFinite(ao) && ao > 0 ? ao : a.idx + 1) - (Number.isFinite(bo) && bo > 0 ? bo : b.idx + 1);
+      if (orderDiff) return orderDiff;
+      return a.idx - b.idx;
+    })
+    .map((x) => x.row);
+}
+function shipMarkChanged(reason) {
+  try {
+    if (typeof smpScheduleAutosave === 'function') smpScheduleAutosave(reason || 'shipping-change');
+  } catch (e) {}
 }
 function ySet(id, v) {
   const el = document.getElementById(id);
@@ -404,6 +435,7 @@ function importYahooSalesCsv() {
       };
 
       rows.slice(1).forEach((r, i) => {
+        const csvOrder = i + 1;
         const rawId = String(r[idxId] || '').trim();
         const itemId = isYahoo ? yItemId(r[idxId] || r.join(' ')) : (rawId || yItemId(r.join(' ')));
         if (!itemId) {
@@ -413,6 +445,10 @@ function importYahooSalesCsv() {
         const status = String(r[idxStatus] || '');
         const pay = String(r[idxPay] || '');
         if (status.includes('受取連絡待ち')) {
+          skipped++;
+          return;
+        }
+        if (/キャンセル|cancel/i.test(status)) {
           skipped++;
           return;
         }
@@ -434,7 +470,21 @@ function importYahooSalesCsv() {
             const csvSettleAmount = yNum(r[idxAmount]);
             const csvName = r[idxName] || '';
             let touched = false;
+            if (existing.order !== csvOrder) { existing.order = csvOrder; touched = true; }
             if (!Number(existing.fee) && csvFee) { existing.fee = csvFee; touched = true; }
+            const statusText = [existing.matchStatus, existing.memo].map(v => String(v || '')).join(' ');
+            const hasShipEvidence = !!(existing.slip || existing.invoiceNo || existing.deliveryCompany);
+            const isMatchedShip = /配送CSV一致|配送一致|匿名配送|匿名/.test(statusText) || hasShipEvidence;
+            const wasManualShip = String(existing.matchStatus || '') === '手入力' || (Number(existing.shipping || existing.ship || 0) > 0 && !isMatchedShip);
+            if (wasManualShip && !csvShipping) {
+              existing.shipping = 0;
+              existing.ship = 0;
+              existing.slip = '';
+              existing.invoiceNo = '';
+              existing.deliveryCompany = '';
+              existing.matchStatus = '売上CSV取込';
+              touched = true;
+            }
             if (!Number(existing.shipping) && csvShipping) {
               existing.shipping = csvShipping;
               existing.ship = csvShipping;
@@ -486,7 +536,7 @@ function importYahooSalesCsv() {
           matchStatus: '売上CSV取込',
           memo: (isYahoo ? 'ヤフオク売上CSV' : account + '売上CSV') + ' / ' + file.name,
           source: 'YahooCSV Ver60.0',
-          order: old.length + added.length + i + 1
+          order: csvOrder
         };
         added.push(row);
         seen.add(itemId);
@@ -526,7 +576,7 @@ function importYahooSalesCsv() {
           }
         }
       }
-      const merged = old.concat(added);
+      const merged = ySortImportedSalesRows(old.concat(added));
       ySave(merged);
       refreshAll();
       const totalSales = merged.length;
@@ -1055,6 +1105,7 @@ function manualShipping(itemId, val) {
     results[ri].msg = '手入力: ' + (results[ri].name || '') + ' / 送料:' + v;
     saveShipResults(results);
   }
+  shipMarkChanged('manual-shipping');
 }
 window.shipRenderEditable = shipRenderEditable;
 window.sortUnmatchedFirst = sortUnmatchedFirst;
