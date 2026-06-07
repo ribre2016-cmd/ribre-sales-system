@@ -1,9 +1,10 @@
 /* かんたんモード Ver61.0 — 既存関数を使ったガイド付きワークフロー */
 
 function simpleToggle() {
-  const on = document.body.classList.toggle('simple-mode');
-  try { localStorage.setItem('ribre_simple_mode', on ? '1' : ''); } catch(e) {}
-  if (on) { simpleTab('home'); }
+  // フル画面は廃止。常にかんたんモードを維持する（OFFにはしない）。
+  document.body.classList.add('simple-mode');
+  try { localStorage.setItem('ribre_simple_mode', '1'); } catch(e) {}
+  simpleTab('home');
 }
 
 function simpleTab(tab) {
@@ -2180,12 +2181,12 @@ window.addEventListener('load', function() {
   var oauth = false;
   try { oauth = smpHandleOAuthRedirect(); } catch (e) {}
   try {
-    if (oauth || localStorage.getItem('ribre_simple_mode') === '1') {
-      document.body.classList.add('simple-mode');
-      simpleTab('home');
-      if (!oauth && typeof email === 'function' && email()) {
-        setTimeout(() => smpLoadCloudToSimple({ quiet: true }), 800);
-      }
+    // フル画面は廃止。常にかんたんモードを有効化する。
+    document.body.classList.add('simple-mode');
+    try { localStorage.setItem('ribre_simple_mode', '1'); } catch (e) {}
+    simpleTab('home');
+    if (!oauth && typeof email === 'function' && email()) {
+      setTimeout(() => smpLoadCloudToSimple({ quiet: true }), 800);
     }
   } catch(e) {}
   try { smpRenderAuth(); } catch (e) {}
