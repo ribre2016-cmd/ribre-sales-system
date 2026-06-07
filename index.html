@@ -759,6 +759,8 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
   width: 100% !important;
   box-sizing: border-box !important;
 }
+/* 粗利表の仮入力・送料セルの入力欄は幅100%にせず固定（列が広がるのを防ぐ） */
+#smpProfitTableWrap input { width: 58px !important; box-sizing: border-box !important; }
 #simpleApp button {
   background: none;
   color: inherit;
@@ -2190,7 +2192,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608k"></script>
+<script src="pages/app-simple.js?v=20260608m"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260607e"></script>
 <script src="services/auth-gate.js?v=20260607b"></script>

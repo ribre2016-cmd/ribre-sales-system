@@ -1304,7 +1304,7 @@ function simpleRenderProfitTable() {
       var real = (d.chanReal[c] && d.chanReal[c][mk]) || 0;
       if (mk === curMonth && !(real > 0)) {
         var pv = (prov[mk] && prov[mk][c]) || '';
-        return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (pv || '') + '" placeholder="仮" onchange="smpProfitSetProv(\'' + mk + '\',\'' + c + '\',this.value)" style="width:46px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:1px 2px;background:#fff;font-size:10px"></td>';
+        return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (pv || '') + '" placeholder="仮" onchange="smpProfitSetProv(\'' + mk + '\',\'' + c + '\',this.value)" style="box-sizing:border-box;width:50px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:1px 2px;background:#fff;font-size:10px"></td>';
       }
       return '<td style="text-align:right;' + bd(mk === curMonth ? 'background:#fffef5' : '') + '">' + fmt(eff) + '</td>';
     }).join('');
@@ -1346,7 +1346,7 @@ function simpleRenderProfitTable() {
   var shCells = months.map(function (m) {
     var mk = m.key; var v = d.shipByM[mk] || 0; shT += v;
     if (mk === curMonth) {
-      return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (v || '') + '" placeholder="送料" onchange="smpProfitSetShip(this.value)" style="width:50px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:1px 2px;background:#fff;font-size:10px"></td>';
+      return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (v || '') + '" placeholder="送料" onchange="smpProfitSetShip(this.value)" style="box-sizing:border-box;width:56px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:1px 2px;background:#fff;font-size:10px"></td>';
     }
     return '<td style="text-align:right;' + bd() + '">' + fmt(v) + '</td>';
   }).join('');
@@ -1357,7 +1357,7 @@ function simpleRenderProfitTable() {
 
   wrap.innerHTML =
     '<div style="font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 8px;margin-bottom:8px">黄色の列＝当月（' + curMonth + '）。ヤフオク1〜8・メルカリの空欄に<b>仮の数字</b>を入力できます。CSVを取り込むと自動で実数に切り替わります。</div>' +
-    '<table style="border-collapse:collapse;font-size:11px;min-width:' + (110 + months.length * 54 + 60) + 'px"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
+    '<table style="border-collapse:collapse;font-size:11px;width:max-content;table-layout:auto"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
   try { smpProfitRenderEntry(); } catch (e) {}
 }
 function smpProfitExportCsv() {
