@@ -1271,7 +1271,7 @@ function simpleRenderProfitTable() {
   if (provShip != null && d.shipByM[curMonth] != null) d.shipByM[curMonth] = num(provShip); // 当月の送料は手入力を優先
   var months = d.months;
   var fmt = function (n) { return (Math.round(n) || 0).toLocaleString(); };
-  var bd = function (extra) { return 'border:1px solid #e5e7eb;padding:2px 4px;' + (extra || ''); };
+  var bd = function (extra) { return 'border:1px solid #e5e7eb;padding:1px 3px;white-space:nowrap;' + (extra || ''); };
   // 売上チャネル：ヤフオク1〜8・メルカリ等を固定順、その後にデータにある他チャネル
   var totC = function (c) { return months.reduce(function (s, m) { return s + ((d.chanReal[c] && d.chanReal[c][m.key]) || 0); }, 0); };
   var others = Object.keys(d.chanReal).filter(function (c) { return SMP_SALES_CHANNELS.indexOf(c) < 0; }).sort(function (a, b) { return totC(b) - totC(a); });
@@ -1288,7 +1288,7 @@ function simpleRenderProfitTable() {
   var purByM = function (mk) { return venPurByM(mk) + meiPurByM(mk); };
 
   var th = '<th style="position:sticky;left:0;z-index:1;text-align:left;' + bd('background:#f1f5f9') + '">区分</th>' +
-    months.map(function (m) { return '<th style="text-align:right;white-space:nowrap;' + bd(m.key === curMonth ? 'background:#fffbeb;color:#b45309' : 'background:#f1f5f9') + '">' + m.label + '</th>'; }).join('') +
+    months.map(function (m) { return '<th onclick="smpProfitToggleMonth(\'' + m.key + '\')" title="押すと販売先/仕入先・日付を表示" style="cursor:pointer;text-align:right;min-width:56px;' + bd(m.key === curMonth ? 'background:#fffbeb;color:#b45309' : 'background:#f1f5f9') + '">' + m.label + ' ▾</th>'; }).join('') +
     '<th style="text-align:right;' + bd('background:#eef2ff') + '">年計</th>';
   var ncols = months.length + 2;
   function sectionRow(label, color) { return '<tr><td colspan="' + ncols + '" style="' + bd('background:' + color + ';font-weight:800') + '">' + label + '</td></tr>'; }
@@ -1318,7 +1318,7 @@ function simpleRenderProfitTable() {
     var detail = smpEsc(e.name || '') + (md ? ' ' + md : '');
     var cells = months.map(function (m) {
       if (m.key === e.mk) {
-        return '<td onclick="smpProfitToggleDetail(this)" title="' + detail + '" style="cursor:pointer;text-align:right;' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"><span style="font-weight:700">' + fmt(e.amount) + '</span><span class="smp-meili" style="display:none;color:#475569;font-size:9px"> ' + detail + '</span></td>';
+        return '<td onclick="smpProfitToggleDetail(this)" title="' + detail + '" style="cursor:pointer;text-align:right;' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"><span style="font-weight:700">' + fmt(e.amount) + '</span><span class="smp-meili" data-mk="' + e.mk + '" style="display:none;color:#475569;font-size:9px"> ' + detail + '</span></td>';
       }
       return '<td style="' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"></td>';
     }).join('');
@@ -1407,6 +1407,14 @@ function smpProfitEntryMonthVal() {
 var _smpProfitUnlocked = {};
 function smpProfitToggleDetail(td) {
   try { var s = td.querySelector('.smp-meili'); if (s) s.style.display = (!s.style.display || s.style.display === 'none') ? 'inline' : 'none'; } catch (e) {}
+}
+function smpProfitToggleMonth(mk) {
+  try {
+    var spans = document.querySelectorAll('#smpProfitTableWrap .smp-meili[data-mk="' + mk + '"]');
+    if (!spans.length) return;
+    var show = (!spans[0].style.display || spans[0].style.display === 'none');
+    spans.forEach(function (s) { s.style.display = show ? 'inline' : 'none'; });
+  } catch (e) {}
 }
 function smpProfitUnlock(id) { _smpProfitUnlocked[id] = true; smpProfitRenderEntry(); }
 function smpProfitSetShip(val) { smpProfitSetProv(today().slice(0, 7), '__ship__', val); }
