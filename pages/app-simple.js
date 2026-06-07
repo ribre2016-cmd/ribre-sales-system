@@ -1260,6 +1260,8 @@ function simpleRenderProfitTable() {
   var d = smpProfitData(startYear);
   var prov = smpProfitProvGet();
   var curMonth = today().slice(0, 7);
+  var provShip = (prov[curMonth] && prov[curMonth]['__ship__']);
+  if (provShip != null && d.shipByM[curMonth] != null) d.shipByM[curMonth] = num(provShip); // 当月の送料は手入力を優先
   var months = d.months;
   var fmt = function (n) { return (Math.round(n) || 0).toLocaleString(); };
   var bd = function (extra) { return 'border:1px solid #e5e7eb;padding:5px 8px;' + (extra || ''); };
@@ -1350,14 +1352,22 @@ function smpProfitEntryMonthVal() {
   if (el) el.value = m;
   return m;
 }
+var _smpProfitUnlocked = {};
+function smpProfitUnlock(id) { _smpProfitUnlocked[id] = true; smpProfitRenderEntry(); }
+function smpProfitSetShip(val) { smpProfitSetProv(today().slice(0, 7), '__ship__', val); }
 function smpProfitListHtml(rows, kind) {
   if (!rows.length) return '<div style="color:#94a3b8;font-size:12px;padding:4px 0">明細はありません</div>';
-  return '<div style="max-height:240px;overflow-y:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+  var label = kind === 'sale' ? '販売先' : '仕入先';
+  return '<div style="max-height:260px;overflow-y:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+    '<tr style="color:#94a3b8;font-size:11px"><th style="text-align:right;padding:3px 6px">金額</th><th style="text-align:left;padding:3px 6px">' + label + '</th><th style="text-align:left;padding:3px 6px">日付</th><th style="padding:3px 6px"></th></tr>' +
     rows.map(function (r) {
       var id = String(r.id || r.client || '');
       var name = kind === 'sale' ? (r.shop || r.name || '') : (r.vendor || r.name || '');
       var amt = kind === 'sale' ? num(r.amount != null ? r.amount : r.price) : num(r.total != null ? r.total : r.amount);
-      return '<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:4px 6px;white-space:nowrap;color:#64748b">' + smpEsc(r.date || '') + '</td><td style="padding:4px 6px">' + smpEsc(name) + '</td><td style="padding:4px 6px;text-align:right;font-weight:700">' + amt.toLocaleString() + '</td><td style="padding:4px 6px;text-align:right"><button onclick="smpProfitDeleteRow(\'' + kind + '\',\'' + id + '\')" style="border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">削除</button></td></tr>';
+      var op = _smpProfitUnlocked[id]
+        ? '<button onclick="smpProfitDeleteRow(\'' + kind + '\',\'' + id + '\')" style="border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">🗑 削除</button>'
+        : '<button onclick="smpProfitUnlock(\'' + id + '\')" style="border:1px solid #cbd5e1;background:#f8fafc;color:#475569;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">🔒 ロック解除</button>';
+      return '<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:4px 6px;text-align:right;font-weight:700;white-space:nowrap">' + amt.toLocaleString() + '</td><td style="padding:4px 6px">' + smpEsc(name) + '</td><td style="padding:4px 6px;white-space:nowrap;color:#64748b">' + smpEsc(r.date || '') + '</td><td style="padding:4px 6px;text-align:right">' + op + '</td></tr>';
     }).join('') + '</table></div>';
 }
 function smpProfitRenderEntry() {
@@ -1366,12 +1376,19 @@ function smpProfitRenderEntry() {
   var sIn = sales().filter(inM);
   var pIn = purchases().filter(inM);
   var ec = sIn.reduce(function (a, r) { return a + num(r.amount != null ? r.amount : r.price); }, 0);
-  var ship = sIn.reduce(function (a, r) { return a + num(r.ship != null ? r.ship : r.shipping); }, 0);
+  var rowShip = sIn.reduce(function (a, r) { return a + num(r.ship != null ? r.ship : r.shipping); }, 0);
   var cur = today().slice(0, 7);
+  var prov = smpProfitProvGet();
+  var provShip = (prov[cur] && prov[cur]['__ship__']);
+  var ship = (M === cur && provShip != null) ? num(provShip) : rowShip;
   var net = (M === cur) ? (ec - ship) : ec;
   var ecEl = document.getElementById('smpProfitEcNet');
   if (ecEl) ecEl.innerHTML = 'EC売上 − 送料（' + M + '）：¥' + Math.round(net).toLocaleString() +
     '<span style="font-weight:600;font-size:12px;color:#475569"> ' + (M === cur ? '（当月：売上 ' + Math.round(ec).toLocaleString() + ' − 送料 ' + Math.round(ship).toLocaleString() + '）' : '（過去月：CSV取込値・送料考慮済み）') + '</span>';
+  var shipRow = document.getElementById('smpProfitShipRow');
+  if (shipRow) shipRow.style.display = (M === cur) ? 'flex' : 'none';
+  var shipInput = document.getElementById('smpProfitShipInput');
+  if (shipInput && M === cur && document.activeElement !== shipInput) shipInput.value = (provShip != null ? provShip : '');
   var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(sIn, 'sale');
   var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(pIn, 'purchase');
   var sd = document.getElementById('smpPEntSaleDate'); if (sd && !sd.value) sd.value = (M === cur ? today() : M + '-01');
@@ -1404,6 +1421,7 @@ function smpProfitAddPurchase() {
 function smpProfitDeleteRow(kind, id) {
   if (!id) return;
   if (!confirm('この明細を削除します。よろしいですか？')) return;
+  delete _smpProfitUnlocked[id];
   var keep = function (r) { return String(r.id || r.client || '') !== String(id); };
   if (kind === 'sale') {
     setLS(LS.sales, sales().filter(keep));

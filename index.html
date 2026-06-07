@@ -1252,6 +1252,11 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
           <input type="month" id="smpProfitEntryMonth" onchange="smpProfitRenderEntry()" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px">
         </div>
         <div id="smpProfitEcNet" style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:10px 12px;margin:8px 0;font-weight:800;color:#166534"></div>
+        <div id="smpProfitShipRow" style="display:none;margin:0 0 8px;align-items:center;gap:8px;flex-wrap:wrap">
+          <label style="font-size:13px;font-weight:700;color:#b45309">当月の送料（手入力）</label>
+          <input id="smpProfitShipInput" inputmode="numeric" placeholder="送料" onchange="smpProfitSetShip(this.value)" style="width:120px;padding:7px 8px;border:1px solid #f59e0b;border-radius:8px;text-align:right;background:#fffbeb">
+          <span style="font-size:11px;color:#94a3b8">CSV取込後は実数を使います</span>
+        </div>
 
         <h3 style="font-size:14px;margin:14px 0 6px;color:#1e40af">売上明細</h3>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
@@ -2190,7 +2195,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608c"></script>
+<script src="pages/app-simple.js?v=20260608d"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260607e"></script>
 <script src="services/auth-gate.js?v=20260607b"></script>
