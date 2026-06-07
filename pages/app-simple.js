@@ -1313,12 +1313,16 @@ function simpleRenderProfitTable() {
 
   // 明細1件＝1行（区分の位置に「販売先/仕入先 ・ 日付」を表示、金額はその月の列だけ）
   function entryRow(e) {
+    var dp = String(e.date || '').split('-');
+    var md = dp.length === 3 ? (Number(dp[1]) + '/' + Number(dp[2])) : (e.date || '');
+    var labelInCell = '<span style="color:#475569;font-size:10px">' + smpEsc(e.name || '') + (md ? ' ' + md : '') + '</span>';
     var cells = months.map(function (m) {
-      var v = (m.key === e.mk) ? e.amount : 0;
-      return '<td style="text-align:right;' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '">' + (v ? fmt(v) : '') + '</td>';
+      if (m.key === e.mk) {
+        return '<td style="text-align:right;white-space:nowrap;' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"><span style="font-weight:700">' + fmt(e.amount) + '</span> ' + labelInCell + '</td>';
+      }
+      return '<td style="' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"></td>';
     }).join('');
-    var label = '<span style="font-weight:600">' + smpEsc(e.name || '(無名)') + '</span> <span style="color:#94a3b8;font-size:10px">' + smpEsc(e.date || '') + '</span>';
-    return '<tr><td style="position:sticky;left:0;white-space:nowrap;' + bd('background:#fff') + '">' + label + '</td>' + cells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(e.amount) + '</td></tr>';
+    return '<tr><td style="position:sticky;left:0;text-align:center;color:#cbd5e1;' + bd('background:#fff') + '">・</td>' + cells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(e.amount) + '</td></tr>';
   }
   var body = '';
   // 仕入（明細を個別行で表示）
