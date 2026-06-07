@@ -1228,20 +1228,27 @@ function smpProfitData(startYear) {
   var monthOf = function (r) { return r.month || String(r.date || r.sale_date || r.purchase_date || '').slice(0, 7); };
   var chanKey = function (r) { return String(r.shop || r.type || r.matchStatus || '').trim() || 'その他'; };
   var venKey = function (r) { return String(r.vendor || r.type || '').trim() || 'その他'; };
-  var chanReal = {}, venReal = {}, shipByM = {};
+  var isMei = function (r) { return String(r.source || '') === '明細'; };
+  var chanReal = {}, venReal = {}, shipByM = {}, meiSales = [], meiPur = [];
   months.forEach(function (m) { shipByM[m.key] = 0; });
   sales().forEach(function (r) {
     var mk = monthOf(r); if (!keyset[mk]) return;
-    var c = chanKey(r);
-    chanReal[c] = chanReal[c] || {}; chanReal[c][mk] = (chanReal[c][mk] || 0) + num(r.amount != null ? r.amount : r.price);
+    var amt = num(r.amount != null ? r.amount : r.price);
     shipByM[mk] += num(r.ship != null ? r.ship : r.shipping);
+    if (isMei(r)) { meiSales.push({ id: String(r.id || r.client || ''), date: r.date || '', name: String(r.shop || r.name || ''), amount: amt, mk: mk }); return; }
+    var c = chanKey(r);
+    chanReal[c] = chanReal[c] || {}; chanReal[c][mk] = (chanReal[c][mk] || 0) + amt;
   });
   purchases().forEach(function (r) {
     var mk = monthOf(r); if (!keyset[mk]) return;
+    var amt = num(r.total != null ? r.total : r.amount);
+    if (isMei(r)) { meiPur.push({ id: String(r.id || r.client || ''), date: r.date || '', name: String(r.vendor || r.name || ''), amount: amt, mk: mk }); return; }
     var v = venKey(r);
-    venReal[v] = venReal[v] || {}; venReal[v][mk] = (venReal[v][mk] || 0) + num(r.total != null ? r.total : r.amount);
+    venReal[v] = venReal[v] || {}; venReal[v][mk] = (venReal[v][mk] || 0) + amt;
   });
-  return { months: months, chanReal: chanReal, venReal: venReal, shipByM: shipByM };
+  meiSales.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+  meiPur.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+  return { months: months, chanReal: chanReal, venReal: venReal, shipByM: shipByM, meiSales: meiSales, meiPur: meiPur };
 }
 function simpleRenderProfitTable() {
   var wrap = document.getElementById('smpProfitTableWrap');
@@ -1270,11 +1277,15 @@ function simpleRenderProfitTable() {
   var others = Object.keys(d.chanReal).filter(function (c) { return SMP_SALES_CHANNELS.indexOf(c) < 0; }).sort(function (a, b) { return totC(b) - totC(a); });
   var chans = SMP_SALES_CHANNELS.concat(others);
   var saleEff = function (c, mk) { var real = (d.chanReal[c] && d.chanReal[c][mk]) || 0; if (real > 0) return real; if (mk === curMonth) return (prov[mk] && prov[mk][c]) || 0; return 0; };
-  var saleByM = function (mk) { return chans.reduce(function (s, c) { return s + saleEff(c, mk); }, 0); };
+  var chanSaleByM = function (mk) { return chans.reduce(function (s, c) { return s + saleEff(c, mk); }, 0); };
+  var meiSaleByM = function (mk) { return d.meiSales.reduce(function (s, e) { return s + (e.mk === mk ? e.amount : 0); }, 0); };
+  var saleByM = function (mk) { return chanSaleByM(mk) + meiSaleByM(mk); };
   // 仕入：買取先（vendor）別
   var totV = function (v) { return months.reduce(function (s, m) { return s + ((d.venReal[v] && d.venReal[v][m.key]) || 0); }, 0); };
   var vendors = Object.keys(d.venReal).sort(function (a, b) { return totV(b) - totV(a); });
-  var purByM = function (mk) { return vendors.reduce(function (s, v) { return s + ((d.venReal[v] && d.venReal[v][mk]) || 0); }, 0); };
+  var venPurByM = function (mk) { return vendors.reduce(function (s, v) { return s + ((d.venReal[v] && d.venReal[v][mk]) || 0); }, 0); };
+  var meiPurByM = function (mk) { return d.meiPur.reduce(function (s, e) { return s + (e.mk === mk ? e.amount : 0); }, 0); };
+  var purByM = function (mk) { return venPurByM(mk) + meiPurByM(mk); };
 
   var th = '<th style="position:sticky;left:0;z-index:1;text-align:left;' + bd('background:#f1f5f9') + '">区分</th>' +
     months.map(function (m) { return '<th style="text-align:right;white-space:nowrap;' + bd(m.key === curMonth ? 'background:#fffbeb;color:#b45309' : 'background:#f1f5f9') + '">' + m.label + '</th>'; }).join('') +
@@ -1300,14 +1311,32 @@ function simpleRenderProfitTable() {
     return '<tr><td style="position:sticky;left:0;white-space:nowrap;' + bd('background:#fff') + '">' + smpEsc(c) + '</td>' + cells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(t) + '</td></tr>';
   }
 
+  // 明細1件＝1行（区分の位置に「販売先/仕入先 ・ 日付」を表示、金額はその月の列だけ）
+  function entryRow(e) {
+    var cells = months.map(function (m) {
+      var v = (m.key === e.mk) ? e.amount : 0;
+      return '<td style="text-align:right;' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '">' + (v ? fmt(v) : '') + '</td>';
+    }).join('');
+    var label = '<span style="font-weight:600">' + smpEsc(e.name || '(無名)') + '</span> <span style="color:#94a3b8;font-size:10px">' + smpEsc(e.date || '') + '</span>';
+    return '<tr><td style="position:sticky;left:0;white-space:nowrap;' + bd('background:#fff') + '">' + label + '</td>' + cells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(e.amount) + '</td></tr>';
+  }
   var body = '';
-  body += sectionRow('仕入（買取先別）', '#fef3c7');
+  // 仕入（明細を個別行で表示）
+  body += sectionRow('仕入（明細）', '#fef3c7');
+  d.meiPur.forEach(function (e) { body += entryRow(e); });
   vendors.forEach(function (v) { body += dataRow(v, function (mk) { return (d.venReal[v] && d.venReal[v][mk]) || 0; }); });
-  if (!vendors.length) body += '<tr><td colspan="' + ncols + '" style="' + bd('color:#94a3b8') + '">仕入データがありません</td></tr>';
+  if (!d.meiPur.length && !vendors.length) body += '<tr><td colspan="' + ncols + '" style="' + bd('color:#94a3b8') + '">仕入データがありません（下の「明細入力」から追加）</td></tr>';
   body += dataRow('仕入 合計', purByM, { rowStyle: 'font-weight:800', nameBg: '#fff7ed' });
+  // 売上明細（追加分）＝チャネルの「上」に積む
+  body += sectionRow('売上明細（追加分）', '#dcfce7');
+  d.meiSales.forEach(function (e) { body += entryRow(e); });
+  if (!d.meiSales.length) body += '<tr><td colspan="' + ncols + '" style="' + bd('color:#94a3b8') + '">明細はまだありません（下の「明細入力」から追加）</td></tr>';
+  body += dataRow('売上明細 合計', meiSaleByM, { rowStyle: 'font-weight:800', nameBg: '#dcfce7' });
+  // 売上（チャネル別）
   body += sectionRow('売上（チャネル別）', '#dbeafe');
   chans.forEach(function (c) { body += salesRow(c); });
-  body += dataRow('売上 合計', saleByM, { rowStyle: 'font-weight:800', nameBg: '#eff6ff' });
+  body += dataRow('チャネル 合計', chanSaleByM, { rowStyle: 'font-weight:700', nameBg: '#eff6ff' });
+  body += dataRow('売上 合計（明細＋チャネル）', saleByM, { rowStyle: 'font-weight:800', nameBg: '#dbeafe' });
   // 送料 合計（当月は入力欄＝手入力で上書き。CSV取込後は実数）
   var shT = 0;
   var shCells = months.map(function (m) {
@@ -1333,6 +1362,8 @@ function smpProfitExportCsv() {
   var d = smpProfitData(startYear);
   var prov = smpProfitProvGet();
   var curMonth = today().slice(0, 7);
+  var provShipE = (prov[curMonth] && prov[curMonth]['__ship__']);
+  if (provShipE != null && d.shipByM[curMonth] != null) d.shipByM[curMonth] = num(provShipE);
   var months = d.months;
   var totC = function (c) { return months.reduce(function (s, m) { return s + ((d.chanReal[c] && d.chanReal[c][m.key]) || 0); }, 0); };
   var others = Object.keys(d.chanReal).filter(function (c) { return SMP_SALES_CHANNELS.indexOf(c) < 0; }).sort(function (a, b) { return totC(b) - totC(a); });
@@ -1344,12 +1375,20 @@ function smpProfitExportCsv() {
   function pushRow(label, getter) { var t = 0; var a = [label]; months.forEach(function (m) { var v = Math.round(getter(m.key)); t += v; a.push(v); }); a.push(t); rows.push(a); }
   rows.push(['【仕入】']);
   vendors.forEach(function (v) { pushRow(v, function (mk) { return (d.venReal[v] && d.venReal[v][mk]) || 0; }); });
-  pushRow('仕入 合計', function (mk) { return vendors.reduce(function (s, v) { return s + ((d.venReal[v] && d.venReal[v][mk]) || 0); }, 0); });
-  rows.push(['【売上】']);
+  d.meiPur.forEach(function (e) { pushRow((e.name || '(無名)') + ' ' + (e.date || ''), function (mk) { return e.mk === mk ? e.amount : 0; }); });
+  var venPur = function (mk) { return vendors.reduce(function (s, v) { return s + ((d.venReal[v] && d.venReal[v][mk]) || 0); }, 0); };
+  var meiPurM = function (mk) { return d.meiPur.reduce(function (s, e) { return s + (e.mk === mk ? e.amount : 0); }, 0); };
+  pushRow('仕入 合計', function (mk) { return venPur(mk) + meiPurM(mk); });
+  rows.push(['【売上明細】']);
+  d.meiSales.forEach(function (e) { pushRow((e.name || '(無名)') + ' ' + (e.date || ''), function (mk) { return e.mk === mk ? e.amount : 0; }); });
+  var meiSaleM = function (mk) { return d.meiSales.reduce(function (s, e) { return s + (e.mk === mk ? e.amount : 0); }, 0); };
+  pushRow('売上明細 合計', meiSaleM);
+  rows.push(['【売上（チャネル別）】']);
   chans.forEach(function (c) { pushRow(c, function (mk) { return saleEff(c, mk); }); });
-  pushRow('売上 合計', function (mk) { return chans.reduce(function (s, c) { return s + saleEff(c, mk); }, 0); });
+  var chanSale = function (mk) { return chans.reduce(function (s, c) { return s + saleEff(c, mk); }, 0); };
+  pushRow('売上 合計', function (mk) { return chanSale(mk) + meiSaleM(mk); });
   pushRow('送料 合計', function (mk) { return d.shipByM[mk] || 0; });
-  pushRow('粗利', function (mk) { return chans.reduce(function (s, c) { return s + saleEff(c, mk); }, 0) - vendors.reduce(function (s, v) { return s + ((d.venReal[v] && d.venReal[v][mk]) || 0); }, 0) - (d.shipByM[mk] || 0); });
+  pushRow('粗利', function (mk) { return chanSale(mk) + meiSaleM(mk) - venPur(mk) - meiPurM(mk) - (d.shipByM[mk] || 0); });
   csvDownload(rows, 'gross_profit_' + startYear + '.csv');
 }
 
@@ -1394,8 +1433,9 @@ function smpProfitRenderEntry() {
   var ecEl = document.getElementById('smpProfitEcNet');
   if (ecEl) ecEl.innerHTML = 'EC売上 − 送料（' + M + '）：¥' + Math.round(net).toLocaleString() +
     '<span style="font-weight:600;font-size:12px;color:#475569"> ' + (M === cur ? '（当月：売上 ' + Math.round(ec).toLocaleString() + ' − 送料 ' + Math.round(ship).toLocaleString() + '）' : '（過去月：CSV取込値・送料考慮済み）') + '</span>';
-  var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(sIn, 'sale');
-  var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(pIn, 'purchase');
+  var isMei = function (r) { return String(r.source || '') === '明細'; };
+  var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(sIn.filter(isMei), 'sale');
+  var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(pIn.filter(isMei), 'purchase');
   var sd = document.getElementById('smpPEntSaleDate'); if (sd && !sd.value) sd.value = (M === cur ? today() : M + '-01');
   var pd = document.getElementById('smpPEntPurDate'); if (pd && !pd.value) pd.value = (M === cur ? today() : M + '-01');
 }
@@ -1405,9 +1445,11 @@ function smpProfitAddSale() {
   var amt = num(document.getElementById('smpPEntSaleAmt').value || 0);
   if (!shop) { alert('販売先を入力してください'); return; }
   if (!amt) { alert('金額を入力してください'); return; }
-  smpSetVal('saleDate', date); smpSetVal('saleShop', shop); smpSetVal('saleName', shop); smpSetVal('saleAmount', amt);
-  addSale();
+  var arr = sales();
+  arr.unshift({ id: 's_' + Date.now() + '_' + Math.floor(Math.random() * 100000), date: date, month: String(date).slice(0, 7), shop: shop, name: shop, amount: amt, source: '明細' });
+  setLS(LS.sales, arr);
   document.getElementById('smpPEntSaleShop').value = ''; document.getElementById('smpPEntSaleAmt').value = '';
+  try { refreshAll(); } catch (e) {}
   smpScheduleAutosave('profit-sale');
   simpleRenderProfitTable();
 }
@@ -1417,9 +1459,11 @@ function smpProfitAddPurchase() {
   var amt = num(document.getElementById('smpPEntPurAmt').value || 0);
   if (!vendor) { alert('買取先を入力してください'); return; }
   if (!amt) { alert('金額を入力してください'); return; }
-  smpSetVal('purDate', date); smpSetVal('purVendor', vendor); smpSetVal('purName', vendor); smpSetVal('purAmount', amt);
-  addPurchase();
+  var arr = purchases();
+  arr.unshift({ id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 100000), date: date, month: String(date).slice(0, 7), vendor: vendor, name: vendor, total: amt, source: '明細' });
+  setLS(LS.purchases, arr);
   document.getElementById('smpPEntPurVendor').value = ''; document.getElementById('smpPEntPurAmt').value = '';
+  try { refreshAll(); } catch (e) {}
   smpScheduleAutosave('profit-purchase');
   simpleRenderProfitTable();
 }
