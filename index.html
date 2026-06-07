@@ -1243,6 +1243,34 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
         </div>
         <div id="smpProfitTableWrap" style="overflow-x:auto"></div>
       </div>
+
+      <div class="smp-card">
+        <h2>📝 明細入力（売上・仕入）</h2>
+        <div class="smp-guide">月を選んで、販売先・日付・金額を1件ずつ追加します（毎月の件数が違ってもOK）。入力は通常の売上・仕入として保存され、上の年間表に反映されます。</div>
+        <div style="margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:13px;font-weight:700;color:#334155">対象月</label>
+          <input type="month" id="smpProfitEntryMonth" onchange="smpProfitRenderEntry()" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px">
+        </div>
+        <div id="smpProfitEcNet" style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:10px 12px;margin:8px 0;font-weight:800;color:#166534"></div>
+
+        <h3 style="font-size:14px;margin:14px 0 6px;color:#1e40af">売上明細</h3>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          <input id="smpPEntSaleShop" placeholder="販売先" style="flex:1;min-width:90px;padding:8px;border:1px solid #cbd5e1;border-radius:8px">
+          <input id="smpPEntSaleDate" type="date" style="padding:8px;border:1px solid #cbd5e1;border-radius:8px">
+          <input id="smpPEntSaleAmt" placeholder="金額" inputmode="numeric" style="width:100px;padding:8px;border:1px solid #cbd5e1;border-radius:8px;text-align:right">
+          <button class="smp-btn smp-btn-green" style="width:auto;margin:0;padding:8px 14px" onclick="smpProfitAddSale()">追加</button>
+        </div>
+        <div id="smpPEntSaleList"></div>
+
+        <h3 style="font-size:14px;margin:16px 0 6px;color:#b45309">仕入明細</h3>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          <input id="smpPEntPurVendor" placeholder="買取先" style="flex:1;min-width:90px;padding:8px;border:1px solid #cbd5e1;border-radius:8px">
+          <input id="smpPEntPurDate" type="date" style="padding:8px;border:1px solid #cbd5e1;border-radius:8px">
+          <input id="smpPEntPurAmt" placeholder="金額" inputmode="numeric" style="width:100px;padding:8px;border:1px solid #cbd5e1;border-radius:8px;text-align:right">
+          <button class="smp-btn" style="width:auto;margin:0;padding:8px 14px;background:#d97706 !important" onclick="smpProfitAddPurchase()">追加</button>
+        </div>
+        <div id="smpPEntPurList"></div>
+      </div>
     </div>
 
   </div>
@@ -2162,7 +2190,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608b"></script>
+<script src="pages/app-simple.js?v=20260608c"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260607e"></script>
 <script src="services/auth-gate.js?v=20260607b"></script>

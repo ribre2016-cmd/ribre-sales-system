@@ -1314,6 +1314,7 @@ function simpleRenderProfitTable() {
   wrap.innerHTML =
     '<div style="font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 8px;margin-bottom:8px">黄色の列＝当月（' + curMonth + '）。ヤフオク1〜8・メルカリの空欄に<b>仮の数字</b>を入力できます。CSVを取り込むと自動で実数に切り替わります。</div>' +
     '<table style="border-collapse:collapse;font-size:12px;min-width:' + (150 + months.length * 74 + 80) + 'px"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
+  try { smpProfitRenderEntry(); } catch (e) {}
 }
 function smpProfitExportCsv() {
   var sel = document.getElementById('smpProfitYear');
@@ -1339,6 +1340,80 @@ function smpProfitExportCsv() {
   pushRow('送料 合計', function (mk) { return d.shipByM[mk] || 0; });
   pushRow('粗利', function (mk) { return chans.reduce(function (s, c) { return s + saleEff(c, mk); }, 0) - vendors.reduce(function (s, v) { return s + ((d.venReal[v] && d.venReal[v][mk]) || 0); }, 0) - (d.shipByM[mk] || 0); });
   csvDownload(rows, 'gross_profit_' + startYear + '.csv');
+}
+
+/* ===== 明細入力（販売先・日付・金額／通常の売上・仕入として保存） ===== */
+function smpProfitEntryMonthVal() {
+  var el = document.getElementById('smpProfitEntryMonth');
+  if (el && el.value) return el.value;
+  var m = today().slice(0, 7);
+  if (el) el.value = m;
+  return m;
+}
+function smpProfitListHtml(rows, kind) {
+  if (!rows.length) return '<div style="color:#94a3b8;font-size:12px;padding:4px 0">明細はありません</div>';
+  return '<div style="max-height:240px;overflow-y:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+    rows.map(function (r) {
+      var id = String(r.id || r.client || '');
+      var name = kind === 'sale' ? (r.shop || r.name || '') : (r.vendor || r.name || '');
+      var amt = kind === 'sale' ? num(r.amount != null ? r.amount : r.price) : num(r.total != null ? r.total : r.amount);
+      return '<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:4px 6px;white-space:nowrap;color:#64748b">' + smpEsc(r.date || '') + '</td><td style="padding:4px 6px">' + smpEsc(name) + '</td><td style="padding:4px 6px;text-align:right;font-weight:700">' + amt.toLocaleString() + '</td><td style="padding:4px 6px;text-align:right"><button onclick="smpProfitDeleteRow(\'' + kind + '\',\'' + id + '\')" style="border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">削除</button></td></tr>';
+    }).join('') + '</table></div>';
+}
+function smpProfitRenderEntry() {
+  var M = smpProfitEntryMonthVal();
+  var inM = function (r) { return (r.month || String(r.date || r.sale_date || r.purchase_date || '').slice(0, 7)) === M; };
+  var sIn = sales().filter(inM);
+  var pIn = purchases().filter(inM);
+  var ec = sIn.reduce(function (a, r) { return a + num(r.amount != null ? r.amount : r.price); }, 0);
+  var ship = sIn.reduce(function (a, r) { return a + num(r.ship != null ? r.ship : r.shipping); }, 0);
+  var cur = today().slice(0, 7);
+  var net = (M === cur) ? (ec - ship) : ec;
+  var ecEl = document.getElementById('smpProfitEcNet');
+  if (ecEl) ecEl.innerHTML = 'EC売上 − 送料（' + M + '）：¥' + Math.round(net).toLocaleString() +
+    '<span style="font-weight:600;font-size:12px;color:#475569"> ' + (M === cur ? '（当月：売上 ' + Math.round(ec).toLocaleString() + ' − 送料 ' + Math.round(ship).toLocaleString() + '）' : '（過去月：CSV取込値・送料考慮済み）') + '</span>';
+  var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(sIn, 'sale');
+  var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(pIn, 'purchase');
+  var sd = document.getElementById('smpPEntSaleDate'); if (sd && !sd.value) sd.value = (M === cur ? today() : M + '-01');
+  var pd = document.getElementById('smpPEntPurDate'); if (pd && !pd.value) pd.value = (M === cur ? today() : M + '-01');
+}
+function smpProfitAddSale() {
+  var shop = (document.getElementById('smpPEntSaleShop').value || '').trim();
+  var date = document.getElementById('smpPEntSaleDate').value || (smpProfitEntryMonthVal() + '-01');
+  var amt = num(document.getElementById('smpPEntSaleAmt').value || 0);
+  if (!shop) { alert('販売先を入力してください'); return; }
+  if (!amt) { alert('金額を入力してください'); return; }
+  smpSetVal('saleDate', date); smpSetVal('saleShop', shop); smpSetVal('saleName', shop); smpSetVal('saleAmount', amt);
+  addSale();
+  document.getElementById('smpPEntSaleShop').value = ''; document.getElementById('smpPEntSaleAmt').value = '';
+  smpScheduleAutosave('profit-sale');
+  simpleRenderProfitTable();
+}
+function smpProfitAddPurchase() {
+  var vendor = (document.getElementById('smpPEntPurVendor').value || '').trim();
+  var date = document.getElementById('smpPEntPurDate').value || (smpProfitEntryMonthVal() + '-01');
+  var amt = num(document.getElementById('smpPEntPurAmt').value || 0);
+  if (!vendor) { alert('買取先を入力してください'); return; }
+  if (!amt) { alert('金額を入力してください'); return; }
+  smpSetVal('purDate', date); smpSetVal('purVendor', vendor); smpSetVal('purName', vendor); smpSetVal('purAmount', amt);
+  addPurchase();
+  document.getElementById('smpPEntPurVendor').value = ''; document.getElementById('smpPEntPurAmt').value = '';
+  smpScheduleAutosave('profit-purchase');
+  simpleRenderProfitTable();
+}
+function smpProfitDeleteRow(kind, id) {
+  if (!id) return;
+  if (!confirm('この明細を削除します。よろしいですか？')) return;
+  var keep = function (r) { return String(r.id || r.client || '') !== String(id); };
+  if (kind === 'sale') {
+    setLS(LS.sales, sales().filter(keep));
+    try { setLS('ribre_yahoo_sales240', (get('ribre_yahoo_sales240', [])).filter(keep)); } catch (e) {}
+  } else {
+    setLS(LS.purchases, purchases().filter(keep));
+  }
+  try { refreshAll(); } catch (e) {}
+  smpScheduleAutosave('profit-delete');
+  simpleRenderProfitTable();
 }
 
 const SMP_TYPE_DEFAULTS = {
