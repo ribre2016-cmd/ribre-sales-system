@@ -1308,7 +1308,16 @@ function simpleRenderProfitTable() {
   body += sectionRow('売上（チャネル別）', '#dbeafe');
   chans.forEach(function (c) { body += salesRow(c); });
   body += dataRow('売上 合計', saleByM, { rowStyle: 'font-weight:800', nameBg: '#eff6ff' });
-  body += dataRow('送料 合計', function (mk) { return d.shipByM[mk] || 0; }, { nameStyle: 'font-weight:700' });
+  // 送料 合計（当月は入力欄＝手入力で上書き。CSV取込後は実数）
+  var shT = 0;
+  var shCells = months.map(function (m) {
+    var mk = m.key; var v = d.shipByM[mk] || 0; shT += v;
+    if (mk === curMonth) {
+      return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (v || '') + '" placeholder="送料" onchange="smpProfitSetShip(this.value)" style="width:66px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:2px 3px;background:#fff;font-size:11px"></td>';
+    }
+    return '<td style="text-align:right;' + bd() + '">' + fmt(v) + '</td>';
+  }).join('');
+  body += '<tr><td style="position:sticky;left:0;font-weight:700;' + bd('background:#fff') + '">送料 合計</td>' + shCells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(shT) + '</td></tr>';
   var gT = 0;
   var gCells = months.map(function (m) { var v = saleByM(m.key) - purByM(m.key) - (d.shipByM[m.key] || 0); gT += v; return '<td style="text-align:right;font-weight:800;color:' + (v >= 0 ? '#166534' : '#dc2626') + ';' + bd('background:#ecfdf5') + '">' + fmt(v) + '</td>'; }).join('');
   body += '<tr><td style="position:sticky;left:0;font-weight:800;' + bd('background:#ecfdf5') + '">粗利（売上−仕入−送料）</td>' + gCells + '<td style="text-align:right;font-weight:800;color:' + (gT >= 0 ? '#166534' : '#dc2626') + ';' + bd('background:#d1fae5') + '">' + fmt(gT) + '</td></tr>';
@@ -1385,10 +1394,6 @@ function smpProfitRenderEntry() {
   var ecEl = document.getElementById('smpProfitEcNet');
   if (ecEl) ecEl.innerHTML = 'EC売上 − 送料（' + M + '）：¥' + Math.round(net).toLocaleString() +
     '<span style="font-weight:600;font-size:12px;color:#475569"> ' + (M === cur ? '（当月：売上 ' + Math.round(ec).toLocaleString() + ' − 送料 ' + Math.round(ship).toLocaleString() + '）' : '（過去月：CSV取込値・送料考慮済み）') + '</span>';
-  var shipRow = document.getElementById('smpProfitShipRow');
-  if (shipRow) shipRow.style.display = (M === cur) ? 'flex' : 'none';
-  var shipInput = document.getElementById('smpProfitShipInput');
-  if (shipInput && M === cur && document.activeElement !== shipInput) shipInput.value = (provShip != null ? provShip : '');
   var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(sIn, 'sale');
   var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(pIn, 'purchase');
   var sd = document.getElementById('smpPEntSaleDate'); if (sd && !sd.value) sd.value = (M === cur ? today() : M + '-01');
