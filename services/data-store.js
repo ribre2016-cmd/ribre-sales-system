@@ -296,8 +296,16 @@
   function setStatus(msg) { try { var el = document.getElementById('storeStatus'); if (el) el.textContent = msg; } catch (e) {} }
   function note(msg, level) { try { console[(level === 'danger' ? 'error' : 'warn')]('[RIBRE store] ' + msg); } catch (e) {} setStatus(msg); }
 
+  function renderSimpleIfActive() {
+    try {
+      if (!document.body.classList.contains('simple-mode')) return;
+      if (typeof smpRenderHome === 'function') smpRenderHome();
+      var act = document.querySelector('.smp-screen.smp-screen-active');
+      if (act && act.dataset && act.dataset.screen === 'summary' && typeof simpleRenderSummary === 'function') simpleRenderSummary();
+    } catch (e) {}
+  }
   function afterHydrate(res) {
-    if (res && res.ok && !res.empty) { try { if (typeof refreshAll === 'function') refreshAll(); } catch (e) {} setStatus('クラウド読込OK（' + res.sales + '件/' + res.purchases + '件）'); }
+    if (res && res.ok && !res.empty) { try { if (typeof refreshAll === 'function') refreshAll(); } catch (e) {} renderSimpleIfActive(); setStatus('クラウド読込OK（' + res.sales + '件/' + res.purchases + '件）'); }
     else if (res && res.empty && res.localHasData) { setStatus('クラウドは空です。正しいPCなら「クラウドへ初期投入」を実行してください'); }
   }
 

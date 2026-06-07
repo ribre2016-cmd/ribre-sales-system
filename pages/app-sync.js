@@ -130,6 +130,20 @@ function ver460MapProdPurchases(rows) {
     source: 'Supabase本番DB Ver60.0'
   }));
 }
+/* PostgRESTは1回最大1000行制限。全件を分割取得する */
+async function ver460RestAll(table, emailEnc) {
+  let all = [], page = 0;
+  const size = 1000;
+  while (page < 200) {
+    const r = await ver460Rest(table, '?select=*&user_email=eq.' + emailEnc + '&order=client_id.asc&limit=' + size + '&offset=' + (page * size));
+    if (r.error) return { error: r.error };
+    const rows = r.data || [];
+    all = all.concat(rows);
+    if (rows.length < size) break;
+    page++;
+  }
+  return { data: all };
+}
 async function ver460LoadNow() {
   const email = ver460Email();
   if (!email) {
@@ -137,8 +151,8 @@ async function ver460LoadNow() {
     return;
   }
   ver460Set('ver460Watch', '読込中');
-  const sales = await ver460Rest('sales', '?select=*&user_email=eq.' + encodeURIComponent(email) + '&limit=10000&order=updated_at.desc');
-  const purchases = await ver460Rest('purchases', '?select=*&user_email=eq.' + encodeURIComponent(email) + '&limit=10000&order=updated_at.desc');
+  const sales = await ver460RestAll('sales', encodeURIComponent(email));
+  const purchases = await ver460RestAll('purchases', encodeURIComponent(email));
   if (sales.error || purchases.error) {
     const msg = (sales.error || purchases.error).message;
     ver460Set('ver460Watch', 'エラー');
