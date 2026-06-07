@@ -1315,10 +1315,10 @@ function simpleRenderProfitTable() {
   function entryRow(e) {
     var dp = String(e.date || '').split('-');
     var md = dp.length === 3 ? (Number(dp[1]) + '/' + Number(dp[2])) : (e.date || '');
-    var label = '<span style="color:#475569;font-size:10px;text-align:left;word-break:break-all">' + smpEsc(e.name || '') + (md ? ' ' + md : '') + '</span>';
+    var detail = smpEsc(e.name || '') + (md ? ' ' + md : '');
     var cells = months.map(function (m) {
       if (m.key === e.mk) {
-        return '<td style="' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"><div style="display:flex;justify-content:space-between;gap:4px;align-items:baseline">' + label + '<span style="font-weight:700;white-space:nowrap">' + fmt(e.amount) + '</span></div></td>';
+        return '<td onclick="smpProfitToggleDetail(this)" title="' + detail + '" style="cursor:pointer;text-align:right;' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"><span style="font-weight:700">' + fmt(e.amount) + '</span><span class="smp-meili" style="display:none;color:#475569;font-size:9px"> ' + detail + '</span></td>';
       }
       return '<td style="' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"></td>';
     }).join('');
@@ -1405,6 +1405,9 @@ function smpProfitEntryMonthVal() {
   return m;
 }
 var _smpProfitUnlocked = {};
+function smpProfitToggleDetail(td) {
+  try { var s = td.querySelector('.smp-meili'); if (s) s.style.display = (!s.style.display || s.style.display === 'none') ? 'inline' : 'none'; } catch (e) {}
+}
 function smpProfitUnlock(id) { _smpProfitUnlocked[id] = true; smpProfitRenderEntry(); }
 function smpProfitSetShip(val) { smpProfitSetProv(today().slice(0, 7), '__ship__', val); }
 function smpProfitListHtml(rows, kind) {
