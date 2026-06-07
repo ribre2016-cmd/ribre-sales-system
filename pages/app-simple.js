@@ -8,13 +8,14 @@ function simpleToggle() {
 }
 
 function simpleTab(tab) {
-  document.body.classList.toggle('smp-summary-wide', tab === 'summary');
+  document.body.classList.toggle('smp-summary-wide', tab === 'summary' || tab === 'profit');
   document.querySelectorAll('.smp-tab-btn').forEach(b => b.classList.toggle('smp-tab-active', b.dataset.tab === tab));
   document.querySelectorAll('.smp-nav-item').forEach(b => b.classList.toggle('smp-nav-active', b.dataset.nav === tab));
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
   if (tab === 'home') { smpRenderAuth(); smpRenderHome(); }
   if (tab === 'inbox') smpInitInboxMonth();
   if (tab === 'summary') smpSummaryEnter();
+  if (tab === 'profit') simpleRenderProfitTable();
   if (tab === 'manual') smpManualInit();
   if (tab === 'list') smpRenderList();
   const c = document.querySelector('.smp-content'); if (c) c.scrollTop = 0;
@@ -1185,6 +1186,108 @@ function simpleRenderSummary() {
   smpRenderReportRawTables(s, p);
   smpRenderReportCharts(month);
   smpSetReportTab(_smpReportTab);
+}
+
+/* ===== 粗利表（年間・月を横並び・チャネル別）粗利=売上−仕入−送料 ===== */
+function smpProfitFiscalMonths(startYear) {
+  var arr = [];
+  for (var i = 0; i < 12; i++) {
+    var m = 3 + i;
+    var y = startYear + (m > 12 ? 1 : 0);
+    var mm = ((m - 1) % 12) + 1;
+    arr.push({ key: y + '-' + String(mm).padStart(2, '0'), label: mm + '月' });
+  }
+  return arr;
+}
+function smpProfitMonthsPresent() {
+  var set = {};
+  sales().forEach(function (r) { var m = r.month || String(r.date || r.sale_date || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(m)) set[m] = 1; });
+  purchases().forEach(function (r) { var m = r.month || String(r.date || r.purchase_date || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(m)) set[m] = 1; });
+  return Object.keys(set).sort();
+}
+function smpProfitDefaultStartYear() {
+  var ms = smpProfitMonthsPresent();
+  var latest = ms.length ? ms[ms.length - 1] : today().slice(0, 7);
+  var y = parseInt(latest.slice(0, 4), 10) || (new Date()).getFullYear();
+  var m = parseInt(latest.slice(5, 7), 10) || 1;
+  return m >= 3 ? y : y - 1;
+}
+function smpProfitData(startYear) {
+  var months = smpProfitFiscalMonths(startYear);
+  var keyset = {}; months.forEach(function (m) { keyset[m.key] = 1; });
+  var monthOf = function (r) { return r.month || String(r.date || r.sale_date || r.purchase_date || '').slice(0, 7); };
+  var chanKey = function (r) { return String(r.shop || r.type || r.matchStatus || '').trim() || 'その他'; };
+  var channels = {}, saleByM = {}, shipByM = {}, purByM = {};
+  months.forEach(function (m) { saleByM[m.key] = 0; shipByM[m.key] = 0; purByM[m.key] = 0; });
+  sales().forEach(function (r) {
+    var mk = monthOf(r); if (!keyset[mk]) return;
+    var amt = num(r.amount != null ? r.amount : r.price);
+    var shp = num(r.ship != null ? r.ship : r.shipping);
+    var c = chanKey(r);
+    channels[c] = channels[c] || {}; channels[c][mk] = (channels[c][mk] || 0) + amt;
+    saleByM[mk] += amt; shipByM[mk] += shp;
+  });
+  purchases().forEach(function (r) {
+    var mk = monthOf(r); if (!keyset[mk]) return;
+    purByM[mk] += num(r.total != null ? r.total : r.amount);
+  });
+  return { months: months, channels: channels, saleByM: saleByM, shipByM: shipByM, purByM: purByM };
+}
+function simpleRenderProfitTable() {
+  var wrap = document.getElementById('smpProfitTableWrap');
+  if (!wrap) return;
+  var ms = smpProfitMonthsPresent();
+  var years = {};
+  ms.forEach(function (m) { var y = parseInt(m.slice(0, 4), 10), mm = parseInt(m.slice(5, 7), 10); years[mm >= 3 ? y : y - 1] = 1; });
+  var defY = smpProfitDefaultStartYear(); years[defY] = 1;
+  var sel = document.getElementById('smpProfitYear');
+  var startYear = (sel && sel.value) ? parseInt(sel.value, 10) : defY;
+  if (sel) {
+    var ylist = Object.keys(years).map(Number).sort(function (a, b) { return b - a; });
+    if (ylist.indexOf(startYear) < 0) startYear = defY;
+    sel.innerHTML = ylist.map(function (y) { return '<option value="' + y + '"' + (y === startYear ? ' selected' : '') + '>' + y + '年度（' + y + '/3〜' + (y + 1) + '/2）</option>'; }).join('');
+  }
+  var d = smpProfitData(startYear);
+  var fmt = function (n) { return (Math.round(n) || 0).toLocaleString(); };
+  var chanNames = Object.keys(d.channels).sort(function (a, b) {
+    var ta = d.months.reduce(function (s, m) { return s + (d.channels[a][m.key] || 0); }, 0);
+    var tb = d.months.reduce(function (s, m) { return s + (d.channels[b][m.key] || 0); }, 0);
+    return tb - ta;
+  });
+  var th = '<th style="position:sticky;left:0;background:#f1f5f9;text-align:left;padding:6px 8px;border:1px solid #e2e8f0">区分</th>' +
+    d.months.map(function (m) { return '<th style="padding:6px 8px;text-align:right;white-space:nowrap;border:1px solid #e2e8f0">' + m.label + '</th>'; }).join('') +
+    '<th style="padding:6px 8px;text-align:right;background:#eef2ff;border:1px solid #e2e8f0">年計</th>';
+  function rowSums(getter) { var t = 0; var cells = d.months.map(function (m) { var v = getter(m.key); t += v; return '<td style="padding:5px 8px;text-align:right;border:1px solid #eef2f7">' + fmt(v) + '</td>'; }).join(''); return { cells: cells, total: t }; }
+  var body = '';
+  body += '<tr><td colspan="' + (d.months.length + 2) + '" style="background:#eff6ff;font-weight:800;color:#1e40af;padding:5px 8px;border:1px solid #e2e8f0">売上（チャネル別）</td></tr>';
+  chanNames.forEach(function (c) {
+    var r = rowSums(function (mk) { return d.channels[c][mk] || 0; });
+    body += '<tr><td style="position:sticky;left:0;background:#fff;padding:5px 8px;white-space:nowrap;border:1px solid #eef2f7">' + smpEsc(c) + '</td>' + r.cells + '<td style="padding:5px 8px;text-align:right;background:#f8fafc;font-weight:700;border:1px solid #eef2f7">' + fmt(r.total) + '</td></tr>';
+  });
+  var sR = rowSums(function (mk) { return d.saleByM[mk] || 0; });
+  body += '<tr style="font-weight:800;background:#f1f5f9"><td style="position:sticky;left:0;background:#f1f5f9;padding:6px 8px;border:1px solid #e2e8f0">売上 合計</td>' + sR.cells + '<td style="padding:6px 8px;text-align:right;border:1px solid #e2e8f0">' + fmt(sR.total) + '</td></tr>';
+  var pR = rowSums(function (mk) { return d.purByM[mk] || 0; });
+  body += '<tr><td style="position:sticky;left:0;background:#fff;padding:6px 8px;font-weight:700;border:1px solid #eef2f7">仕入 合計</td>' + pR.cells + '<td style="padding:6px 8px;text-align:right;font-weight:700;border:1px solid #eef2f7">' + fmt(pR.total) + '</td></tr>';
+  var shR = rowSums(function (mk) { return d.shipByM[mk] || 0; });
+  body += '<tr><td style="position:sticky;left:0;background:#fff;padding:6px 8px;font-weight:700;border:1px solid #eef2f7">送料 合計</td>' + shR.cells + '<td style="padding:6px 8px;text-align:right;font-weight:700;border:1px solid #eef2f7">' + fmt(shR.total) + '</td></tr>';
+  var gTotal = 0;
+  var gCells = d.months.map(function (m) { var v = (d.saleByM[m.key] || 0) - (d.purByM[m.key] || 0) - (d.shipByM[m.key] || 0); gTotal += v; return '<td style="padding:7px 8px;text-align:right;font-weight:800;border:1px solid #d1fae5;color:' + (v >= 0 ? '#166534' : '#dc2626') + '">' + fmt(v) + '</td>'; }).join('');
+  body += '<tr style="background:#ecfdf5"><td style="position:sticky;left:0;background:#ecfdf5;padding:7px 8px;font-weight:800;border:1px solid #d1fae5">粗利（売上−仕入−送料）</td>' + gCells + '<td style="padding:7px 8px;text-align:right;font-weight:800;border:1px solid #d1fae5;color:' + (gTotal >= 0 ? '#166534' : '#dc2626') + '">' + fmt(gTotal) + '</td></tr>';
+  wrap.innerHTML = '<table style="border-collapse:collapse;font-size:12px;min-width:' + (140 + d.months.length * 72 + 80) + 'px"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+function smpProfitExportCsv() {
+  var sel = document.getElementById('smpProfitYear');
+  var startYear = (sel && sel.value) ? parseInt(sel.value, 10) : smpProfitDefaultStartYear();
+  var d = smpProfitData(startYear);
+  var rows = [];
+  rows.push(['区分'].concat(d.months.map(function (m) { return m.label; })).concat(['年計']));
+  function rowArr(label, getter) { var t = 0; var arr = [label]; d.months.forEach(function (m) { var v = Math.round(getter(m.key)); t += v; arr.push(v); }); arr.push(t); return arr; }
+  Object.keys(d.channels).forEach(function (c) { rows.push(rowArr(c, function (mk) { return d.channels[c][mk] || 0; })); });
+  rows.push(rowArr('売上 合計', function (mk) { return d.saleByM[mk] || 0; }));
+  rows.push(rowArr('仕入 合計', function (mk) { return d.purByM[mk] || 0; }));
+  rows.push(rowArr('送料 合計', function (mk) { return d.shipByM[mk] || 0; }));
+  rows.push(rowArr('粗利', function (mk) { return (d.saleByM[mk] || 0) - (d.purByM[mk] || 0) - (d.shipByM[mk] || 0); }));
+  csvDownload(rows, 'gross_profit_' + startYear + '.csv');
 }
 
 const SMP_TYPE_DEFAULTS = {

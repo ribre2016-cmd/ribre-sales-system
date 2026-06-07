@@ -639,7 +639,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 .smp-action-emoji { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px; border-radius: 10px; background: #eff6ff; color: #2563eb; }
 .smp-action-emoji .ui-icon { width: 20px; height: 20px; }
 /* === ボトムナビ === */
-.smp-bottomnav { background: #fff; border-top: 1px solid #e5e7eb; display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px 0 8px; flex-shrink: 0; }
+.smp-bottomnav { background: #fff; border-top: 1px solid #e5e7eb; display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px 0 8px; flex-shrink: 0; }
 .smp-nav-item { text-align: center; cursor: pointer; color: #94a3b8; font-size: 10px; font-weight: 700; padding: 4px 0; }
 .smp-nav-ico { display: flex; justify-content: center; margin-bottom: 3px; opacity: .72; color: #64748b; }
 .smp-nav-ico .ui-icon { width: 19px; height: 19px; }
@@ -1231,12 +1231,27 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
       </div>
     </div>
 
+    <div class="smp-screen" data-screen="profit">
+      <div class="smp-card">
+        <h2>💹 粗利表（年間）</h2>
+        <div class="smp-guide">粗利 = 売上 − 仕入 − 送料。月途中でも、入力済みの売上・仕入・送料から自動で計算します。</div>
+        <div style="margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:13px;font-weight:700;color:#334155">会計年度</label>
+          <select id="smpProfitYear" onchange="simpleRenderProfitTable()" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px"></select>
+          <span style="font-size:12px;color:#94a3b8">（3月〜翌2月）</span>
+          <button class="smp-btn smp-btn-secondary" style="width:auto;margin:0;padding:8px 12px;font-size:12px" onclick="smpProfitExportCsv()">CSV出力</button>
+        </div>
+        <div id="smpProfitTableWrap" style="overflow-x:auto"></div>
+      </div>
+    </div>
+
   </div>
   <nav class="smp-bottomnav">
     <div class="smp-nav-item smp-nav-active" data-nav="home"    onclick="simpleTab('home')"><span class="smp-nav-ico">🏠</span>ホーム</div>
     <div class="smp-nav-item"                data-nav="inbox"   onclick="simpleTab('inbox')"><span class="smp-nav-ico">📥</span>取り込み</div>
     <div class="smp-nav-item"                data-nav="manual"  onclick="simpleTab('manual')"><span class="smp-nav-ico">✍️</span>手入力</div>
     <div class="smp-nav-item"                data-nav="summary" onclick="simpleTab('summary')"><span class="smp-nav-ico">📊</span>集計</div>
+    <div class="smp-nav-item"                data-nav="profit"  onclick="simpleTab('profit')"><span class="smp-nav-ico">💹</span>粗利</div>
   </nav>
 </div>
 
@@ -2147,7 +2162,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260607d"></script>
+<script src="pages/app-simple.js?v=20260608a"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260607e"></script>
 <script src="services/auth-gate.js?v=20260607b"></script>
