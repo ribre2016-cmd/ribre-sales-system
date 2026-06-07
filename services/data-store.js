@@ -58,6 +58,19 @@
     try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
     return { ok: res.ok, status: res.status, data: data, text: text };
   }
+  // PostgRESTは1回の取得が最大1000件などに制限されるため、分割取得で全件読む
+  async function fetchAllRows(table, emailEnc) {
+    var all = [], page = 0, size = 1000, MAXP = 200;
+    while (page < MAXP) {
+      var r = await api(table + '?select=*&user_email=eq.' + emailEnc + '&order=client_id.asc&limit=' + size + '&offset=' + (page * size));
+      if (!r.ok) return { ok: false, status: r.status, data: r.data, text: r.text };
+      var rows = r.data || [];
+      all = all.concat(rows);
+      if (rows.length < size) break;
+      page++;
+    }
+    return { ok: true, data: all };
+  }
 
   // ---- ユーティリティ -------------------------------------------------
   function n(v) { try { return (typeof num === 'function') ? num(v) : (Number(v) || 0); } catch (e) { return Number(v) || 0; } }
@@ -222,9 +235,9 @@
     __hydrating = true;
     try {
       var e = encodeURIComponent(mail());
-      var rs = await api('sales?select=*&user_email=eq.' + e + '&limit=20000&order=updated_at.desc');
+      var rs = await fetchAllRows('sales', e);
       if (!rs.ok) { handleErr(rs); return { ok: false, status: rs.status }; }
-      var rp = await api('purchases?select=*&user_email=eq.' + e + '&limit=20000&order=updated_at.desc');
+      var rp = await fetchAllRows('purchases', e);
       if (!rp.ok) { handleErr(rp); return { ok: false, status: rp.status }; }
 
       var rawS = rs.data || [], rawP = rp.data || [];
