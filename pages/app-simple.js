@@ -1222,30 +1222,52 @@ function smpProfitSetProv(month, chan, val) {
   smpProfitProvSet(o);
   simpleRenderProfitTable();
 }
+/* 明細は「粗利ページ専用」の別データに保存（売上一覧/ダッシュボード/集計には反映しない） */
+function smpProfitMeiGet() { try { var o = JSON.parse(localStorage.getItem('ribre_smp_profit_meisai_v1') || '{}') || {}; o.sales = o.sales || []; o.purchases = o.purchases || []; return o; } catch (e) { return { sales: [], purchases: [] }; } }
+function smpProfitMeiSet(o) { try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(o)); } catch (e) {} }
+/* 旧仕様で売上/仕入に混ざった source='明細' を専用ストアへ移動（ダッシュボードから除外） */
+function smpProfitMigrateFromSales() {
+  var isMei = function (r) { return String(r.source || '') === '明細'; };
+  var mei = smpProfitMeiGet(); var changed = false;
+  var s = sales(); var meiS = s.filter(isMei);
+  if (meiS.length) {
+    meiS.forEach(function (r) { mei.sales.push({ id: String(r.id || r.client || ('s_' + Date.now() + Math.floor(Math.random() * 1e6))), date: r.date || '', month: r.month || String(r.date || '').slice(0, 7), name: String(r.shop || r.name || ''), amount: num(r.amount != null ? r.amount : r.price) }); });
+    setLS(LS.sales, s.filter(function (r) { return !isMei(r); }));
+    try { setLS('ribre_yahoo_sales240', (get('ribre_yahoo_sales240', [])).filter(function (r) { return !isMei(r); })); } catch (e) {}
+    changed = true;
+  }
+  var p = purchases(); var meiP = p.filter(isMei);
+  if (meiP.length) {
+    meiP.forEach(function (r) { mei.purchases.push({ id: String(r.id || r.client || ('p_' + Date.now() + Math.floor(Math.random() * 1e6))), date: r.date || '', month: r.month || String(r.date || '').slice(0, 7), name: String(r.vendor || r.name || ''), amount: num(r.total != null ? r.total : r.amount) }); });
+    setLS(LS.purchases, p.filter(function (r) { return !isMei(r); }));
+    changed = true;
+  }
+  if (changed) { smpProfitMeiSet(mei); try { smpScheduleAutosave('mei-migrate'); } catch (e) {} try { refreshAll(); } catch (e) {} }
+}
 function smpProfitData(startYear) {
   var months = smpProfitFiscalMonths(startYear);
   var keyset = {}; months.forEach(function (m) { keyset[m.key] = 1; });
   var monthOf = function (r) { return r.month || String(r.date || r.sale_date || r.purchase_date || '').slice(0, 7); };
+  var mOf = function (e) { return e.month || String(e.date || '').slice(0, 7); };
   var chanKey = function (r) { return String(r.shop || r.type || r.matchStatus || '').trim() || 'その他'; };
   var venKey = function (r) { return String(r.vendor || r.type || '').trim() || 'その他'; };
   var isMei = function (r) { return String(r.source || '') === '明細'; };
-  var chanReal = {}, venReal = {}, shipByM = {}, meiSales = [], meiPur = [];
+  var chanReal = {}, venReal = {}, shipByM = {};
   months.forEach(function (m) { shipByM[m.key] = 0; });
   sales().forEach(function (r) {
-    var mk = monthOf(r); if (!keyset[mk]) return;
-    var amt = num(r.amount != null ? r.amount : r.price);
-    shipByM[mk] += num(r.ship != null ? r.ship : r.shipping);
-    if (isMei(r)) { meiSales.push({ id: String(r.id || r.client || ''), date: r.date || '', name: String(r.shop || r.name || ''), amount: amt, mk: mk }); return; }
+    var mk = monthOf(r); if (!keyset[mk] || isMei(r)) return;
+    shipByM[mk] += num(r.ship != null ? r.ship : r.shipping) + num(r.fee); // 送料＋手数料(経費)
     var c = chanKey(r);
-    chanReal[c] = chanReal[c] || {}; chanReal[c][mk] = (chanReal[c][mk] || 0) + amt;
+    chanReal[c] = chanReal[c] || {}; chanReal[c][mk] = (chanReal[c][mk] || 0) + num(r.amount != null ? r.amount : r.price);
   });
   purchases().forEach(function (r) {
-    var mk = monthOf(r); if (!keyset[mk]) return;
-    var amt = num(r.total != null ? r.total : r.amount);
-    if (isMei(r)) { meiPur.push({ id: String(r.id || r.client || ''), date: r.date || '', name: String(r.vendor || r.name || ''), amount: amt, mk: mk }); return; }
+    var mk = monthOf(r); if (!keyset[mk] || isMei(r)) return;
     var v = venKey(r);
-    venReal[v] = venReal[v] || {}; venReal[v][mk] = (venReal[v][mk] || 0) + amt;
+    venReal[v] = venReal[v] || {}; venReal[v][mk] = (venReal[v][mk] || 0) + num(r.total != null ? r.total : r.amount);
   });
+  var store = smpProfitMeiGet();
+  var meiSales = store.sales.filter(function (e) { return keyset[mOf(e)]; }).map(function (e) { return { id: e.id, date: e.date, name: e.name, amount: num(e.amount), mk: mOf(e) }; });
+  var meiPur = store.purchases.filter(function (e) { return keyset[mOf(e)]; }).map(function (e) { return { id: e.id, date: e.date, name: e.name, amount: num(e.amount), mk: mOf(e) }; });
   meiSales.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
   meiPur.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
   return { months: months, chanReal: chanReal, venReal: venReal, shipByM: shipByM, meiSales: meiSales, meiPur: meiPur };
@@ -1253,6 +1275,7 @@ function smpProfitData(startYear) {
 function simpleRenderProfitTable() {
   var wrap = document.getElementById('smpProfitTableWrap');
   if (!wrap) return;
+  try { smpProfitMigrateFromSales(); } catch (e) {}
   var ms = smpProfitMonthsPresent();
   var years = {};
   ms.forEach(function (m) { var y = parseInt(m.slice(0, 4), 10), mm = parseInt(m.slice(5, 7), 10); years[mm >= 3 ? y : y - 1] = 1; });
@@ -1350,10 +1373,10 @@ function simpleRenderProfitTable() {
     }
     return '<td style="text-align:right;' + bd() + '">' + fmt(v) + '</td>';
   }).join('');
-  body += '<tr><td style="position:sticky;left:0;font-weight:700;' + bd('background:#fff') + '">送料 合計</td>' + shCells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(shT) + '</td></tr>';
+  body += '<tr><td style="position:sticky;left:0;font-weight:700;' + bd('background:#fff') + '">送料 合計（経費含む）</td>' + shCells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(shT) + '</td></tr>';
   var gT = 0;
   var gCells = months.map(function (m) { var v = saleByM(m.key) - purByM(m.key) - (d.shipByM[m.key] || 0); gT += v; return '<td style="text-align:right;font-weight:800;color:' + (v >= 0 ? '#166534' : '#dc2626') + ';' + bd('background:#ecfdf5') + '">' + fmt(v) + '</td>'; }).join('');
-  body += '<tr><td style="position:sticky;left:0;font-weight:800;' + bd('background:#ecfdf5') + '">粗利（売上−仕入−送料）</td>' + gCells + '<td style="text-align:right;font-weight:800;color:' + (gT >= 0 ? '#166534' : '#dc2626') + ';' + bd('background:#d1fae5') + '">' + fmt(gT) + '</td></tr>';
+  body += '<tr><td style="position:sticky;left:0;font-weight:800;' + bd('background:#ecfdf5') + '">粗利（売上−仕入−経費）</td>' + gCells + '<td style="text-align:right;font-weight:800;color:' + (gT >= 0 ? '#166534' : '#dc2626') + ';' + bd('background:#d1fae5') + '">' + fmt(gT) + '</td></tr>';
 
   wrap.innerHTML =
     '<div style="font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 8px;margin-bottom:8px">黄色の列＝当月（' + curMonth + '）。ヤフオク1〜8・メルカリの空欄に<b>仮の数字</b>を入力できます。CSVを取り込むと自動で実数に切り替わります。</div>' +
@@ -1425,8 +1448,8 @@ function smpProfitListHtml(rows, kind) {
     '<tr style="color:#94a3b8;font-size:11px"><th style="text-align:right;padding:3px 6px">金額</th><th style="text-align:left;padding:3px 6px">' + label + '</th><th style="text-align:left;padding:3px 6px">日付</th><th style="padding:3px 6px"></th></tr>' +
     rows.map(function (r) {
       var id = String(r.id || r.client || '');
-      var name = kind === 'sale' ? (r.shop || r.name || '') : (r.vendor || r.name || '');
-      var amt = kind === 'sale' ? num(r.amount != null ? r.amount : r.price) : num(r.total != null ? r.total : r.amount);
+      var name = r.name || r.shop || r.vendor || '';
+      var amt = num(r.amount != null ? r.amount : (r.total != null ? r.total : r.price));
       var op = _smpProfitUnlocked[id]
         ? '<button onclick="smpProfitDeleteRow(\'' + kind + '\',\'' + id + '\')" style="border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">🗑 削除</button>'
         : '<button onclick="smpProfitUnlock(\'' + id + '\')" style="border:1px solid #cbd5e1;background:#f8fafc;color:#475569;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">🔒 ロック解除</button>';
@@ -1435,23 +1458,23 @@ function smpProfitListHtml(rows, kind) {
 }
 function smpProfitRenderEntry() {
   var M = smpProfitEntryMonthVal();
+  var cur = today().slice(0, 7);
   var inM = function (r) { return (r.month || String(r.date || r.sale_date || r.purchase_date || '').slice(0, 7)) === M; };
   var sIn = sales().filter(inM);
-  var pIn = purchases().filter(inM);
   var ec = sIn.reduce(function (a, r) { return a + num(r.amount != null ? r.amount : r.price); }, 0);
-  var rowShip = sIn.reduce(function (a, r) { return a + num(r.ship != null ? r.ship : r.shipping); }, 0);
-  var cur = today().slice(0, 7);
+  var rowExp = sIn.reduce(function (a, r) { return a + num(r.ship != null ? r.ship : r.shipping) + num(r.fee); }, 0); // 送料＋手数料(経費)
   var prov = smpProfitProvGet();
   var provShip = (prov[cur] && prov[cur]['__ship__']);
-  var ship = (M === cur && provShip != null) ? num(provShip) : rowShip;
-  var net = (M === cur) ? (ec - ship) : ec;
+  var exp = (M === cur && provShip != null) ? num(provShip) : rowExp;
+  var net = (M === cur) ? (ec - exp) : ec;
   var ecEl = document.getElementById('smpProfitEcNet');
-  if (ecEl) ecEl.innerHTML = 'EC売上 − 送料（' + M + '）：¥' + Math.round(net).toLocaleString() +
-    '<span style="font-weight:600;font-size:12px;color:#475569"> ' + (M === cur ? '（当月：売上 ' + Math.round(ec).toLocaleString() + ' − 送料 ' + Math.round(ship).toLocaleString() + '）' : '（過去月：CSV取込値・送料考慮済み）') + '</span>';
-  // 固定チャネル(ヤフオク1〜8・メルカリ等)以外の売上を一覧表示（明細・その他チャネル＝削除可能に）
-  var saleListable = function (r) { return SMP_SALES_CHANNELS.indexOf(String(r.shop || '').trim()) < 0; };
-  var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(sIn.filter(saleListable), 'sale');
-  var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(pIn, 'purchase');
+  if (ecEl) ecEl.innerHTML = 'EC売上 − 経費（' + M + '）：¥' + Math.round(net).toLocaleString() +
+    '<span style="font-weight:600;font-size:12px;color:#475569"> ' + (M === cur ? '（当月：売上 ' + Math.round(ec).toLocaleString() + ' − 経費 ' + Math.round(exp).toLocaleString() + '）' : '（過去月：CSV取込値・経費考慮済み）') + '</span>';
+  // 明細は粗利ページ専用ストアから（ダッシュボード非反映）
+  var store = smpProfitMeiGet();
+  var meiInM = function (e) { return (e.month || String(e.date || '').slice(0, 7)) === M; };
+  var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(store.sales.filter(meiInM), 'sale');
+  var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(store.purchases.filter(meiInM), 'purchase');
   var sd = document.getElementById('smpPEntSaleDate'); if (sd && !sd.value) sd.value = (M === cur ? today() : M + '-01');
   var pd = document.getElementById('smpPEntPurDate'); if (pd && !pd.value) pd.value = (M === cur ? today() : M + '-01');
 }
@@ -1461,12 +1484,10 @@ function smpProfitAddSale() {
   var amt = num(document.getElementById('smpPEntSaleAmt').value || 0);
   if (!shop) { alert('販売先を入力してください'); return; }
   if (!amt) { alert('金額を入力してください'); return; }
-  var arr = sales();
-  arr.unshift({ id: 's_' + Date.now() + '_' + Math.floor(Math.random() * 100000), date: date, month: String(date).slice(0, 7), shop: shop, name: shop, amount: amt, source: '明細' });
-  setLS(LS.sales, arr);
+  var mei = smpProfitMeiGet();
+  mei.sales.unshift({ id: 's_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), date: date, month: String(date).slice(0, 7), name: shop, amount: amt });
+  smpProfitMeiSet(mei);
   document.getElementById('smpPEntSaleShop').value = ''; document.getElementById('smpPEntSaleAmt').value = '';
-  try { refreshAll(); } catch (e) {}
-  smpScheduleAutosave('profit-sale');
   simpleRenderProfitTable();
 }
 function smpProfitAddPurchase() {
@@ -1475,27 +1496,20 @@ function smpProfitAddPurchase() {
   var amt = num(document.getElementById('smpPEntPurAmt').value || 0);
   if (!vendor) { alert('買取先を入力してください'); return; }
   if (!amt) { alert('金額を入力してください'); return; }
-  var arr = purchases();
-  arr.unshift({ id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 100000), date: date, month: String(date).slice(0, 7), vendor: vendor, name: vendor, total: amt, source: '明細' });
-  setLS(LS.purchases, arr);
+  var mei = smpProfitMeiGet();
+  mei.purchases.unshift({ id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), date: date, month: String(date).slice(0, 7), name: vendor, amount: amt });
+  smpProfitMeiSet(mei);
   document.getElementById('smpPEntPurVendor').value = ''; document.getElementById('smpPEntPurAmt').value = '';
-  try { refreshAll(); } catch (e) {}
-  smpScheduleAutosave('profit-purchase');
   simpleRenderProfitTable();
 }
 function smpProfitDeleteRow(kind, id) {
   if (!id) return;
   if (!confirm('この明細を削除します。よろしいですか？')) return;
   delete _smpProfitUnlocked[id];
-  var keep = function (r) { return String(r.id || r.client || '') !== String(id); };
-  if (kind === 'sale') {
-    setLS(LS.sales, sales().filter(keep));
-    try { setLS('ribre_yahoo_sales240', (get('ribre_yahoo_sales240', [])).filter(keep)); } catch (e) {}
-  } else {
-    setLS(LS.purchases, purchases().filter(keep));
-  }
-  try { refreshAll(); } catch (e) {}
-  smpScheduleAutosave('profit-delete');
+  var mei = smpProfitMeiGet();
+  var key = kind === 'sale' ? 'sales' : 'purchases';
+  mei[key] = (mei[key] || []).filter(function (e) { return String(e.id) !== String(id); });
+  smpProfitMeiSet(mei);
   simpleRenderProfitTable();
 }
 
