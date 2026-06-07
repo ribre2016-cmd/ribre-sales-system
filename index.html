@@ -884,6 +884,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
         <div class="smp-kpi"><div class="smp-kpi-label">仕入</div><div class="smp-kpi-value" id="smpHomePur">—</div></div>
         <div class="smp-kpi"><div class="smp-kpi-label">件数</div><div class="smp-kpi-value" id="smpHomeCount">—</div></div>
       </div>
+      <div style="font-size:11px;color:#94a3b8;text-align:center;margin:2px 0 4px">この画面は<b>EC売上</b>の集計です。ヤフオク等を含む<b>全体</b>は<span onclick="simpleTab('profit')" style="color:#2563eb;cursor:pointer;font-weight:700;text-decoration:underline">「粗利」タブ</span>へ</div>
       <div class="smp-flow">
         <div class="smp-flow-title">今日の流れ</div>
         <div class="smp-flow-steps">
@@ -1236,7 +1237,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
     <div class="smp-screen" data-screen="profit">
       <div class="smp-card">
         <h2>💹 粗利表（年間）</h2>
-        <div class="smp-guide">粗利 = 売上 − 仕入 − 送料。月途中でも、入力済みの売上・仕入・送料から自動で計算します。</div>
+        <div class="smp-guide">これは<b>全体</b>の集計です（EC＋ヤフオク＋メルカリ＋明細）。粗利 = 売上 − 仕入 − 経費。明細は他PCとも同期します。</div>
         <div style="margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <label style="font-size:13px;font-weight:700;color:#334155">会計年度</label>
           <select id="smpProfitYear" onchange="simpleRenderProfitTable()" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px"></select>
@@ -2192,7 +2193,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608o"></script>
+<script src="pages/app-simple.js?v=20260608p"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260607e"></script>
 <script src="services/auth-gate.js?v=20260607b"></script>
