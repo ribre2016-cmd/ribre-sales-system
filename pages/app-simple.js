@@ -177,7 +177,8 @@ function smpGoogleLogin() {
   const c = sb();
   if (!c.url || !c.key) { smpAuthStatus('先に「← フル画面に戻る → 設定」でSupabase URL/Keyを保存してください', 'warn'); return; }
   const redirect = location.origin + location.pathname;
-  location.href = c.url.replace(/\/$/, '') + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(redirect);
+  // prompt=select_account: ログアウト後の再ログインで必ずGoogleアカウント選択画面を出す
+  location.href = c.url.replace(/\/$/, '') + '/auth/v1/authorize?provider=google&prompt=select_account&redirect_to=' + encodeURIComponent(redirect);
 }
 /* OAuthリダイレクト後のhash(access_token)を処理 */
 function smpHandleOAuthRedirect() {
