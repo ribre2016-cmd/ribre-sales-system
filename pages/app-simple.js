@@ -1271,7 +1271,7 @@ function simpleRenderProfitTable() {
   if (provShip != null && d.shipByM[curMonth] != null) d.shipByM[curMonth] = num(provShip); // 当月の送料は手入力を優先
   var months = d.months;
   var fmt = function (n) { return (Math.round(n) || 0).toLocaleString(); };
-  var bd = function (extra) { return 'border:1px solid #e5e7eb;padding:5px 8px;' + (extra || ''); };
+  var bd = function (extra) { return 'border:1px solid #e5e7eb;padding:2px 4px;' + (extra || ''); };
   // 売上チャネル：ヤフオク1〜8・メルカリ等を固定順、その後にデータにある他チャネル
   var totC = function (c) { return months.reduce(function (s, m) { return s + ((d.chanReal[c] && d.chanReal[c][m.key]) || 0); }, 0); };
   var others = Object.keys(d.chanReal).filter(function (c) { return SMP_SALES_CHANNELS.indexOf(c) < 0; }).sort(function (a, b) { return totC(b) - totC(a); });
@@ -1304,7 +1304,7 @@ function simpleRenderProfitTable() {
       var real = (d.chanReal[c] && d.chanReal[c][mk]) || 0;
       if (mk === curMonth && !(real > 0)) {
         var pv = (prov[mk] && prov[mk][c]) || '';
-        return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (pv || '') + '" placeholder="仮" onchange="smpProfitSetProv(\'' + mk + '\',\'' + c + '\',this.value)" style="width:60px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:2px 3px;background:#fff;font-size:11px"></td>';
+        return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (pv || '') + '" placeholder="仮" onchange="smpProfitSetProv(\'' + mk + '\',\'' + c + '\',this.value)" style="width:46px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:1px 2px;background:#fff;font-size:10px"></td>';
       }
       return '<td style="text-align:right;' + bd(mk === curMonth ? 'background:#fffef5' : '') + '">' + fmt(eff) + '</td>';
     }).join('');
@@ -1346,7 +1346,7 @@ function simpleRenderProfitTable() {
   var shCells = months.map(function (m) {
     var mk = m.key; var v = d.shipByM[mk] || 0; shT += v;
     if (mk === curMonth) {
-      return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (v || '') + '" placeholder="送料" onchange="smpProfitSetShip(this.value)" style="width:66px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:2px 3px;background:#fff;font-size:11px"></td>';
+      return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (v || '') + '" placeholder="送料" onchange="smpProfitSetShip(this.value)" style="width:50px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:1px 2px;background:#fff;font-size:10px"></td>';
     }
     return '<td style="text-align:right;' + bd() + '">' + fmt(v) + '</td>';
   }).join('');
@@ -1357,7 +1357,7 @@ function simpleRenderProfitTable() {
 
   wrap.innerHTML =
     '<div style="font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 8px;margin-bottom:8px">黄色の列＝当月（' + curMonth + '）。ヤフオク1〜8・メルカリの空欄に<b>仮の数字</b>を入力できます。CSVを取り込むと自動で実数に切り替わります。</div>' +
-    '<table style="border-collapse:collapse;font-size:12px;min-width:' + (150 + months.length * 74 + 80) + 'px"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
+    '<table style="border-collapse:collapse;font-size:11px;min-width:' + (110 + months.length * 54 + 60) + 'px"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table>';
   try { smpProfitRenderEntry(); } catch (e) {}
 }
 function smpProfitExportCsv() {
@@ -1437,9 +1437,10 @@ function smpProfitRenderEntry() {
   var ecEl = document.getElementById('smpProfitEcNet');
   if (ecEl) ecEl.innerHTML = 'EC売上 − 送料（' + M + '）：¥' + Math.round(net).toLocaleString() +
     '<span style="font-weight:600;font-size:12px;color:#475569"> ' + (M === cur ? '（当月：売上 ' + Math.round(ec).toLocaleString() + ' − 送料 ' + Math.round(ship).toLocaleString() + '）' : '（過去月：CSV取込値・送料考慮済み）') + '</span>';
-  var isMei = function (r) { return String(r.source || '') === '明細'; };
-  var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(sIn.filter(isMei), 'sale');
-  var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(pIn.filter(isMei), 'purchase');
+  // 固定チャネル(ヤフオク1〜8・メルカリ等)以外の売上を一覧表示（明細・その他チャネル＝削除可能に）
+  var saleListable = function (r) { return SMP_SALES_CHANNELS.indexOf(String(r.shop || '').trim()) < 0; };
+  var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(sIn.filter(saleListable), 'sale');
+  var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(pIn, 'purchase');
   var sd = document.getElementById('smpPEntSaleDate'); if (sd && !sd.value) sd.value = (M === cur ? today() : M + '-01');
   var pd = document.getElementById('smpPEntPurDate'); if (pd && !pd.value) pd.value = (M === cur ? today() : M + '-01');
 }
