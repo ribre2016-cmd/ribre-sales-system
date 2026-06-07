@@ -15,7 +15,7 @@ function simpleTab(tab) {
   if (tab === 'home') { smpRenderAuth(); smpRenderHome(); }
   if (tab === 'inbox') smpInitInboxMonth();
   if (tab === 'summary') smpSummaryEnter();
-  if (tab === 'profit') simpleRenderProfitTable();
+  if (tab === 'profit') { simpleRenderProfitTable(); try { smpProfitMeiPullCloud().then(function (u) { if (u) simpleRenderProfitTable(); }); } catch (e) {} }
   if (tab === 'manual') smpManualInit();
   if (tab === 'list') smpRenderList();
   const c = document.querySelector('.smp-content'); if (c) c.scrollTop = 0;
@@ -1222,9 +1222,42 @@ function smpProfitSetProv(month, chan, val) {
   smpProfitProvSet(o);
   simpleRenderProfitTable();
 }
-/* 明細は「粗利ページ専用」の別データに保存（売上一覧/ダッシュボード/集計には反映しない） */
+/* 明細は「粗利ページ専用」の別データ（売上一覧/ダッシュボード/集計には反映しない）。Supabaseで他PCと同期。 */
 function smpProfitMeiGet() { try { var o = JSON.parse(localStorage.getItem('ribre_smp_profit_meisai_v1') || '{}') || {}; o.sales = o.sales || []; o.purchases = o.purchases || []; return o; } catch (e) { return { sales: [], purchases: [] }; } }
-function smpProfitMeiSet(o) { try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(o)); } catch (e) {} }
+function smpProfitMeiSet(o, noPush) { o.ts = Date.now(); try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(o)); } catch (e) {} if (!noPush) smpProfitMeiPushDebounced(); }
+var _smpMeiPushTimer = null;
+function smpProfitMeiPushDebounced() { if (_smpMeiPushTimer) clearTimeout(_smpMeiPushTimer); _smpMeiPushTimer = setTimeout(smpProfitMeiPushCloud, 800); }
+function smpProfitMeiCreds() {
+  try { var c = (typeof sb === 'function') ? sb() : {}; var s = (typeof sess === 'function') ? sess() : {}; var tok = s.access_token || (s.session && s.session.access_token) || ''; var em = (typeof email === 'function') ? email() : ''; if (c.url && c.key && tok && em) return { url: c.url.replace(/\/$/, ''), key: c.key, tok: tok, em: em }; } catch (e) {} return null;
+}
+function smpProfitMeiPushCloud() {
+  var cr = smpProfitMeiCreds(); if (!cr) return;
+  try {
+    fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
+      method: 'POST',
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ user_email: cr.em, skey: 'profit_meisai', value: smpProfitMeiGet() }])
+    }).catch(function () {});
+  } catch (e) {}
+}
+async function smpProfitMeiPullCloud() {
+  var cr = smpProfitMeiCreds(); if (!cr) return false;
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.profit_meisai&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return false;
+    var data = await r.json();
+    var cloud = data && data[0] && data[0].value;
+    if (cloud && typeof cloud === 'object') {
+      var local = smpProfitMeiGet();
+      if ((cloud.ts || 0) > (local.ts || 0)) {
+        cloud.sales = cloud.sales || []; cloud.purchases = cloud.purchases || [];
+        try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(cloud)); } catch (e) {}
+        return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
 /* 旧仕様で売上/仕入に混ざった source='明細' を専用ストアへ移動（ダッシュボードから除外） */
 function smpProfitMigrateFromSales() {
   var isMei = function (r) { return String(r.source || '') === '明細'; };
