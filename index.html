@@ -1428,6 +1428,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
     </div>
     <div class="grid">
       <div class="card"><div class="label">Supabase</div><div id="sbStatus" class="value">未設定</div></div>
+      <div class="card"><div class="label">クラウド保存</div><div id="storeStatus" class="value">未ログイン</div></div>
       <div class="card"><div class="label">ログイン</div><div id="loginStatus" class="value">未ログイン</div></div>
       <div class="card"><div class="label">ユーザー</div><div id="userView" class="value">未ログイン</div></div>
       <div class="card"><div class="label">OpenAI</div><div id="openaiStatus" class="value">未設定</div></div>
@@ -1574,6 +1575,10 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
       <button onclick="uploadPurchases()">仕入をクラウド保存</button>
       <button onclick="loadMine()">自分のクラウドデータ読込</button>
       <button class="secondary" onclick="cloudMonthly()">クラウド月別集計</button>
+    </div>
+    <div class="controls" style="margin-top:6px">
+      <button class="green" onclick="if(confirm('このPCの現在のデータでSupabaseを初期化（アップロード）します。正しいデータが入ったPCで1回だけ実行してください。続けますか？')){window.ribreStore&&window.ribreStore.seedFromThisPC();}">⬆ クラウドへ初期投入（このPCのデータ）</button>
+      <button onclick="window.ribreStore&&window.ribreStore.hydrate();">⬇ クラウドから読込（最新）</button>
     </div>
     <div class="grid">
       <div class="card"><div class="label">状態</div><div id="cloudStatus" class="value">未確認</div></div>
@@ -2592,6 +2597,8 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/app-report.js"></script>
 <script src="pages/app-simple.js?v=20260607a"></script>
 <script src="services/icons.js?v=20260606a"></script>
+<script src="services/data-store.js?v=20260607b"></script>
+<script src="services/auth-gate.js?v=20260607b"></script>
 
 <script>
 function exportAllSettings() {
