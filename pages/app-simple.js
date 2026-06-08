@@ -1584,7 +1584,41 @@ function smpProfitListHtml(rows, kind) {
       return '<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:4px 6px;text-align:right;font-weight:700;white-space:nowrap">' + amt.toLocaleString() + '</td><td style="padding:4px 6px">' + smpEsc(name) + '</td><td style="padding:4px 6px;white-space:nowrap;color:#64748b">' + smpEsc(r.date || '') + '</td><td style="padding:4px 6px;text-align:right">' + op + '</td></tr>';
     }).join('') + '</table></div>';
 }
+/* ===== 販売先／買取先の登録・プルダウン ===== */
+function smpPartnersGet() { try { var o = JSON.parse(localStorage.getItem('ribre_smp_partners_v1') || '{}') || {}; o.sales = o.sales || []; o.purchases = o.purchases || []; return o; } catch (e) { return { sales: [], purchases: [] }; } }
+function smpPartnersSet(o) { try { localStorage.setItem('ribre_smp_partners_v1', JSON.stringify(o)); } catch (e) {} }
+function smpPartnersAdd(kind, name) {
+  name = String(name || '').trim(); if (!name) return;
+  var o = smpPartnersGet(); var k = (kind === 'sale') ? 'sales' : 'purchases';
+  if (o[k].indexOf(name) < 0) { o[k].push(name); o[k].sort(function (a, b) { return String(a).localeCompare(String(b), 'ja'); }); smpPartnersSet(o); }
+}
+function smpPartnerOptions(kind) {
+  var store = smpProfitMeiGet();
+  var arr = (kind === 'sale') ? (store.sales || []) : (store.purchases || []);
+  var names = {};
+  arr.forEach(function (e) { var n = String(e.name || '').trim(); if (n) names[n] = 1; });
+  var master = smpPartnersGet();
+  (kind === 'sale' ? master.sales : master.purchases).forEach(function (n) { n = String(n || '').trim(); if (n) names[n] = 1; });
+  return Object.keys(names).sort(function (a, b) { return a.localeCompare(b, 'ja'); });
+}
+function smpRenderPartnerSelects() {
+  [['sale', 'smpPEntSaleShopSel', '販売先を選択'], ['purchase', 'smpPEntPurVendorSel', '買取先を選択']].forEach(function (p) {
+    var sel = document.getElementById(p[1]); if (!sel) return;
+    var keep = sel.value;
+    var opts = smpPartnerOptions(p[0]);
+    sel.innerHTML = '<option value="">（' + p[2] + '）</option>' + opts.map(function (n) { return '<option value="' + smpEsc(n) + '">' + smpEsc(n) + '</option>'; }).join('') + '<option value="__new__">＋ 新規入力</option>';
+    if (keep && (keep === '__new__' || opts.indexOf(keep) >= 0)) sel.value = keep;
+  });
+}
+function smpPartnerSelChange(kind) {
+  var sel = document.getElementById(kind === 'sale' ? 'smpPEntSaleShopSel' : 'smpPEntPurVendorSel');
+  var inp = document.getElementById(kind === 'sale' ? 'smpPEntSaleShop' : 'smpPEntPurVendor');
+  if (!sel || !inp) return;
+  if (sel.value === '__new__') { inp.style.display = ''; inp.value = ''; try { inp.focus(); } catch (e) {} }
+  else { inp.style.display = 'none'; inp.value = ''; }
+}
 function smpProfitRenderEntry() {
+  smpRenderPartnerSelects();
   var M = smpProfitEntryMonthVal();
   var cur = today().slice(0, 7);
   var inM = function (r) { return (r.month || String(r.date || r.sale_date || r.purchase_date || '').slice(0, 7)) === M; };
@@ -1609,27 +1643,35 @@ function smpProfitRenderEntry() {
   var pd = document.getElementById('smpPEntPurDate'); if (pd && !pd.value) pd.value = (M === cur ? today() : M + '-01');
 }
 function smpProfitAddSale() {
-  var shop = (document.getElementById('smpPEntSaleShop').value || '').trim();
+  var sel = document.getElementById('smpPEntSaleShopSel');
+  var inp = document.getElementById('smpPEntSaleShop');
+  var shop = (sel && sel.value && sel.value !== '__new__') ? sel.value : ((inp && inp.value) || '').trim();
   var date = document.getElementById('smpPEntSaleDate').value || (smpProfitEntryMonthVal() + '-01');
   var amt = num(document.getElementById('smpPEntSaleAmt').value || 0);
-  if (!shop) { alert('販売先を入力してください'); return; }
+  if (!shop) { alert('販売先を選択または入力してください'); return; }
   if (!amt) { alert('金額を入力してください'); return; }
+  smpPartnersAdd('sale', shop);
   var mei = smpProfitMeiGet();
   mei.sales.unshift({ id: 's_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), date: date, month: String(date).slice(0, 7), name: shop, amount: amt });
   smpProfitMeiSet(mei);
-  document.getElementById('smpPEntSaleShop').value = ''; document.getElementById('smpPEntSaleAmt').value = '';
+  if (sel) sel.value = ''; if (inp) { inp.value = ''; inp.style.display = 'none'; }
+  document.getElementById('smpPEntSaleAmt').value = '';
   simpleRenderProfitTable();
 }
 function smpProfitAddPurchase() {
-  var vendor = (document.getElementById('smpPEntPurVendor').value || '').trim();
+  var sel = document.getElementById('smpPEntPurVendorSel');
+  var inp = document.getElementById('smpPEntPurVendor');
+  var vendor = (sel && sel.value && sel.value !== '__new__') ? sel.value : ((inp && inp.value) || '').trim();
   var date = document.getElementById('smpPEntPurDate').value || (smpProfitEntryMonthVal() + '-01');
   var amt = num(document.getElementById('smpPEntPurAmt').value || 0);
-  if (!vendor) { alert('買取先を入力してください'); return; }
+  if (!vendor) { alert('買取先を選択または入力してください'); return; }
   if (!amt) { alert('金額を入力してください'); return; }
+  smpPartnersAdd('purchase', vendor);
   var mei = smpProfitMeiGet();
   mei.purchases.unshift({ id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), date: date, month: String(date).slice(0, 7), name: vendor, amount: amt });
   smpProfitMeiSet(mei);
-  document.getElementById('smpPEntPurVendor').value = ''; document.getElementById('smpPEntPurAmt').value = '';
+  if (sel) sel.value = ''; if (inp) { inp.value = ''; inp.style.display = 'none'; }
+  document.getElementById('smpPEntPurAmt').value = '';
   simpleRenderProfitTable();
 }
 function smpProfitDeleteRow(kind, id) {
