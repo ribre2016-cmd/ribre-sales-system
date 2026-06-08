@@ -1011,6 +1011,16 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
         <div class="smp-status smp-status-info" id="smpInboxStatus">ファイルを選ぶか貼り付けてください</div>
         <button class="smp-btn smp-btn-secondary" onclick="smpInboxReset()">クリア</button>
       </div>
+
+      <div class="smp-card">
+        <h2>🛟 バックアップから復元</h2>
+        <div class="smp-guide">以前保存したバックアップ(JSON)から<b>EC売上・仕入</b>を元に戻します。ログイン中なら自動でクラウドにも保存され、次回ログインでも保持されます。（粗利タブの明細・登録先は対象外＝そのまま残ります）</div>
+        <label class="smp-dropzone smp-inbox-zone" style="margin-bottom:8px">
+          🛟 バックアップJSONを選ぶ（ribre_sales_backup_….json）
+          <input type="file" id="smpRestoreFile" accept=".json,application/json" onchange="smpRestoreBackupFile(this)">
+        </label>
+        <div id="smpRestoreStatus" style="font-size:12px;color:#64748b"></div>
+      </div>
     </div>
 
     <!-- 手入力（CSV/画像を使わず直接入力） -->
@@ -2222,7 +2232,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608zb"></script>
+<script src="pages/app-simple.js?v=20260608zc"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260607e"></script>
 <script src="services/auth-gate.js?v=20260607b"></script>

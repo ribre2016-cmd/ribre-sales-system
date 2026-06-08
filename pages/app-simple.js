@@ -112,6 +112,33 @@ function smpInitInboxMonth() {
   const el = document.getElementById('smpInboxMonth');
   if (el) el.value = month;
 }
+function smpRestoreBackupFile(input) {
+  var file = input && input.files && input.files[0];
+  if (!file) return;
+  var st = document.getElementById('smpRestoreStatus');
+  if (!confirm('バックアップの内容でEC売上・仕入を復元します。今の表示は置き換わります。よろしいですか？')) { input.value = ''; return; }
+  var rd = new FileReader();
+  rd.onload = function () {
+    try {
+      var data = JSON.parse(rd.result);
+      var sCount = 0, pCount = 0;
+      if (data.sales) { localStorage.setItem('ribre_full_sales221', JSON.stringify(data.sales)); sCount = data.sales.length; }
+      if (data.yahooSales) { localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(data.yahooSales)); }
+      else if (data.sales) { localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(data.sales)); }
+      if (data.purchases) { localStorage.setItem('ribre_full_purchases221', JSON.stringify(data.purchases)); pCount = data.purchases.length; }
+      try { refreshAll(); } catch (e) {}
+      try { smpRenderHome(); } catch (e) {}
+      var li = (typeof email === 'function' && email());
+      if (st) st.textContent = '✅ 復元しました（売上 ' + sCount + '件 / 仕入 ' + pCount + '件）' + (li ? '。クラウドにも保存中…' : '。※未ログイン：この端末のみ');
+      alert('復元しました。\n売上 ' + sCount + '件 / 仕入 ' + pCount + '件' + (li ? '\n\nログイン中なのでクラウドにも自動保存されます（次回ログインでも保持）。' : '\n\n⚠️ 未ログインです。Googleでログインするとクラウドに保存され、次回も保持されます。'));
+    } catch (e) {
+      if (st) st.textContent = '⚠️ 復元に失敗: ' + e.message;
+      alert('復元に失敗しました: ' + e.message);
+    }
+    input.value = '';
+  };
+  rd.readAsText(file);
+}
 function smpRenderHome() {
   try { smpProfitMigrateFromSales(); } catch (e) {} // 古い source='明細' の仕入/売上を専用ストアへ移し全体集計に反映
   const cur = today().slice(0, 7);
