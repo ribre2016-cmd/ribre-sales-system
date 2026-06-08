@@ -123,6 +123,16 @@ function smpRenderHome() {
   set('smpHomeSale', yen(tot.sale));
   set('smpHomePur', yen(tot.pur));
   set('smpHomeCount', yen(tot.exp));
+  // 年度累計（全体）
+  try {
+    var yy = parseInt(month.slice(0, 4), 10), mm2 = parseInt(month.slice(5, 7), 10);
+    var sy = (mm2 >= 3) ? yy : yy - 1;
+    var fmonths = (typeof smpProfitFiscalMonths === 'function') ? smpProfitFiscalMonths(sy) : [];
+    var ys = 0, yp = 0, ye = 0;
+    fmonths.forEach(function (mo) { var tt = smpProfitMonthTotals(mo.key); ys += tt.sale; yp += tt.pur; ye += tt.exp; });
+    var ybox = document.getElementById('smpHomeYearBox');
+    if (ybox) ybox.innerHTML = '<div style="font-weight:800;margin-bottom:4px;color:#334155">' + sy + '年度（3月〜翌2月）累計</div>総売上 ' + yen(ys) + '<br>総仕入 ' + yen(yp) + '<br>経費 ' + yen(ye) + '<br><b style="color:' + ((ys - yp - ye) >= 0 ? '#166534' : '#dc2626') + '">粗利 ' + yen(ys - yp - ye) + '</b>';
+  } catch (e) {}
   const miss = smpShipMissingCount(sales());
   const w = document.getElementById('smpHomeShipWarn');
   if (w) {
