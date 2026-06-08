@@ -2258,7 +2258,11 @@ function smpRenderList() {
   }
   const accFilter = smpListAccFilter();
   let arr = smpVisibleSalesRows();
-  if (countEl) countEl.textContent = arr.length + '件';
+  if (countEl) {
+    var ecSum = arr.reduce(function (a, r) { return a + num(r.amount || r.price); }, 0);
+    var khSum = arr.reduce(function (a, r) { return a + num(r.fee) + num(r.ship || r.shipping); }, 0);
+    countEl.innerHTML = arr.length + '件 ／ EC売上 ' + yen(ecSum) + ' − 経費 ' + yen(khSum) + ' ＝ <b style="color:#166534">' + yen(ecSum - khSum) + '</b>';
+  }
   if (!arr.length) { box.innerHTML = '<div style="font-size:12px;color:#94a3b8">該当する売上はありません</div>'; return; }
   if (accFilter !== 'all') {
     box.innerHTML = arr.map((r, i) => smpSaleRowHtml(r, i + 1)).join('');
