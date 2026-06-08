@@ -12,7 +12,7 @@ function simpleTab(tab) {
   document.querySelectorAll('.smp-tab-btn').forEach(b => b.classList.toggle('smp-tab-active', b.dataset.tab === tab));
   document.querySelectorAll('.smp-nav-item').forEach(b => b.classList.toggle('smp-nav-active', b.dataset.nav === tab));
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
-  if (tab === 'home') { smpRenderAuth(); smpRenderHome(); try { smpProfitMeiPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} }
+  if (tab === 'home') { smpRenderAuth(); smpRenderHome(); try { smpProfitMeiPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} try { smpProfitProvPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} }
   if (tab === 'inbox') smpInitInboxMonth();
   if (tab === 'summary') smpSummaryEnter();
   if (tab === 'profit') {
@@ -21,6 +21,7 @@ function simpleTab(tab) {
     var _pcr = (typeof smpProfitMeiCreds === 'function') ? smpProfitMeiCreds() : null;
     if (_pst) _pst.textContent = _pcr ? ('ログイン中: ' + _pcr.em + '（🔄で最新取得）') : '⚠️ 未ログイン（同期にはログインが必要）';
     try { smpProfitMeiPullCloud().then(function (u) { if (u) { simpleRenderProfitTable(); if (_pst && _pcr) _pst.textContent = '✅ 最新を取得しました（' + _pcr.em + '）'; } }); } catch (e) {}
+    try { smpProfitProvPullCloud().then(function (u) { if (u) simpleRenderProfitTable(); }); } catch (e) {}
   }
   if (tab === 'manual') smpManualInit();
   if (tab === 'list') smpRenderList();
@@ -1283,7 +1284,39 @@ function smpProfitDefaultStartYear() {
 }
 var SMP_SALES_CHANNELS = ['ヤフオク1', 'ヤフオク2', 'ヤフオク3', 'ヤフオク4', 'ヤフオク5', 'ヤフオク6', 'ヤフオク7', 'ヤフオク8', 'メルカリ', 'メルカリShops', 'ラクマ'];
 function smpProfitProvGet() { try { return JSON.parse(localStorage.getItem('ribre_smp_profit_prov_v1') || '{}') || {}; } catch (e) { return {}; } }
-function smpProfitProvSet(o) { try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(o)); } catch (e) {} }
+function smpProfitProvTsGet() { return Number(localStorage.getItem('ribre_smp_profit_prov_ts') || 0) || 0; }
+function smpProfitProvTsSet(t) { try { localStorage.setItem('ribre_smp_profit_prov_ts', String(t || Date.now())); } catch (e) {} }
+function smpProfitProvSet(o, noPush) { try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(o)); } catch (e) {} if (!noPush) { smpProfitProvTsSet(Date.now()); smpProfitProvPushDebounced(); } }
+var _smpProvPushTimer = null;
+function smpProfitProvPushDebounced() { if (_smpProvPushTimer) clearTimeout(_smpProvPushTimer); _smpProvPushTimer = setTimeout(smpProfitProvPushCloud, 800); }
+async function smpProfitProvPushCloud() {
+  var cr = smpProfitMeiCreds(); if (!cr) return { ok: false, reason: 'no-login' };
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
+      method: 'POST',
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ user_email: cr.em, skey: 'profit_prov', value: { data: smpProfitProvGet(), ts: smpProfitProvTsGet() } }])
+    });
+    return { ok: r.ok, status: r.status };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+async function smpProfitProvPullCloud() {
+  var cr = smpProfitMeiCreds(); if (!cr) return false;
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.profit_prov&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return false;
+    var data = await r.json();
+    var cloud = data && data[0] && data[0].value;
+    if (cloud && typeof cloud === 'object' && cloud.data) {
+      if ((cloud.ts || 0) > smpProfitProvTsGet()) {
+        try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(cloud.data)); } catch (e) {}
+        smpProfitProvTsSet(cloud.ts);
+        return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
 function smpProfitSetProv(month, chan, val) {
   var o = smpProfitProvGet(); o[month] = o[month] || {};
   var n = Number(String(val == null ? '' : val).replace(/[^0-9.-]/g, '')) || 0;
@@ -1337,7 +1370,9 @@ async function smpProfitSyncNow() {
   setSt('同期中…（' + cr.em + '）');
   try {
     var pushRes = await smpProfitMeiPushCloud(); // このPCの明細をクラウドへ（成否を確認）
+    try { await smpProfitProvPushCloud(); } catch (e) {} // 仮入力もクラウドへ
     await smpProfitMeiPullCloud(); // 最新を取得（新しい方が優先）
+    try { await smpProfitProvPullCloud(); } catch (e) {}
     var store = smpProfitMeiGet();
     var ns = (store.sales || []).length, np = (store.purchases || []).length;
     try { simpleRenderProfitTable(); } catch (e) {}
