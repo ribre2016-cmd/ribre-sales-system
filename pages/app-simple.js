@@ -21,6 +21,18 @@ function simpleTab(tab) {
   const c = document.querySelector('.smp-content'); if (c) c.scrollTop = 0;
 }
 
+/* ブラウザの「戻る」でアプリが閉じる/ログイン前に戻るのを防ぐ（戻る＝ホームへ） */
+(function () {
+  if (window.__ribreBackGuard) return;
+  window.__ribreBackGuard = true;
+  function push() { try { history.pushState({ ribre: 1 }, '', location.href); } catch (e) {} }
+  window.addEventListener('load', function () { setTimeout(push, 300); });
+  window.addEventListener('popstate', function () {
+    push();
+    try { if (typeof simpleTab === 'function') simpleTab('home'); } catch (e) {}
+  });
+})();
+
 /* ホーム画面：今月（無ければ最新データ月）のKPI＋3ヶ月グラフ */
 function smpMonthLabel(month) {
   const p = String(month || '').split('-');
