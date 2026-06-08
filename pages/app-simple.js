@@ -567,6 +567,65 @@ function smpLogout() {
   smpAuthStatus('ログアウトしました（このPCのデータは残ります）', 'info');
 }
 
+/* ===== 同時ログイン防止（後勝ち：最後にログインした端末だけ有効） =====
+   app_settings(skey='active_session')に「有効端末ID」を記録。
+   新規ログインした端末が自分を登録し、他端末は検知して自動ログアウトする。 */
+function smpDeviceId() {
+  var id = localStorage.getItem('ribre_device_id');
+  if (!id) { id = 'dev_' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); try { localStorage.setItem('ribre_device_id', id); } catch (e) {} }
+  return id;
+}
+async function smpClaimActiveSession() {
+  var cr = smpProfitMeiCreds(); if (!cr) return false;
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
+      method: 'POST',
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ user_email: cr.em, skey: 'active_session', value: { deviceId: smpDeviceId(), at: Date.now() } }])
+    });
+    return r.ok;
+  } catch (e) { return false; }
+}
+async function smpCheckActiveSession() {
+  if (window.__ribreSuperseded) return;
+  var cr = smpProfitMeiCreds(); if (!cr) return;
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.active_session&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return; // 取得失敗時は誤ログアウトしない
+    var data = await r.json();
+    var cloud = data && data[0] && data[0].value;
+    if (cloud && cloud.deviceId && cloud.deviceId !== smpDeviceId()) smpSessionSuperseded();
+  } catch (e) {}
+}
+function smpSessionSuperseded() {
+  if (window.__ribreSuperseded) return;
+  window.__ribreSuperseded = true; window.__ribreSessionLost = true;
+  try { smpLogout(); } catch (e) {}
+  setTimeout(function () {
+    try { var m = document.getElementById('gateMsg'); if (m) { m.textContent = '別の端末でログインされたため、この端末はログアウトしました。続ける場合は再度ログインしてください。'; m.style.color = '#b91c1c'; } } catch (e) {}
+  }, 200);
+}
+async function smpActiveSessionTick() {
+  var cr = smpProfitMeiCreds();
+  if (!cr) return; // 未ログインは何もしない（ガードがログイン画面を表示）
+  var claimedTok = localStorage.getItem('ribre_claimed_token');
+  if (claimedTok !== cr.tok) {
+    // 新規/再ログイン → 後勝ちで自分を有効端末に登録
+    window.__ribreSuperseded = false; window.__ribreSessionLost = false;
+    if (await smpClaimActiveSession()) { try { localStorage.setItem('ribre_claimed_token', cr.tok); } catch (e) {} }
+    return;
+  }
+  await smpCheckActiveSession();
+}
+(function () {
+  if (window.__ribreActiveSessionBooted) return;
+  window.__ribreActiveSessionBooted = true;
+  window.addEventListener('load', function () {
+    setTimeout(function () { try { smpActiveSessionTick(); } catch (e) {} }, 1500);
+    setInterval(function () { try { smpActiveSessionTick(); } catch (e) {} }, 12000);
+  });
+})();
+
 /* ===== 取り込み（統合入力）: CSV・画像・キャプチャを1つの投入口で ===== */
 let _smpInboxFile = null;
 let _smpInboxMode = null; // 'ocr_sale' | 'ocr_purchase' | 'csv_sales' | 'csv_ship'

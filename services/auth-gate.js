@@ -99,6 +99,10 @@
     setInterval(update, 1000);
   }
 
-  if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(boot, 300);
-  else window.addEventListener('load', function () { setTimeout(boot, 300); });
+  var __booted = false;
+  function bootNow() { if (__booted) return; __booted = true; try { boot(); } catch (e) {} }
+  // 起動直後のちらつき防止：DOM準備でき次第すぐにログイン画面を出す（未ログインなら必ず表示）
+  if (document.readyState !== 'loading') bootNow();
+  else document.addEventListener('DOMContentLoaded', bootNow);
+  window.addEventListener('load', bootNow);
 })();
