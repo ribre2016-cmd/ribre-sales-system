@@ -1370,7 +1370,10 @@ async function smpProfitSyncNow() {
   setSt('同期中…（' + cr.em + '）');
   try {
     var pushRes = await smpProfitMeiPushCloud(); // このPCの明細をクラウドへ（成否を確認）
-    try { await smpProfitProvPushCloud(); } catch (e) {} // 仮入力もクラウドへ
+    // 仮入力：データがある端末だけ上げる（空端末で上書きしない）。旧データ(ts無し)にはtsを付与
+    var provData = smpProfitProvGet(), hasProv = false;
+    for (var _mk in provData) { if (provData[_mk] && typeof provData[_mk] === 'object' && Object.keys(provData[_mk]).length) { hasProv = true; break; } }
+    if (hasProv) { if (!smpProfitProvTsGet()) smpProfitProvTsSet(Date.now()); try { await smpProfitProvPushCloud(); } catch (e) {} }
     await smpProfitMeiPullCloud(); // 最新を取得（新しい方が優先）
     try { await smpProfitProvPullCloud(); } catch (e) {}
     var store = smpProfitMeiGet();
