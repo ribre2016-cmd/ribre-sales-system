@@ -1416,29 +1416,40 @@ function simpleRenderProfitTable() {
     return '<tr><td style="position:sticky;left:0;white-space:nowrap;' + bd('background:#fff') + '">' + smpEsc(c) + '</td>' + cells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(t) + '</td></tr>';
   }
 
-  // 明細1件＝1行（区分の位置に「販売先/仕入先 ・ 日付」を表示、金額はその月の列だけ）
-  function entryRow(e) {
-    var dp = String(e.date || '').split('-');
-    var md = dp.length === 3 ? (Number(dp[1]) + '/' + Number(dp[2])) : (e.date || '');
-    var detail = smpEsc(e.name || '') + (md ? ' ' + md : '');
-    var cells = months.map(function (m) {
-      if (m.key === e.mk) {
-        return '<td onclick="smpProfitToggleDetail(this)" title="' + detail + '" style="cursor:pointer;text-align:right;' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"><span class="smp-meili" data-mk="' + e.mk + '" style="display:none">' + detail + ' </span><span style="font-weight:700">' + fmt(e.amount) + '</span></td>';
-      }
-      return '<td style="' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"></td>';
-    }).join('');
-    return '<tr><td style="position:sticky;left:0;text-align:center;color:#cbd5e1;' + bd('background:#fff') + '">・</td>' + cells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(e.amount) + '</td></tr>';
+  // 明細グリッド：行＝各月のN件目を同じ行に並べる（月ごとに行がずれないよう整列）
+  function meiGridRows(entries) {
+    var byM = {};
+    entries.forEach(function (e) { (byM[e.mk] = byM[e.mk] || []).push(e); });
+    var maxN = 0;
+    months.forEach(function (m) { var n = (byM[m.key] || []).length; if (n > maxN) maxN = n; });
+    var html = '';
+    for (var i = 0; i < maxN; i++) {
+      var rowSum = 0;
+      var cells = months.map(function (m) {
+        var e = (byM[m.key] || [])[i];
+        if (e) {
+          rowSum += num(e.amount);
+          var dp = String(e.date || '').split('-');
+          var md = dp.length === 3 ? (Number(dp[1]) + '/' + Number(dp[2])) : (e.date || '');
+          var detail = smpEsc(e.name || '') + (md ? ' ' + md : '');
+          return '<td onclick="smpProfitToggleDetail(this)" title="' + detail + '" style="cursor:pointer;text-align:right;' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"><span class="smp-meili" data-mk="' + m.key + '" style="display:none">' + detail + ' </span><span style="font-weight:700">' + fmt(e.amount) + '</span></td>';
+        }
+        return '<td style="' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"></td>';
+      }).join('');
+      html += '<tr><td style="position:sticky;left:0;text-align:center;color:#cbd5e1;' + bd('background:#fff') + '">・</td>' + cells + '<td style="text-align:right;color:#94a3b8;' + bd('background:#f8fafc') + '">' + (rowSum ? fmt(rowSum) : '') + '</td></tr>';
+    }
+    return html;
   }
   var body = '';
   // 仕入（明細を個別行で表示）
   body += sectionRow('仕入（明細）', '#fef3c7');
-  d.meiPur.forEach(function (e) { body += entryRow(e); });
+  body += meiGridRows(d.meiPur);
   vendors.forEach(function (v) { body += dataRow(v, function (mk) { return (d.venReal[v] && d.venReal[v][mk]) || 0; }); });
   if (!d.meiPur.length && !vendors.length) body += '<tr><td colspan="' + ncols + '" style="' + bd('color:#94a3b8') + '">仕入データがありません（下の「明細入力」から追加）</td></tr>';
   body += dataRow('仕入 合計', purByM, { rowStyle: 'font-weight:800', nameBg: '#fff7ed' });
   // 売上明細（追加分）＝チャネルの「上」に積む
   body += sectionRow('売上明細（追加分）', '#dcfce7');
-  d.meiSales.forEach(function (e) { body += entryRow(e); });
+  body += meiGridRows(d.meiSales);
   if (!d.meiSales.length) body += '<tr><td colspan="' + ncols + '" style="' + bd('color:#94a3b8') + '">明細はまだありません（下の「明細入力」から追加）</td></tr>';
   body += dataRow('売上明細 合計', meiSaleByM, { rowStyle: 'font-weight:800', nameBg: '#dcfce7' });
   // 売上（チャネル別）
