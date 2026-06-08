@@ -1360,7 +1360,7 @@ function simpleRenderProfitTable() {
       var real = (d.chanReal[c] && d.chanReal[c][mk]) || 0;
       if (mk === curMonth && !(real > 0)) {
         var pv = (prov[mk] && prov[mk][c]) || '';
-        return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (pv || '') + '" placeholder="仮" onchange="smpProfitSetProv(\'' + mk + '\',\'' + c + '\',this.value)" style="box-sizing:border-box;width:50px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:1px 2px;background:#fff;font-size:10px"></td>';
+        return '<td onclick="smpProfitEditCell(this,\'' + mk + '\',\'' + c + '\')" style="cursor:pointer;text-align:right;' + bd('background:#fffef5') + '">' + (pv ? fmt(pv) : '<span style="color:#cbd5e1">仮</span>') + '</td>';
       }
       return '<td style="text-align:right;' + bd(mk === curMonth ? 'background:#fffef5' : '') + '">' + fmt(eff) + '</td>';
     }).join('');
@@ -1374,7 +1374,7 @@ function simpleRenderProfitTable() {
     var detail = smpEsc(e.name || '') + (md ? ' ' + md : '');
     var cells = months.map(function (m) {
       if (m.key === e.mk) {
-        return '<td onclick="smpProfitToggleDetail(this)" title="' + detail + '" style="cursor:pointer;text-align:right;' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"><span style="font-weight:700">' + fmt(e.amount) + '</span><span class="smp-meili" data-mk="' + e.mk + '" style="display:none;color:#475569;font-size:9px"> ' + detail + '</span></td>';
+        return '<td onclick="smpProfitToggleDetail(this)" title="' + detail + '" style="cursor:pointer;text-align:right;' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"><span class="smp-meili" data-mk="' + e.mk + '" style="display:none">' + detail + ' </span><span style="font-weight:700">' + fmt(e.amount) + '</span></td>';
       }
       return '<td style="' + bd(m.key === curMonth ? 'background:#fffef5' : '') + '"></td>';
     }).join('');
@@ -1402,7 +1402,7 @@ function simpleRenderProfitTable() {
   var shCells = months.map(function (m) {
     var mk = m.key; var v = d.shipByM[mk] || 0; shT += v;
     if (mk === curMonth) {
-      return '<td style="text-align:right;' + bd('background:#fffbeb') + '"><input type="text" inputmode="numeric" value="' + (v || '') + '" placeholder="送料" onchange="smpProfitSetShip(this.value)" style="box-sizing:border-box;width:56px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:1px 2px;background:#fff;font-size:10px"></td>';
+      return '<td onclick="smpProfitEditCell(this,\'' + mk + '\',\'__ship__\')" style="cursor:pointer;text-align:right;' + bd('background:#fffef5') + '">' + (v ? fmt(v) : '<span style="color:#cbd5e1">送料</span>') + '</td>';
     }
     return '<td style="text-align:right;' + bd() + '">' + fmt(v) + '</td>';
   }).join('');
@@ -1463,6 +1463,13 @@ function smpProfitEntryMonthVal() {
 var _smpProfitUnlocked = {};
 function smpProfitToggleDetail(td) {
   try { var s = td.querySelector('.smp-meili'); if (s) s.style.display = (!s.style.display || s.style.display === 'none') ? 'inline' : 'none'; } catch (e) {}
+}
+function smpProfitEditCell(td, mk, chan) {
+  if (td.querySelector('input')) return;
+  var prov = smpProfitProvGet();
+  var v = (prov[mk] && prov[mk][chan]); v = (v != null ? v : '');
+  td.innerHTML = '<input type="text" inputmode="numeric" value="' + v + '" style="box-sizing:border-box;width:58px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:1px 2px;font-size:10px" onblur="smpProfitSetProv(\'' + mk + '\',\'' + chan + '\',this.value)" onkeydown="if(event.key===\'Enter\'){this.blur();}">';
+  var inp = td.querySelector('input'); if (inp) { inp.focus(); try { inp.select(); } catch (e) {} }
 }
 function smpProfitToggleMonth(mk) {
   try {
