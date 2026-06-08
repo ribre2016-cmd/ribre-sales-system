@@ -12,11 +12,10 @@ function simpleTab(tab) {
   document.querySelectorAll('.smp-tab-btn').forEach(b => b.classList.toggle('smp-tab-active', b.dataset.tab === tab));
   document.querySelectorAll('.smp-nav-item').forEach(b => b.classList.toggle('smp-nav-active', b.dataset.nav === tab));
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
-  if (tab === 'home') { smpRenderAuth(); smpRenderHome(); }
+  if (tab === 'home') { smpRenderAuth(); smpRenderHome(); try { smpProfitMeiPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} }
   if (tab === 'inbox') smpInitInboxMonth();
   if (tab === 'summary') smpSummaryEnter();
   if (tab === 'profit') { simpleRenderProfitTable(); try { smpProfitMeiPullCloud().then(function (u) { if (u) simpleRenderProfitTable(); }); } catch (e) {} }
-  if (tab === 'total') { try { smpProfitMeiPullCloud().then(function (u) { smpRenderTotalDash(); }); } catch (e) {} smpRenderTotalDash(); }
   if (tab === 'manual') smpManualInit();
   if (tab === 'list') smpRenderList();
   const c = document.querySelector('.smp-content'); if (c) c.scrollTop = 0;
@@ -117,12 +116,13 @@ function smpRenderHome() {
   const ym = month.split('-');
   const isCur = month === cur;
   set('smpHomeMonth', '📅 ' + ym[0] + '年' + Number(ym[1]) + '月' + (isCur ? '' : ''));
-  set('smpHomeProfitLabel', (isCur ? '今月' : Number(ym[1]) + '月') + 'の利益');
-  set('smpHomeProfit', (profit >= 0 ? '＋' : '') + yen(profit), profit >= 0 ? '#15803d' : '#dc2626');
-  set('smpHomeSub', '売上 ' + yen(totalSale) + ' − 仕入 ' + yen(totalPur) + ' − 経費 ' + yen(totalFee + totalShip));
-  set('smpHomeSale', yen(totalSale));
-  set('smpHomePur', yen(totalPur));
-  set('smpHomeCount', s.length + '件');
+  var tot = (typeof smpProfitMonthTotals === 'function') ? smpProfitMonthTotals(month) : { sale: totalSale, pur: totalPur, exp: totalFee + totalShip, profit: profit };
+  set('smpHomeProfitLabel', (isCur ? '今月' : Number(ym[1]) + '月') + 'の粗利（全体）');
+  set('smpHomeProfit', (tot.profit >= 0 ? '＋' : '') + yen(tot.profit), tot.profit >= 0 ? '#15803d' : '#dc2626');
+  set('smpHomeSub', '売上 ' + yen(tot.sale) + ' − 仕入 ' + yen(tot.pur) + ' − 経費 ' + yen(tot.exp));
+  set('smpHomeSale', yen(tot.sale));
+  set('smpHomePur', yen(tot.pur));
+  set('smpHomeCount', yen(tot.exp));
   const miss = smpShipMissingCount(sales());
   const w = document.getElementById('smpHomeShipWarn');
   if (w) {
@@ -2464,18 +2464,9 @@ function simpleRenderChart(canvasId, labelsId) {
     months.push(d.toISOString().slice(0, 7));
   }
 
-  const allSales = sales();
-  const allPur   = purchases();
-
   const data = months.map(m => {
-    const s = allSales.filter(r => (r.month || String(r.date||'').slice(0,7)) === m);
-    const p = allPur.filter(r   => (r.month || String(r.date||'').slice(0,7)) === m);
-    const sale   = s.reduce((a, r) => a + num(r.amount || r.price), 0);
-    const fee    = s.reduce((a, r) => a + num(r.fee), 0);
-    const ship   = s.reduce((a, r) => a + num(r.ship || r.shipping), 0);
-    const pur    = p.reduce((a, r) => a + num(r.total || r.amount), 0);
-    const profit = sale - fee - ship - pur;
-    return { month: m, sale, pur, profit };
+    const t = (typeof smpProfitMonthTotals === 'function') ? smpProfitMonthTotals(m) : { sale: 0, pur: 0, profit: 0 };
+    return { month: m, sale: t.sale, pur: t.pur, profit: t.profit };
   });
 
   // ラベル更新
