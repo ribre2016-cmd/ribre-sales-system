@@ -95,6 +95,7 @@ function smpInitInboxMonth() {
   if (el) el.value = month;
 }
 function smpRenderHome() {
+  try { smpProfitMigrateFromSales(); } catch (e) {} // 古い source='明細' の仕入/売上を専用ストアへ移し全体集計に反映
   const cur = today().slice(0, 7);
   const inM = (r, m) => (r.month || String(r.date || '').slice(0, 7)) === m;
   const month = smpSelectedMonth();
