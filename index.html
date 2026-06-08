@@ -639,7 +639,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 .smp-action-emoji { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px; border-radius: 10px; background: #eff6ff; color: #2563eb; }
 .smp-action-emoji .ui-icon { width: 20px; height: 20px; }
 /* === ボトムナビ === */
-.smp-bottomnav { background: #fff; border-top: 1px solid #e5e7eb; display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px 0 8px; flex-shrink: 0; }
+.smp-bottomnav { background: #fff; border-top: 1px solid #e5e7eb; display: grid; grid-template-columns: repeat(6, 1fr); padding: 6px 0 8px; flex-shrink: 0; }
 .smp-nav-item { text-align: center; cursor: pointer; color: #94a3b8; font-size: 10px; font-weight: 700; padding: 4px 0; }
 .smp-nav-ico { display: flex; justify-content: center; margin-bottom: 3px; opacity: .72; color: #64748b; }
 .smp-nav-ico .ui-icon { width: 19px; height: 19px; }
@@ -836,7 +836,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <!-- かんたんモード UI -->
 <div id="simpleApp">
   <div class="smp-header">
-    <h1>⚡ かんたんモード</h1>
+    <h1>📒 RIBRE 売上管理</h1>
     <div style="display:flex;gap:8px;flex-shrink:0">
       <button class="smp-back-btn" onclick="simpleTab('home')">🏠 ホーム</button>
     </div>
@@ -1276,6 +1276,29 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
       </div>
     </div>
 
+    <div class="smp-screen" data-screen="total">
+      <div class="smp-card">
+        <h2>🌐 全体ダッシュボード</h2>
+        <div class="smp-guide">EC＋ヤフオク＋メルカリ＋明細を<b>すべて合算</b>した数字です（ホームはEC売上のみ）。</div>
+        <div class="smp-field">
+          <label>年月</label>
+          <select id="smpTotalMonth" onchange="smpRenderTotalDash()"></select>
+        </div>
+        <div class="smp-card smp-hero">
+          <div class="smp-hero-label">粗利（売上−仕入−経費）</div>
+          <div class="smp-hero-value" id="smpTotalProfit">—</div>
+          <div class="smp-hero-sub" id="smpTotalSub"></div>
+        </div>
+        <div class="smp-kpis">
+          <div class="smp-kpi"><div class="smp-kpi-label">総売上</div><div class="smp-kpi-value" id="smpTotalSale">—</div></div>
+          <div class="smp-kpi"><div class="smp-kpi-label">総仕入</div><div class="smp-kpi-value" id="smpTotalPur">—</div></div>
+          <div class="smp-kpi"><div class="smp-kpi-label">経費</div><div class="smp-kpi-value" id="smpTotalExp">—</div></div>
+        </div>
+        <div id="smpTotalYearBox" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;font-size:13px;color:#475569;line-height:1.7"></div>
+        <div class="smp-guide" style="margin-top:8px">各チャネルの内訳は<span onclick="simpleTab('profit')" style="color:#2563eb;cursor:pointer;font-weight:700;text-decoration:underline">「粗利」タブ</span>で確認できます。</div>
+      </div>
+    </div>
+
   </div>
   <nav class="smp-bottomnav">
     <div class="smp-nav-item smp-nav-active" data-nav="home"    onclick="simpleTab('home')"><span class="smp-nav-ico">🏠</span>ホーム</div>
@@ -1283,6 +1306,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
     <div class="smp-nav-item"                data-nav="manual"  onclick="simpleTab('manual')"><span class="smp-nav-ico">✍️</span>手入力</div>
     <div class="smp-nav-item"                data-nav="summary" onclick="simpleTab('summary')"><span class="smp-nav-ico">📊</span>集計</div>
     <div class="smp-nav-item"                data-nav="profit"  onclick="simpleTab('profit')"><span class="smp-nav-ico">💹</span>粗利</div>
+    <div class="smp-nav-item"                data-nav="total"   onclick="simpleTab('total')"><span class="smp-nav-ico">🌐</span>全体</div>
   </nav>
 </div>
 
@@ -2193,7 +2217,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608r"></script>
+<script src="pages/app-simple.js?v=20260608s"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260607e"></script>
 <script src="services/auth-gate.js?v=20260607b"></script>

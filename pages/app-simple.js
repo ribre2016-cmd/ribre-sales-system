@@ -16,6 +16,7 @@ function simpleTab(tab) {
   if (tab === 'inbox') smpInitInboxMonth();
   if (tab === 'summary') smpSummaryEnter();
   if (tab === 'profit') { simpleRenderProfitTable(); try { smpProfitMeiPullCloud().then(function (u) { if (u) simpleRenderProfitTable(); }); } catch (e) {} }
+  if (tab === 'total') { try { smpProfitMeiPullCloud().then(function (u) { smpRenderTotalDash(); }); } catch (e) {} smpRenderTotalDash(); }
   if (tab === 'manual') smpManualInit();
   if (tab === 'list') smpRenderList();
   const c = document.querySelector('.smp-content'); if (c) c.scrollTop = 0;
@@ -1464,6 +1465,45 @@ function smpProfitExportCsv() {
   csvDownload(rows, 'gross_profit_' + startYear + '.csv');
 }
 
+/* ===== 全体ダッシュボード（EC＋ヤフオク＋メルカリ＋明細の合算） ===== */
+function smpProfitMonthTotals(month) {
+  var y = parseInt(String(month).slice(0, 4), 10), m = parseInt(String(month).slice(5, 7), 10);
+  var startYear = (m >= 3) ? y : y - 1;
+  var d = smpProfitData(startYear);
+  var prov = smpProfitProvGet();
+  var cur = today().slice(0, 7);
+  var provShip = (prov[cur] && prov[cur]['__ship__']);
+  if (provShip != null && d.shipByM[cur] != null) d.shipByM[cur] = num(provShip);
+  var chans = SMP_SALES_CHANNELS.concat(Object.keys(d.chanReal).filter(function (c) { return SMP_SALES_CHANNELS.indexOf(c) < 0; }));
+  var saleEff = function (c, mk) { var real = (d.chanReal[c] && d.chanReal[c][mk]) || 0; if (real > 0) return real; if (mk === cur) return (prov[mk] && prov[mk][c]) || 0; return 0; };
+  var sale = chans.reduce(function (s, c) { return s + saleEff(c, month); }, 0) + d.meiSales.reduce(function (s, e) { return s + (e.mk === month ? e.amount : 0); }, 0);
+  var pur = Object.keys(d.venReal).reduce(function (s, v) { return s + ((d.venReal[v] && d.venReal[v][month]) || 0); }, 0) + d.meiPur.reduce(function (s, e) { return s + (e.mk === month ? e.amount : 0); }, 0);
+  var exp = d.shipByM[month] || 0;
+  return { sale: sale, pur: pur, exp: exp, profit: sale - pur - exp };
+}
+function smpRenderTotalDash() {
+  var sel = document.getElementById('smpTotalMonth');
+  if (sel && !sel.options.length) {
+    var choices = (typeof smpBuildMonthChoices === 'function') ? smpBuildMonthChoices() : [today().slice(0, 7)];
+    sel.innerHTML = choices.map(function (mm) { return '<option value="' + mm + '">' + smpMonthLabel(mm) + '</option>'; }).join('');
+  }
+  var M = (sel && sel.value) || today().slice(0, 7);
+  var t = smpProfitMonthTotals(M);
+  var set = function (id, v, color) { var el = document.getElementById(id); if (el) { el.textContent = v; if (color) el.style.color = color; } };
+  set('smpTotalProfit', (t.profit >= 0 ? '+' : '') + yen(t.profit), t.profit >= 0 ? '#166534' : '#dc2626');
+  set('smpTotalSub', '売上 ' + yen(t.sale) + ' − 仕入 ' + yen(t.pur) + ' − 経費 ' + yen(t.exp));
+  set('smpTotalSale', yen(t.sale));
+  set('smpTotalPur', yen(t.pur));
+  set('smpTotalExp', yen(t.exp));
+  var y = parseInt(String(M).slice(0, 4), 10), mm2 = parseInt(String(M).slice(5, 7), 10);
+  var startYear = (mm2 >= 3) ? y : y - 1;
+  var months = smpProfitFiscalMonths(startYear);
+  var ys = 0, yp = 0, ye = 0;
+  months.forEach(function (mo) { var tt = smpProfitMonthTotals(mo.key); ys += tt.sale; yp += tt.pur; ye += tt.exp; });
+  var box = document.getElementById('smpTotalYearBox');
+  if (box) box.innerHTML = '<div style="font-weight:800;margin-bottom:4px;color:#334155">' + startYear + '年度（3月〜翌2月）合計</div>総売上 ' + yen(ys) + '<br>総仕入 ' + yen(yp) + '<br>経費 ' + yen(ye) + '<br><b style="color:' + ((ys - yp - ye) >= 0 ? '#166534' : '#dc2626') + '">粗利 ' + yen(ys - yp - ye) + '</b>';
+}
+
 /* ===== 明細入力（販売先・日付・金額／通常の売上・仕入として保存） ===== */
 function smpProfitEntryMonthVal() {
   var el = document.getElementById('smpProfitEntryMonth');
@@ -1522,11 +1562,13 @@ function smpProfitRenderEntry() {
   var ecEl = document.getElementById('smpProfitEcNet');
   if (ecEl) ecEl.innerHTML = 'EC売上 − 経費（' + M + '）：¥' + Math.round(net).toLocaleString() +
     '<span style="font-weight:600;font-size:12px;color:#475569"> ' + (M === cur ? '（当月：売上 ' + Math.round(ec).toLocaleString() + ' − 経費 ' + Math.round(exp).toLocaleString() + '）' : '（過去月：CSV取込値・経費考慮済み）') + '</span>';
-  // 明細は粗利ページ専用ストアから（ダッシュボード非反映）
+  // 明細(専用ストア)＋通常データ(チャネル以外の売上・全仕入)を一覧表示し、どちらも削除可能に
   var store = smpProfitMeiGet();
   var meiInM = function (e) { return (e.month || String(e.date || '').slice(0, 7)) === M; };
-  var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(store.sales.filter(meiInM), 'sale');
-  var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(store.purchases.filter(meiInM), 'purchase');
+  var inM = function (r) { return (r.month || String(r.date || r.sale_date || r.purchase_date || '').slice(0, 7)) === M; };
+  var saleListable = function (r) { return SMP_SALES_CHANNELS.indexOf(String(r.shop || '').trim()) < 0; };
+  var sl = document.getElementById('smpPEntSaleList'); if (sl) sl.innerHTML = smpProfitListHtml(store.sales.filter(meiInM).concat(sales().filter(inM).filter(saleListable)), 'sale');
+  var pl = document.getElementById('smpPEntPurList'); if (pl) pl.innerHTML = smpProfitListHtml(store.purchases.filter(meiInM).concat(purchases().filter(inM)), 'purchase');
   var sd = document.getElementById('smpPEntSaleDate'); if (sd && !sd.value) sd.value = (M === cur ? today() : M + '-01');
   var pd = document.getElementById('smpPEntPurDate'); if (pd && !pd.value) pd.value = (M === cur ? today() : M + '-01');
 }
@@ -1560,8 +1602,18 @@ function smpProfitDeleteRow(kind, id) {
   delete _smpProfitUnlocked[id];
   var mei = smpProfitMeiGet();
   var key = kind === 'sale' ? 'sales' : 'purchases';
+  var before = (mei[key] || []).length;
   mei[key] = (mei[key] || []).filter(function (e) { return String(e.id) !== String(id); });
-  smpProfitMeiSet(mei);
+  if (mei[key].length !== before) {
+    smpProfitMeiSet(mei); // 明細ストアから削除
+  } else {
+    // 通常データ（売上一覧/ダッシュボード側）から削除
+    var keep = function (r) { return String(r.id || r.client || '') !== String(id); };
+    if (kind === 'sale') { setLS(LS.sales, sales().filter(keep)); try { setLS('ribre_yahoo_sales240', (get('ribre_yahoo_sales240', [])).filter(keep)); } catch (e) {} }
+    else { setLS(LS.purchases, purchases().filter(keep)); }
+    try { refreshAll(); } catch (e) {}
+    smpScheduleAutosave('profit-delete');
+  }
   simpleRenderProfitTable();
 }
 
