@@ -1299,15 +1299,16 @@ function smpProfitMeiPushDebounced() { if (_smpMeiPushTimer) clearTimeout(_smpMe
 function smpProfitMeiCreds() {
   try { var c = (typeof sb === 'function') ? sb() : {}; var s = (typeof sess === 'function') ? sess() : {}; var tok = s.access_token || (s.session && s.session.access_token) || ''; var em = (typeof email === 'function') ? email() : ''; if (c.url && c.key && tok && em) return { url: c.url.replace(/\/$/, ''), key: c.key, tok: tok, em: em }; } catch (e) {} return null;
 }
-function smpProfitMeiPushCloud() {
-  var cr = smpProfitMeiCreds(); if (!cr) return;
+async function smpProfitMeiPushCloud() {
+  var cr = smpProfitMeiCreds(); if (!cr) return { ok: false, reason: 'no-login' };
   try {
-    fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
       method: 'POST',
       headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify([{ user_email: cr.em, skey: 'profit_meisai', value: smpProfitMeiGet() }])
-    }).catch(function () {});
-  } catch (e) {}
+    });
+    return { ok: r.ok, status: r.status };
+  } catch (e) { return { ok: false, reason: e.message }; }
 }
 async function smpProfitMeiPullCloud() {
   var cr = smpProfitMeiCreds(); if (!cr) return false;
@@ -1335,13 +1336,18 @@ async function smpProfitSyncNow() {
   if (!cr) { setSt('⚠️ 未ログイン。Google（ribre2016@gmail.com）でログインしてください'); return; }
   setSt('同期中…（' + cr.em + '）');
   try {
-    smpProfitMeiPushCloud(); // 自分の変更を先に上げる
+    var pushRes = await smpProfitMeiPushCloud(); // このPCの明細をクラウドへ（成否を確認）
     await smpProfitMeiPullCloud(); // 最新を取得（新しい方が優先）
     var store = smpProfitMeiGet();
     var ns = (store.sales || []).length, np = (store.purchases || []).length;
     try { simpleRenderProfitTable(); } catch (e) {}
     try { smpRenderHome(); } catch (e) {}
-    setSt('✅ 同期完了：売上明細 ' + ns + '件・仕入明細 ' + np + '件（アカウント: ' + cr.em + '）');
+    if (pushRes && pushRes.ok) {
+      setSt('✅ 同期OK：クラウドに保存しました（売上明細 ' + ns + '件・仕入明細 ' + np + '件／' + cr.em + '）。他端末で🔄を押すと反映されます');
+    } else {
+      var why = pushRes ? (pushRes.status ? ('HTTP ' + pushRes.status) : (pushRes.reason || '不明')) : '不明';
+      setSt('⚠️ クラウド保存に失敗（' + why + '／' + cr.em + '）。404＝app_settings未作成 / 401＝再ログイン / 403＝RLS の可能性');
+    }
   } catch (e) {
     setSt('⚠️ 同期に失敗しました（' + cr.em + '）');
   }
