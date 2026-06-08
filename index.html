@@ -1061,8 +1061,30 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
       <div class="smp-card">
         <h2 id="smpListTitle">📋 売上一覧</h2>
         <div class="smp-choice">
-          <button class="smp-choice-btn smp-choice-active" id="smpListSaleBtn" onclick="smpListToggle('sale')">📈 売上</button>
-          <button class="smp-choice-btn" id="smpListPurBtn" onclick="smpListToggle('purchase')">📦 仕入</button>
+          <button class="smp-choice-btn smp-choice-active" id="smpListSaleBtn" onclick="smpListToggle('dash')">📊 売上</button>
+          <button class="smp-choice-btn" id="smpListPurBtn" onclick="smpListToggle('list')">📋 一覧</button>
+        </div>
+        <div id="smpListDash" style="display:none">
+          <div class="smp-field"><label>年月</label><select id="smpEcDashMonth" onchange="smpRenderEcDash()"></select></div>
+          <div class="smp-card smp-hero">
+            <div class="smp-hero-label" id="smpEcDashLabel">今月のEC粗利（EC売上−経費）</div>
+            <div class="smp-hero-value" id="smpEcDashProfit" style="color:#15803d">—</div>
+            <div class="smp-hero-sub" id="smpEcDashSub"></div>
+          </div>
+          <div class="smp-kpis">
+            <div class="smp-kpi"><div class="smp-kpi-label">EC売上</div><div class="smp-kpi-value" id="smpEcDashSale">—</div></div>
+            <div class="smp-kpi"><div class="smp-kpi-label">経費</div><div class="smp-kpi-value" id="smpEcDashExp">—</div></div>
+            <div class="smp-kpi"><div class="smp-kpi-label">件数</div><div class="smp-kpi-value" id="smpEcDashCount">—</div></div>
+          </div>
+          <div class="smp-card">
+            <h2>📊 3ヶ月の推移（EC）</h2>
+            <div class="smp-chart-legend">
+              <span class="smp-legend-dot" style="background:#2563eb"></span>EC売上
+              <span class="smp-legend-dot" style="background:#16a34a;margin-left:12px"></span>EC粗利
+            </div>
+            <canvas id="smpEcChart" height="140" style="width:100%;display:block;margin-top:10px"></canvas>
+            <div id="smpEcChartLabels" class="smp-chart-labels"></div>
+          </div>
         </div>
         <label id="smpListShipFilterWrap" style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#92400e;margin-bottom:10px;cursor:pointer">
           <input type="checkbox" id="smpListShipOnly" onchange="smpRenderList()">
@@ -2194,7 +2216,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608v"></script>
+<script src="pages/app-simple.js?v=20260608w"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260607e"></script>
 <script src="services/auth-gate.js?v=20260607b"></script>

@@ -2219,25 +2219,60 @@ function smpDeletePurchase(id) {
 
 /* ===== 売上／仕入 一覧 ===== */
 let _smpListKind = 'sale';
-function smpListToggle(kind) {
-  _smpListKind = kind;
+function smpListToggle(view) {
+  // view: 'dash'(EC集計ダッシュボード) | 'list'(EC売上リスト) | 'purchase'(仕入リスト)
+  var isDash = view === 'dash';
+  _smpListKind = (view === 'purchase') ? 'purchase' : 'sale';
   const sb = document.getElementById('smpListSaleBtn'), pb = document.getElementById('smpListPurBtn');
-  if (sb) sb.classList.toggle('smp-choice-active', kind === 'sale');
-  if (pb) pb.classList.toggle('smp-choice-active', kind === 'purchase');
-  const fw = document.getElementById('smpListShipFilterWrap'); if (fw) fw.style.display = kind === 'sale' ? 'flex' : 'none';
-  const aw = document.getElementById('smpListAccWrap'); if (aw) aw.style.display = kind === 'sale' ? 'block' : 'none';
-  const mw = document.getElementById('smpListMonthWrap'); if (mw) mw.style.display = kind === 'sale' ? 'block' : 'none';
-  const cb = document.getElementById('smpListCsvBtn'); if (cb) cb.style.display = kind === 'sale' ? 'block' : 'none';
-  const sc = document.getElementById('smpListShipCopyBtn'); if (sc) sc.style.display = kind === 'sale' ? 'block' : 'none';
-  const t = document.getElementById('smpListTitle'); if (t) t.textContent = kind === 'sale' ? '📋 売上一覧' : '🧾 仕入一覧';
-  if (kind === 'sale') smpListBuildMonths();
-  smpRenderList();
+  if (sb) sb.classList.toggle('smp-choice-active', view === 'dash');
+  if (pb) pb.classList.toggle('smp-choice-active', view !== 'dash');
+  const dash = document.getElementById('smpListDash'); if (dash) dash.style.display = isDash ? 'block' : 'none';
+  const showCtrls = (view === 'list');
+  const fw = document.getElementById('smpListShipFilterWrap'); if (fw) fw.style.display = showCtrls ? 'flex' : 'none';
+  const aw = document.getElementById('smpListAccWrap'); if (aw) aw.style.display = showCtrls ? 'block' : 'none';
+  const mw = document.getElementById('smpListMonthWrap'); if (mw) mw.style.display = showCtrls ? 'block' : 'none';
+  const cb = document.getElementById('smpListCsvBtn'); if (cb) cb.style.display = showCtrls ? 'block' : 'none';
+  const sc = document.getElementById('smpListShipCopyBtn'); if (sc) sc.style.display = showCtrls ? 'block' : 'none';
+  const ce = document.getElementById('smpListCount'); if (ce) ce.style.display = isDash ? 'none' : 'block';
+  const lb = document.getElementById('smpListBox'); if (lb) lb.style.display = isDash ? 'none' : 'block';
+  const t = document.getElementById('smpListTitle'); if (t) t.textContent = isDash ? '📊 EC集計' : (view === 'purchase' ? '🧾 仕入一覧' : '📋 売上一覧');
+  if (isDash) { smpRenderEcDash(); }
+  else { if (view !== 'purchase') smpListBuildMonths(); smpRenderList(); }
 }
-function smpOpenList(kind, shipOnly) {
-  _smpListKind = kind;
+function smpEcDashMonthVal() {
+  const s = document.getElementById('smpEcDashMonth');
+  return (s && s.value) || today().slice(0, 7);
+}
+function smpRenderEcDash() {
+  const sel = document.getElementById('smpEcDashMonth');
+  if (sel && !sel.options.length) {
+    const choices = smpBuildMonthChoices();
+    sel.innerHTML = choices.map(function (mm) { return '<option value="' + mm + '">' + smpMonthLabel(mm) + '</option>'; }).join('');
+  }
+  const M = smpEcDashMonthVal();
+  const cur = today().slice(0, 7);
+  const inM = function (r) { return (r.month || String(r.date || '').slice(0, 7)) === M; };
+  const rows = sales().filter(inM);
+  const ec = rows.reduce(function (a, r) { return a + num(r.amount || r.price); }, 0);
+  const exp = rows.reduce(function (a, r) { return a + num(r.fee) + num(r.ship || r.shipping); }, 0);
+  const profit = ec - exp;
+  const set = function (id, v, color) { const el = document.getElementById(id); if (el) { el.textContent = v; if (color) el.style.color = color; } };
+  const ym = M.split('-');
+  set('smpEcDashLabel', (M === cur ? '今月' : Number(ym[1]) + '月') + 'のEC粗利（EC売上−経費）');
+  set('smpEcDashProfit', (profit >= 0 ? '＋' : '') + yen(profit), profit >= 0 ? '#15803d' : '#dc2626');
+  set('smpEcDashSub', 'EC売上 ' + yen(ec) + ' − 経費 ' + yen(exp));
+  set('smpEcDashSale', yen(ec));
+  set('smpEcDashExp', yen(exp));
+  set('smpEcDashCount', rows.length + '件');
+  try { simpleRenderChart('smpEcChart', 'smpEcChartLabels', 'ec'); } catch (e) {}
+}
+function smpOpenList(view, shipOnly) {
+  // 後方互換: 'sale'→集計(配送確認時はリスト) / 'purchase'→仕入リスト
+  if (view === 'sale') view = shipOnly ? 'list' : 'dash';
+  _smpListKind = (view === 'purchase') ? 'purchase' : 'sale';
   const so = document.getElementById('smpListShipOnly'); if (so) so.checked = !!shipOnly;
   simpleTab('list');
-  smpListToggle(kind);
+  smpListToggle(view);
 }
 function smpRenderList() {
   const box = document.getElementById('smpListBox');
@@ -2463,7 +2498,7 @@ function smpSetStatus(id, msg, type) {
 }
 
 /* ---- 3ヶ月グラフ ---- */
-function simpleRenderChart(canvasId, labelsId) {
+function simpleRenderChart(canvasId, labelsId, mode) {
   canvasId = canvasId || 'smpChart';
   labelsId = labelsId || 'smpChartLabels';
   const canvas = document.getElementById(canvasId);
@@ -2479,6 +2514,12 @@ function simpleRenderChart(canvasId, labelsId) {
   }
 
   const data = months.map(m => {
+    if (mode === 'ec') {
+      const s = sales().filter(r => (r.month || String(r.date || '').slice(0, 7)) === m);
+      const sale = s.reduce((a, r) => a + num(r.amount || r.price), 0);
+      const exp = s.reduce((a, r) => a + num(r.fee) + num(r.ship || r.shipping), 0);
+      return { month: m, sale: sale, pur: 0, profit: sale - exp };
+    }
     const t = (typeof smpProfitMonthTotals === 'function') ? smpProfitMonthTotals(m) : { sale: 0, pur: 0, profit: 0 };
     return { month: m, sale: t.sale, pur: t.pur, profit: t.profit };
   });
