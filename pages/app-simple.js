@@ -27,6 +27,18 @@ function simpleTab(tab) {
   const c = document.querySelector('.smp-content'); if (c) c.scrollTop = 0;
 }
 
+/* 日付/月の入力欄はどこを押してもカレンダーを開く（右端のアイコンが遠い対策） */
+(function () {
+  if (window.__ribreDatePicker) return;
+  window.__ribreDatePicker = true;
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (t && t.tagName === 'INPUT' && (t.type === 'date' || t.type === 'month')) {
+      try { t.showPicker(); } catch (e) {}
+    }
+  }, true);
+})();
+
 /* ブラウザの「戻る」でアプリが閉じる/ログイン前に戻るのを防ぐ（戻る＝ホームへ） */
 (function () {
   if (window.__ribreBackGuard) return;
