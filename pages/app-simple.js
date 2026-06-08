@@ -15,7 +15,13 @@ function simpleTab(tab) {
   if (tab === 'home') { smpRenderAuth(); smpRenderHome(); try { smpProfitMeiPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} }
   if (tab === 'inbox') smpInitInboxMonth();
   if (tab === 'summary') smpSummaryEnter();
-  if (tab === 'profit') { simpleRenderProfitTable(); try { smpProfitMeiPullCloud().then(function (u) { if (u) simpleRenderProfitTable(); }); } catch (e) {} }
+  if (tab === 'profit') {
+    simpleRenderProfitTable();
+    var _pst = document.getElementById('smpProfitSyncStatus');
+    var _pcr = (typeof smpProfitMeiCreds === 'function') ? smpProfitMeiCreds() : null;
+    if (_pst) _pst.textContent = _pcr ? ('ログイン中: ' + _pcr.em + '（🔄で最新取得）') : '⚠️ 未ログイン（同期にはログインが必要）';
+    try { smpProfitMeiPullCloud().then(function (u) { if (u) { simpleRenderProfitTable(); if (_pst && _pcr) _pst.textContent = '✅ 最新を取得しました（' + _pcr.em + '）'; } }); } catch (e) {}
+  }
   if (tab === 'manual') smpManualInit();
   if (tab === 'list') smpRenderList();
   const c = document.querySelector('.smp-content'); if (c) c.scrollTop = 0;
@@ -1281,6 +1287,25 @@ async function smpProfitMeiPullCloud() {
     }
   } catch (e) {}
   return false;
+}
+/* 手動同期（ログイン中アカウントを表示。両PC/携帯で同じ ribre2016@gmail.com が必要） */
+async function smpProfitSyncNow() {
+  var st = document.getElementById('smpProfitSyncStatus');
+  var setSt = function (m) { if (st) st.textContent = m; };
+  var cr = smpProfitMeiCreds();
+  if (!cr) { setSt('⚠️ 未ログイン。Google（ribre2016@gmail.com）でログインしてください'); return; }
+  setSt('同期中…（' + cr.em + '）');
+  try {
+    smpProfitMeiPushCloud(); // 自分の変更を先に上げる
+    await smpProfitMeiPullCloud(); // 最新を取得（新しい方が優先）
+    var store = smpProfitMeiGet();
+    var ns = (store.sales || []).length, np = (store.purchases || []).length;
+    try { simpleRenderProfitTable(); } catch (e) {}
+    try { smpRenderHome(); } catch (e) {}
+    setSt('✅ 同期完了：売上明細 ' + ns + '件・仕入明細 ' + np + '件（アカウント: ' + cr.em + '）');
+  } catch (e) {
+    setSt('⚠️ 同期に失敗しました（' + cr.em + '）');
+  }
 }
 /* 旧仕様で売上/仕入に混ざった source='明細' を専用ストアへ移動（ダッシュボードから除外） */
 function smpProfitMigrateFromSales() {

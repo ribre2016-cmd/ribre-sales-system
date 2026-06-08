@@ -1272,7 +1272,11 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 
       <div class="smp-card">
         <h2>📝 明細入力（売上・仕入）</h2>
-        <div class="smp-guide">月を選んで、販売先・日付・金額を1件ずつ追加します（毎月の件数が違ってもOK）。入力は通常の売上・仕入として保存され、上の年間表に反映されます。</div>
+        <div class="smp-guide">月を選んで、販売先・日付・金額を1件ずつ追加します（毎月の件数が違ってもOK）。明細は他の端末とも同期します。</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 4px">
+          <button class="smp-btn smp-btn-secondary" onclick="smpProfitSyncNow()" style="width:auto;margin:0;padding:7px 12px">🔄 他の端末と同期</button>
+          <span id="smpProfitSyncStatus" style="font-size:11px;color:#64748b"></span>
+        </div>
         <div style="margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <label style="font-size:13px;font-weight:700;color:#334155">対象月</label>
           <input type="month" id="smpProfitEntryMonth" onchange="smpProfitRenderEntry()" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px">
@@ -2216,7 +2220,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608x"></script>
+<script src="pages/app-simple.js?v=20260608y"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260607e"></script>
 <script src="services/auth-gate.js?v=20260607b"></script>
