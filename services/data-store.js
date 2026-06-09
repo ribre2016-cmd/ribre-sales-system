@@ -205,6 +205,12 @@
       var ups = [], cids = Object.keys(cur);
       cids.forEach(function (cid) { if (last[cid] !== cur[cid].hash) ups.push(cur[cid].out); });
       var dels = Object.keys(last).filter(function (cid) { return !cur[cid]; });
+      // 大量削除ガード：壊れた/部分的/古いローカルキャッシュがクラウドの行を縮小させる事故を防ぐ。
+      // 5件超 かつ 既存の20%超 の一括削除は異常とみなしスキップ（upsertは実施）。意図的な一括削除は seed で対応。
+      if (dels.length > 5 && dels.length > Object.keys(last).length * 0.2) {
+        note('安全のためクラウドの大量削除(' + dels.length + '件)を中止しました。正しいデータなら「クラウドから最新を取得」で読み直してください。', 'warn');
+        dels = [];
+      }
       if (!ups.length && !dels.length) { pushing[kind] = false; return; }
       if (ups.length) for (var i = 0; i < ups.length; i += 500) {
         var r = await upsert(kind, ups.slice(i, i + 500));

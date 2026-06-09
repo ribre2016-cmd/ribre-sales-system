@@ -1013,6 +1013,13 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
       </div>
 
       <div class="smp-card">
+        <h2>☁ クラウドから最新を取得</h2>
+        <div class="smp-guide">この端末の表示を<b>クラウドの最新</b>に揃え直します(全端末で数字を一致させたい時に)。ログインが必要です。</div>
+        <button class="smp-btn smp-btn-secondary" onclick="smpReloadFromCloud()" style="margin-bottom:6px">☁ クラウドから最新を取得</button>
+        <div id="smpReloadStatus" style="font-size:12px;color:#64748b"></div>
+      </div>
+
+      <div class="smp-card">
         <h2>🛟 バックアップから復元</h2>
         <div class="smp-guide">以前保存したバックアップ(JSON)から<b>EC売上・仕入</b>を元に戻します。ログイン中なら自動でクラウドにも保存され、次回ログインでも保持されます。（粗利タブの明細・登録先は対象外＝そのまま残ります）</div>
         <label class="smp-dropzone smp-inbox-zone" style="margin-bottom:8px">
@@ -2232,9 +2239,9 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608zg"></script>
+<script src="pages/app-simple.js?v=20260608zh"></script>
 <script src="services/icons.js?v=20260606a"></script>
-<script src="services/data-store.js?v=20260607e"></script>
+<script src="services/data-store.js?v=20260608zh"></script>
 <script src="services/auth-gate.js?v=20260608a"></script>
 
 <script>

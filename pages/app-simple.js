@@ -113,6 +113,22 @@ function smpInitInboxMonth() {
   const el = document.getElementById('smpInboxMonth');
   if (el) el.value = month;
 }
+async function smpReloadFromCloud() {
+  var st = document.getElementById('smpReloadStatus');
+  var setSt = function (m) { if (st) st.textContent = m; };
+  if (!(typeof email === 'function' && email())) { setSt('⚠️ 先にログインしてください'); alert('先に Google（ribre2016@gmail.com）でログインしてください'); return; }
+  if (!(window.ribreStore && window.ribreStore.hydrate)) { alert('この機能は使えません'); return; }
+  setSt('クラウドから取得中…');
+  try {
+    var r = await window.ribreStore.hydrate();
+    try { refreshAll(); } catch (e) {}
+    try { smpRenderHome(); } catch (e) {}
+    var s = (r && r.sales != null) ? r.sales : '?';
+    var p = (r && r.purchases != null) ? r.purchases : '?';
+    setSt('✅ クラウドから取得：売上 ' + s + '件 / 仕入 ' + p + '件');
+    alert('クラウドの最新に揃えました。\n売上 ' + s + '件 / 仕入 ' + p + '件');
+  } catch (e) { setSt('⚠️ 取得に失敗しました'); alert('取得に失敗しました: ' + (e && e.message)); }
+}
 function smpRestoreBackupFile(input) {
   var file = input && input.files && input.files[0];
   if (!file) return;
