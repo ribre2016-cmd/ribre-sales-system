@@ -1013,6 +1013,27 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
       </div>
 
       <div class="smp-card">
+        <h2>🔒 月のロック（入力済みを保護）</h2>
+        <div class="smp-guide">入力が終わった月をロックすると、<b>CSVを取り込んでもその月は変更されません</b>（取込前の状態に戻します）。全端末で共有されます。</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+          <select id="smpLockMonth" style="flex:1;min-width:120px;padding:8px;border:1px solid #cbd5e1;border-radius:8px"></select>
+          <button class="smp-btn" style="width:auto;margin:0;padding:8px 14px" onclick="smpToggleLockSelected()">🔒 ロック / 解除</button>
+        </div>
+        <div id="smpLockedList" style="font-size:12px;color:#475569"></div>
+      </div>
+
+      <div class="smp-card">
+        <h2>💾 全データのバックアップ</h2>
+        <div class="smp-guide">EC売上・仕入に加え、<b>粗利の明細・仮入力・登録先・ロック</b>もまとめて1ファイルに保存します。</div>
+        <button class="smp-btn smp-btn-secondary" onclick="smpFullBackup()" style="margin-bottom:6px">💾 全部バックアップ（ダウンロード）</button>
+        <label class="smp-dropzone smp-inbox-zone" style="margin-bottom:6px">
+          🗂 全部復元（バックアップJSONを選ぶ）
+          <input type="file" accept=".json,application/json" onchange="smpFullRestore(this)">
+        </label>
+        <div id="smpFullBkStatus" style="font-size:12px;color:#64748b"></div>
+      </div>
+
+      <div class="smp-card">
         <h2>☁ クラウドから最新を取得</h2>
         <div class="smp-guide">この端末の表示を<b>クラウドの最新</b>に揃え直します(全端末で数字を一致させたい時に)。ログインが必要です。</div>
         <button class="smp-btn smp-btn-secondary" onclick="smpReloadFromCloud()" style="margin-bottom:6px">☁ クラウドから最新を取得</button>
@@ -2239,7 +2260,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608zj"></script>
+<script src="pages/app-simple.js?v=20260608zl"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260608zk"></script>
 <script src="services/auth-gate.js?v=20260608b"></script>

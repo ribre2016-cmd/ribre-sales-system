@@ -13,7 +13,7 @@ function simpleTab(tab) {
   document.querySelectorAll('.smp-nav-item').forEach(b => b.classList.toggle('smp-nav-active', b.dataset.nav === tab));
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
   if (tab === 'home') { smpRenderAuth(); smpRenderHome(); try { smpProfitMeiPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} try { smpProfitProvPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} }
-  if (tab === 'inbox') smpInitInboxMonth();
+  if (tab === 'inbox') { smpInitInboxMonth(); try { smpRenderLockUI(); } catch (e) {} try { smpLockedPullCloud().then(function (u) { if (u) smpRenderLockUI(); }); } catch (e) {} }
   if (tab === 'summary') smpSummaryEnter();
   if (tab === 'profit') {
     simpleRenderProfitTable();
@@ -113,6 +113,137 @@ function smpInitInboxMonth() {
   const el = document.getElementById('smpInboxMonth');
   if (el) el.value = month;
 }
+/* ===== 月ロック（入力済みの月をCSV取込から保護） ===== */
+function smpLockedMonthsGet() { try { return JSON.parse(localStorage.getItem('ribre_smp_locked_months') || '[]') || []; } catch (e) { return []; } }
+function smpLockedTsGet() { return Number(localStorage.getItem('ribre_smp_locked_ts') || 0) || 0; }
+function smpLockedTsSet(t) { try { localStorage.setItem('ribre_smp_locked_ts', String(t || Date.now())); } catch (e) {} }
+function smpLockedMonthsSet(arr, noPush) {
+  arr = (arr || []).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).sort();
+  try { localStorage.setItem('ribre_smp_locked_months', JSON.stringify(arr)); } catch (e) {}
+  if (!noPush) { smpLockedTsSet(Date.now()); smpLockedPushDebounced(); }
+}
+function smpIsMonthLocked(m) { return smpLockedMonthsGet().indexOf(m) >= 0; }
+function smpToggleLockMonth(m) {
+  if (!m) return;
+  var arr = smpLockedMonthsGet(); var i = arr.indexOf(m);
+  if (i >= 0) arr.splice(i, 1); else arr.push(m);
+  smpLockedMonthsSet(arr);
+  smpRenderLockUI();
+}
+var _smpLockPushTimer = null;
+function smpLockedPushDebounced() { if (_smpLockPushTimer) clearTimeout(_smpLockPushTimer); _smpLockPushTimer = setTimeout(smpLockedPushCloud, 800); }
+async function smpLockedPushCloud() {
+  if (window.__ribreSessionLost) return { ok: false };
+  var cr = smpProfitMeiCreds(); if (!cr) return { ok: false };
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', { method: 'POST', headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([{ user_email: cr.em, skey: 'locked_months', value: { data: smpLockedMonthsGet(), ts: smpLockedTsGet() } }]) });
+    return { ok: r.ok, status: r.status };
+  } catch (e) { return { ok: false }; }
+}
+async function smpLockedPullCloud() {
+  var cr = smpProfitMeiCreds(); if (!cr) return false;
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.locked_months&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return false;
+    var d = await r.json(); var c = d && d[0] && d[0].value;
+    if (c && c.data && (c.ts || 0) > smpLockedTsGet()) { try { localStorage.setItem('ribre_smp_locked_months', JSON.stringify(c.data)); } catch (e) {} smpLockedTsSet(c.ts); return true; }
+  } catch (e) {}
+  return false;
+}
+function smpLockSnapshotSales() {
+  if (!smpLockedMonthsGet().length) return null;
+  try { return { s: (sales() || []).slice(), y: JSON.parse(localStorage.getItem('ribre_yahoo_sales240') || '[]') }; } catch (e) { return null; }
+}
+function smpLockProtectAfterImport(snap) {
+  var locked = smpLockedMonthsGet(); if (!locked.length || !snap) return 0;
+  var lset = {}; locked.forEach(function (m) { lset[m] = 1; });
+  var mof = function (r) { return r.month || String(r.date || r.sale_date || '').slice(0, 7); };
+  var reverted = 0;
+  [['ribre_full_sales221', snap.s], ['ribre_yahoo_sales240', snap.y]].forEach(function (pair) {
+    var key = pair[0], pre = pair[1] || [];
+    var cur = []; try { cur = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch (e) {}
+    var kept = cur.filter(function (r) { return !lset[mof(r)]; });        // 取込後・ロック外
+    var preLocked = pre.filter(function (r) { return lset[mof(r)]; });    // 取込前・ロック月
+    reverted += (cur.length - kept.length);
+    try { setLS(key, kept.concat(preLocked)); } catch (e) {}
+  });
+  try { refreshAll(); } catch (e) {}
+  return reverted;
+}
+function smpRenderLockUI() {
+  var sel = document.getElementById('smpLockMonth');
+  if (sel) {
+    var cur = sel.value;
+    var choices = (typeof smpBuildMonthChoices === 'function') ? smpBuildMonthChoices() : [today().slice(0, 7)];
+    sel.innerHTML = choices.map(function (m) { return '<option value="' + m + '">' + smpMonthLabel(m) + (smpIsMonthLocked(m) ? ' 🔒' : '') + '</option>'; }).join('');
+    if (cur) sel.value = cur;
+  }
+  var box = document.getElementById('smpLockedList');
+  if (box) {
+    var arr = smpLockedMonthsGet();
+    box.innerHTML = arr.length ? ('ロック中：' + arr.map(function (m) { return '<span style="display:inline-block;background:#fee2e2;color:#b91c1c;border-radius:6px;padding:2px 8px;margin:2px;cursor:pointer" onclick="smpToggleLockMonth(\'' + m + '\')" title="クリックで解除">🔒 ' + smpMonthLabel(m) + ' ✕</span>'; }).join('')) : 'ロック中の月はありません';
+  }
+}
+function smpToggleLockSelected() {
+  var sel = document.getElementById('smpLockMonth'); if (!sel || !sel.value) return;
+  smpToggleLockMonth(sel.value);
+}
+
+/* ===== 全データのバックアップ／復元（EC＋明細＋仮入力＋登録先＋ロック） ===== */
+function smpFullBackup() {
+  var pick = function (k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+  var data = {
+    _type: 'ribre_full_backup_v1', createdAt: new Date().toISOString(),
+    sales: pick('ribre_full_sales221'), yahooSales: pick('ribre_yahoo_sales240'), purchases: pick('ribre_full_purchases221'),
+    meisai: pick('ribre_smp_profit_meisai_v1'), prov: pick('ribre_smp_profit_prov_v1'),
+    partners: pick('ribre_smp_partners_v1'), lockedMonths: pick('ribre_smp_locked_months')
+  };
+  try {
+    var blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'ribre_full_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    var st = document.getElementById('smpFullBkStatus'); if (st) st.textContent = '✅ 全データをダウンロードしました（売上' + ((data.sales || []).length) + '／仕入' + ((data.purchases || []).length) + '／売上明細' + ((data.meisai && data.meisai.sales || []).length) + '／仕入明細' + ((data.meisai && data.meisai.purchases || []).length) + '）';
+  } catch (e) { alert('バックアップに失敗: ' + e.message); }
+}
+function smpFullRestore(input) {
+  var f = input && input.files && input.files[0]; if (!f) return;
+  var st = document.getElementById('smpFullBkStatus');
+  if (!confirm('全データ（EC売上・仕入・粗利明細・仮入力・登録先・ロック）を復元します。今の内容は置き換わります。よろしいですか？')) { input.value = ''; return; }
+  var rd = new FileReader();
+  rd.onload = function () {
+    try {
+      var d = JSON.parse(rd.result);
+      var put = function (k, v) { if (v != null) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+      if (d.sales) put('ribre_full_sales221', d.sales);
+      put('ribre_yahoo_sales240', d.yahooSales || d.sales);
+      if (d.purchases) put('ribre_full_purchases221', d.purchases);
+      if (d.meisai) put('ribre_smp_profit_meisai_v1', d.meisai);
+      if (d.prov) put('ribre_smp_profit_prov_v1', d.prov);
+      if (d.partners) put('ribre_smp_partners_v1', d.partners);
+      if (d.lockedMonths) put('ribre_smp_locked_months', d.lockedMonths);
+      try { refreshAll(); } catch (e) {}
+      try { smpRenderHome(); } catch (e) {}
+      var li = (typeof email === 'function' && email());
+      if (li && window.ribreStore && window.ribreStore.replaceCloudWithLocal) {
+        if (st) st.textContent = '復元中…クラウドを置き換えています';
+        window.ribreStore.replaceCloudWithLocal().then(function () {
+          try { smpProfitMeiPushCloud(); } catch (e) {}
+          try { smpProfitProvPushCloud(); } catch (e) {}
+          try { smpLockedPushCloud(); } catch (e) {}
+          if (st) st.textContent = '✅ 全データ復元＆クラウド反映完了。他端末は「☁ クラウドから最新を取得」＋粗利タブ「🔄 同期」';
+          alert('全データを復元し、クラウドにも反映しました。\n他の端末では「☁ クラウドから最新を取得」と、粗利タブの「🔄 他の端末と同期」を押してください。');
+        });
+      } else {
+        if (st) st.textContent = '✅ 復元しました（未ログイン：この端末のみ）';
+        alert('復元しました（未ログインのためこの端末のみ。ログインすると同期されます）。');
+      }
+    } catch (e) { if (st) st.textContent = '⚠️ 復元失敗: ' + e.message; alert('復元に失敗: ' + e.message); }
+    input.value = '';
+  };
+  rd.readAsText(f);
+}
+
 async function smpReloadFromCloud() {
   var st = document.getElementById('smpReloadStatus');
   var setSt = function (m) { if (st) st.textContent = m; };
@@ -902,12 +1033,14 @@ function smpInboxImportSales() {
   oA.value = acc;
   const dt = new DataTransfer(); dt.items.add(_smpInboxFile); oF.files = dt.files;
   smpSetStatus('smpInboxStatus', '取込中...', 'info');
+  const _lockSnap = smpLockSnapshotSales();
   try {
     importYahooSalesCsv();
     setTimeout(() => {
+      const rv = smpLockProtectAfterImport(_lockSnap);
       const c = document.getElementById('yahooSalesCount') ? document.getElementById('yahooSalesCount').textContent : '?';
       smpRecordImportSig(sig, acc);
-      smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}（重複する商品は自動でまとめました）`, 'ok');
+      smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}（重複する商品は自動でまとめました）` + (rv ? `／🔒ロック月は保護(${rv}件は取込前のまま)` : ''), 'ok');
       smpInboxAfterItem();
     }, 800);
   } catch (e) { smpSetStatus('smpInboxStatus', '❌ エラー：' + e.message, 'err'); }
@@ -921,6 +1054,7 @@ function smpInboxImportShipping() {
   oT.value = type;
   const dt = new DataTransfer(); dt.items.add(_smpInboxFile); oF.files = dt.files;
   smpSetStatus('smpInboxStatus', '取込中...', 'info');
+  const _lockSnapSh = smpLockSnapshotSales();
   try {
     importShippingCsv();
     setTimeout(() => {
@@ -928,9 +1062,10 @@ function smpInboxImportShipping() {
       try {
         matchShipping();
         setTimeout(() => {
+          const rv = smpLockProtectAfterImport(_lockSnapSh);
           const m = document.getElementById('shipMatchCount') ? document.getElementById('shipMatchCount').textContent : '?';
           const u = document.getElementById('shipSalesUnmatched') ? document.getElementById('shipSalesUnmatched').textContent : '?';
-          smpSetStatus('smpInboxStatus', `✅ 照合完了　一致：${m}　未一致：${u}（送料・伝票を売上に自動反映）`, 'ok');
+          smpSetStatus('smpInboxStatus', `✅ 照合完了　一致：${m}　未一致：${u}（送料・伝票を売上に自動反映）` + (rv ? `／🔒ロック月は保護` : ''), 'ok');
           smpInboxAfterItem();
         }, 800);
       } catch (e) { smpSetStatus('smpInboxStatus', '❌ 照合エラー：' + e.message, 'err'); }
@@ -1466,8 +1601,10 @@ async function smpProfitSyncNow() {
     var provData = smpProfitProvGet(), hasProv = false;
     for (var _mk in provData) { if (provData[_mk] && typeof provData[_mk] === 'object' && Object.keys(provData[_mk]).length) { hasProv = true; break; } }
     if (hasProv) { if (!smpProfitProvTsGet()) smpProfitProvTsSet(Date.now()); try { await smpProfitProvPushCloud(); } catch (e) {} }
+    try { await smpLockedPushCloud(); } catch (e) {}
     await smpProfitMeiPullCloud(); // 最新を取得（新しい方が優先）
     try { await smpProfitProvPullCloud(); } catch (e) {}
+    try { await smpLockedPullCloud(); } catch (e) {}
     var store = smpProfitMeiGet();
     var ns = (store.sales || []).length, np = (store.purchases || []).length;
     try { simpleRenderProfitTable(); } catch (e) {}
