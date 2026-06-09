@@ -24,6 +24,7 @@
 
   var nativeSetItem = window.localStorage.setItem.bind(window.localStorage);
   var __hydrating = false;
+  var __hydratedOnce = false; // この読込(セッション)で一度クラウドを読み込むまでは保存(push)しない＝古いローカルがクラウドを汚すのを防ぐ
   var __setupNeeded = false;
   var __authNeeded = false;
   var timers = { sales: null, purchases: null };
@@ -198,6 +199,7 @@
 
   async function reconcile(kind) {
     if (__hydrating || pushing[kind] || !loggedIn()) return;
+    if (!__hydratedOnce) return; // クラウド未読込のうちは保存しない（古いローカルでクラウドを上書き/重複させない）
     if (window.__ribreSessionLost) return; // 別端末にログインされ無効化された端末は保存しない
     pushing[kind] = true;
     try {
@@ -250,6 +252,7 @@
       var rawS = rs.data || [], rawP = rp.data || [];
       // クラウドが空で、端末にデータがある場合は上書きしない（初期投入前のデータ保護）
       if (rawS.length === 0 && rawP.length === 0 && (canonical('sales').length > 0 || canonical('purchases').length > 0)) {
+        __hydratedOnce = true;
         return { ok: true, empty: true, sales: 0, purchases: 0, localHasData: true };
       }
       var sIn = rawS.map(mapSaleIn), pIn = rawP.map(mapPurchaseIn);
@@ -261,7 +264,7 @@
       synced.purchases = {}; pIn.forEach(function (r) { var o = mapPurchaseOut(r); synced.purchases[o.client_id] = hashStr(stableJson(o)); });
       saveSynced(synced);
       rawSet(HYDRATED_AT, new Date().toLocaleString('ja-JP'));
-      __setupNeeded = false; __authNeeded = false;
+      __setupNeeded = false; __authNeeded = false; __hydratedOnce = true;
       return { ok: true, sales: sIn.length, purchases: pIn.length };
     } catch (e) { note('クラウド読込に失敗: ' + e.message, 'danger'); return { ok: false, error: e.message }; }
     finally { __hydrating = false; }
@@ -287,6 +290,7 @@
       Object.keys(cur).forEach(function (cid) { fresh[cid] = cur[cid].hash; });
       synced[kind] = fresh; saveSynced(synced);
     }
+    __hydratedOnce = true;
     setStatus('初期投入OK（売上' + sent.sales + '／仕入' + sent.purchases + (totalSkipped ? '／異常値' + totalSkipped + '件除外' : '') + '）');
     return { ok: true, sent: sent, skipped: totalSkipped };
   }
@@ -325,6 +329,7 @@
       } catch (er) { note('クラウド置き換え失敗: ' + er.message, 'danger'); pushing[kind] = false; return { ok: false, error: er.message }; }
       pushing[kind] = false;
     }
+    __hydratedOnce = true;
     setStatus('クラウドを置き換えました（売上 ' + out.sales.up + '件・余分削除' + out.sales.del + '／仕入 ' + out.purchases.up + '件・余分削除' + out.purchases.del + '）');
     return { ok: true, result: out };
   }
