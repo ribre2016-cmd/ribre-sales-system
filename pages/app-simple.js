@@ -146,8 +146,23 @@ function smpRestoreBackupFile(input) {
       try { refreshAll(); } catch (e) {}
       try { smpRenderHome(); } catch (e) {}
       var li = (typeof email === 'function' && email());
-      if (st) st.textContent = '✅ 復元しました（売上 ' + sCount + '件 / 仕入 ' + pCount + '件）' + (li ? '。クラウドにも保存中…' : '。※未ログイン：この端末のみ');
-      alert('復元しました。\n売上 ' + sCount + '件 / 仕入 ' + pCount + '件' + (li ? '\n\nログイン中なのでクラウドにも自動保存されます（次回ログインでも保持）。' : '\n\n⚠️ 未ログインです。Googleでログインするとクラウドに保存され、次回も保持されます。'));
+      if (li && window.ribreStore && window.ribreStore.replaceCloudWithLocal) {
+        // クラウドをこのバックアップ内容に完全置き換え（重複・余分を掃除して一致させる）
+        if (st) st.textContent = '復元中…クラウドを置き換えています（重複掃除）';
+        window.ribreStore.replaceCloudWithLocal().then(function (rr) {
+          if (rr && rr.ok) {
+            var del = (rr.result && rr.result.sales ? rr.result.sales.del : 0);
+            if (st) st.textContent = '✅ 復元＆クラウド置き換え完了（売上 ' + sCount + '件／重複・余分 ' + del + '件を掃除）。他端末は「☁ クラウドから最新を取得」';
+            alert('復元しました。\n売上 ' + sCount + '件 / 仕入 ' + pCount + '件\n\nクラウドをこの内容に置き換えました（余分/重複 ' + del + '件を掃除）。\n他の端末では「☁ クラウドから最新を取得」を押してください。');
+          } else {
+            if (st) st.textContent = '⚠️ クラウド置き換えに失敗（' + (rr && (rr.status || rr.reason || rr.error) || '?') + '）。端末の表示は復元済み';
+            alert('端末の表示は復元しましたが、クラウド置き換えに失敗しました。再ログイン後にもう一度お試しください。');
+          }
+        });
+      } else {
+        if (st) st.textContent = '✅ 復元しました（売上 ' + sCount + '件 / 仕入 ' + pCount + '件）' + (li ? '' : '。※未ログイン：この端末のみ');
+        alert('復元しました。\n売上 ' + sCount + '件 / 仕入 ' + pCount + '件' + (li ? '' : '\n\n⚠️ 未ログインです。Googleでログインするとクラウドに保存され、次回も保持されます。'));
+      }
     } catch (e) {
       if (st) st.textContent = '⚠️ 復元に失敗: ' + e.message;
       alert('復元に失敗しました: ' + e.message);

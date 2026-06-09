@@ -290,6 +290,43 @@
     return { ok: true, sent: sent, skipped: totalSkipped };
   }
 
+  // ---- クラウドをこの端末の内容に「完全置き換え」（重複・余分を掃除） -----
+  //  バックアップ復元など意図的な操作専用。大量削除ガードを通さず、cur(=ローカル)に
+  //  無いクラウド行を削除し、curを upsert する。結果としてクラウド==ローカルになる。
+  async function replaceCloudWithLocal() {
+    if (!loggedIn()) return { ok: false, reason: 'not-logged-in' };
+    var out = { sales: { up: 0, del: 0 }, purchases: { up: 0, del: 0 } };
+    for (var ki = 0; ki < 2; ki++) {
+      var kind = ki === 0 ? 'sales' : 'purchases';
+      // 進行中の自動同期と衝突しないよう待つ
+      for (var w = 0; w < 20 && pushing[kind]; w++) { await new Promise(function (r) { setTimeout(r, 200); }); }
+      pushing[kind] = true;
+      try {
+        var cur = buildCurrent(kind);
+        var curCids = {}; Object.keys(cur).forEach(function (c) { curCids[c] = 1; });
+        var e = encodeURIComponent(mail());
+        var rr = await fetchAllRows(kind, e);
+        if (!rr.ok) { handleErr(rr); pushing[kind] = false; return { ok: false, status: rr.status }; }
+        var cloudCids = (rr.data || []).map(function (x) { return x.client_id || ('db_' + x.id); });
+        var ups = Object.keys(cur).map(function (c) { return cur[c].out; });
+        for (var i = 0; i < ups.length; i += 500) {
+          var u = await upsert(kind, ups.slice(i, i + 500));
+          if (!u.ok) { handleErr(u); pushing[kind] = false; return { ok: false, status: u.status }; }
+        }
+        var dels = cloudCids.filter(function (c) { return c && !curCids[c]; });
+        for (var j = 0; j < dels.length; j += 200) {
+          var d = await removeRows(kind, dels.slice(j, j + 200));
+          if (!d.ok) { handleErr(d); pushing[kind] = false; return { ok: false, status: d.status }; }
+        }
+        var synced = loadSynced(); var fresh = {}; Object.keys(cur).forEach(function (c) { fresh[c] = cur[c].hash; }); synced[kind] = fresh; saveSynced(synced);
+        out[kind] = { up: ups.length, del: dels.length };
+      } catch (er) { note('クラウド置き換え失敗: ' + er.message, 'danger'); pushing[kind] = false; return { ok: false, error: er.message }; }
+      pushing[kind] = false;
+    }
+    setStatus('クラウドを置き換えました（売上 ' + out.sales.up + '件・余分削除' + out.sales.del + '／仕入 ' + out.purchases.up + '件・余分削除' + out.purchases.del + '）');
+    return { ok: true, result: out };
+  }
+
   // ---- ログアウト時にキャッシュ消去（auth-gate から呼ばれる） --------
   function clearCache() {
     __hydrating = true;
@@ -329,6 +366,7 @@
   window.ribreStore = {
     hydrate: function () { return hydrate().then(function (r) { afterHydrate(r); return r; }); },
     seedFromThisPC: seedFromThisPC,
+    replaceCloudWithLocal: replaceCloudWithLocal,
     pushNow: function () { reconcile('sales'); reconcile('purchases'); },
     clearCache: clearCache,
     status: function () { return { loggedIn: loggedIn(), setupNeeded: __setupNeeded, authNeeded: __authNeeded, hydratedAt: window.localStorage.getItem(HYDRATED_AT) || null }; }
