@@ -10,8 +10,23 @@
   if (window.__ribreGateBooted) return;
   window.__ribreGateBooted = true;
 
+  function tokenValid() {
+    try {
+      var s = (typeof sess === 'function') ? sess() : {};
+      var t = s.access_token || (s.session && s.session.access_token) || '';
+      if (!t) return false; // トークン無し＝未ログイン
+      var parts = String(t).split('.');
+      if (parts.length < 2) return true; // 非JWTは判定不能→有効扱い(誤締め出し回避)
+      var b = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (b.length % 4) b += '=';
+      var payload = JSON.parse(decodeURIComponent(escape(atob(b))));
+      if (payload && payload.exp) return (payload.exp * 1000) > Date.now(); // 期限切れ＝未ログイン
+      return true;
+    } catch (e) { return true; }
+  }
   function isLoggedIn() {
-    try { return !!(typeof email === 'function' && email()); } catch (e) { return false; }
+    try { if (!(typeof email === 'function' && email())) return false; } catch (e) { return false; }
+    return tokenValid();
   }
 
   function buildOverlay() {

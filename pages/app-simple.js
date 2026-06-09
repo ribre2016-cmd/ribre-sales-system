@@ -652,8 +652,8 @@ async function smpActiveSessionTick() {
   if (window.__ribreActiveSessionBooted) return;
   window.__ribreActiveSessionBooted = true;
   window.addEventListener('load', function () {
-    setTimeout(function () { try { smpActiveSessionTick(); } catch (e) {} }, 1500);
-    setInterval(function () { try { smpActiveSessionTick(); } catch (e) {} }, 12000);
+    setTimeout(function () { try { smpActiveSessionTick(); } catch (e) {} }, 1200);
+    setInterval(function () { try { smpActiveSessionTick(); } catch (e) {} }, 7000);
   });
 })();
 
@@ -1380,6 +1380,7 @@ function smpProfitProvSet(o, noPush) { try { localStorage.setItem('ribre_smp_pro
 var _smpProvPushTimer = null;
 function smpProfitProvPushDebounced() { if (_smpProvPushTimer) clearTimeout(_smpProvPushTimer); _smpProvPushTimer = setTimeout(smpProfitProvPushCloud, 800); }
 async function smpProfitProvPushCloud() {
+  if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' };
   var cr = smpProfitMeiCreds(); if (!cr) return { ok: false, reason: 'no-login' };
   try {
     var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
@@ -1423,6 +1424,7 @@ function smpProfitMeiCreds() {
   try { var c = (typeof sb === 'function') ? sb() : {}; var s = (typeof sess === 'function') ? sess() : {}; var tok = s.access_token || (s.session && s.session.access_token) || ''; var em = (typeof email === 'function') ? email() : ''; if (c.url && c.key && tok && em) return { url: c.url.replace(/\/$/, ''), key: c.key, tok: tok, em: em }; } catch (e) {} return null;
 }
 async function smpProfitMeiPushCloud() {
+  if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' };
   var cr = smpProfitMeiCreds(); if (!cr) return { ok: false, reason: 'no-login' };
   try {
     var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {

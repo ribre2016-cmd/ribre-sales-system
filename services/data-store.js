@@ -198,6 +198,7 @@
 
   async function reconcile(kind) {
     if (__hydrating || pushing[kind] || !loggedIn()) return;
+    if (window.__ribreSessionLost) return; // 別端末にログインされ無効化された端末は保存しない
     pushing[kind] = true;
     try {
       var cur = buildCurrent(kind);
@@ -295,6 +296,7 @@
   //  無いクラウド行を削除し、curを upsert する。結果としてクラウド==ローカルになる。
   async function replaceCloudWithLocal() {
     if (!loggedIn()) return { ok: false, reason: 'not-logged-in' };
+    if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' };
     var out = { sales: { up: 0, del: 0 }, purchases: { up: 0, del: 0 } };
     for (var ki = 0; ki < 2; ki++) {
       var kind = ki === 0 ? 'sales' : 'purchases';
