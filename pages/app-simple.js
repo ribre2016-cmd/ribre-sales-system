@@ -12,7 +12,7 @@ function simpleTab(tab) {
   document.querySelectorAll('.smp-tab-btn').forEach(b => b.classList.toggle('smp-tab-active', b.dataset.tab === tab));
   document.querySelectorAll('.smp-nav-item').forEach(b => b.classList.toggle('smp-nav-active', b.dataset.nav === tab));
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
-  if (tab === 'home') { smpRenderAuth(); smpRenderHome(); try { smpProfitMeiPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} try { smpProfitProvPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} }
+  if (tab === 'home') { smpRenderAuth(); smpRenderHome(); try { smpProfitMeiPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} try { smpProfitProvPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} try { smpGoalsPullCloud().then(function (u) { if (u) smpRenderGoals(); }); } catch (e) {} }
   if (tab === 'inbox') { smpInitInboxMonth(); try { smpRenderLockUI(); } catch (e) {} try { smpLockedPullCloud().then(function (u) { if (u) smpRenderLockUI(); }); } catch (e) {} }
   if (tab === 'summary') smpSummaryEnter();
   if (tab === 'profit') {
@@ -260,6 +260,94 @@ async function smpReloadFromCloud() {
     alert('クラウドの最新に揃えました。\n売上 ' + s + '件 / 仕入 ' + p + '件');
   } catch (e) { setSt('⚠️ 取得に失敗しました'); alert('取得に失敗しました: ' + (e && e.message)); }
 }
+/* ===== 目標（年度／月ごと・あと何個で達成） ===== */
+var _smpGoalMode = 'year';
+var _smpGoalCtx = { curSale: 0, curProf: 0 };
+function smpGoalsGet() { try { var o = JSON.parse(localStorage.getItem('ribre_smp_goals_v1') || '{}') || {}; o.mSale = o.mSale || {}; o.mProf = o.mProf || {}; return o; } catch (e) { return { mSale: {}, mProf: {} }; } }
+function smpGoalsTsGet() { return Number(localStorage.getItem('ribre_smp_goals_ts') || 0) || 0; }
+function smpGoalsTsSet(t) { try { localStorage.setItem('ribre_smp_goals_ts', String(t || Date.now())); } catch (e) {} }
+function smpGoalsSet(o, noPush) { try { localStorage.setItem('ribre_smp_goals_v1', JSON.stringify(o)); } catch (e) {} if (!noPush) { smpGoalsTsSet(Date.now()); smpGoalsPushDebounced(); } }
+var _smpGoalsPushTimer = null;
+function smpGoalsPushDebounced() { if (_smpGoalsPushTimer) clearTimeout(_smpGoalsPushTimer); _smpGoalsPushTimer = setTimeout(smpGoalsPushCloud, 800); }
+async function smpGoalsPushCloud() {
+  if (window.__ribreSessionLost) return { ok: false };
+  var cr = smpProfitMeiCreds(); if (!cr) return { ok: false };
+  try { var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', { method: 'POST', headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([{ user_email: cr.em, skey: 'goals', value: { data: smpGoalsGet(), ts: smpGoalsTsGet() } }]) }); return { ok: r.ok, status: r.status }; } catch (e) { return { ok: false }; }
+}
+async function smpGoalsPullCloud() {
+  var cr = smpProfitMeiCreds(); if (!cr) return false;
+  try { var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.goals&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } }); if (!r.ok) return false; var d = await r.json(); var c = d && d[0] && d[0].value; if (c && c.data && (c.ts || 0) > smpGoalsTsGet()) { try { localStorage.setItem('ribre_smp_goals_v1', JSON.stringify(c.data)); } catch (e) {} smpGoalsTsSet(c.ts); return true; } } catch (e) {} return false;
+}
+function smpGoalCount(m) {
+  var c = 0;
+  try { c = sales().filter(function (r) { return (r.month || String(r.date || '').slice(0, 7)) === m; }).length; var st = smpProfitMeiGet(); c += (st.sales || []).filter(function (e) { return (e.month || String(e.date || '').slice(0, 7)) === m; }).length; } catch (e) {}
+  return c;
+}
+function smpGoalFiscalStart() { var cur = today().slice(0, 7); var y = parseInt(cur.slice(0, 4), 10), m = parseInt(cur.slice(5, 7), 10); return m >= 3 ? y : y - 1; }
+function smpGoalYearTotals() {
+  var months = smpProfitFiscalMonths(smpGoalFiscalStart()); var sale = 0, prof = 0;
+  months.forEach(function (mo) { var t = smpProfitMonthTotals(mo.key); sale += t.sale; prof += t.profit; });
+  return { sale: sale, prof: prof };
+}
+function smpGoalYearAvgUnit() {
+  var cur = today().slice(0, 7); var months = smpProfitFiscalMonths(smpGoalFiscalStart());
+  var saleSum = 0, profSum = 0, cnt = 0;
+  months.forEach(function (mo) { if (mo.key < cur) { var t = smpProfitMonthTotals(mo.key); saleSum += t.sale; profSum += t.profit; cnt += smpGoalCount(mo.key); } });
+  return { su: cnt ? Math.round(saleSum / cnt) : 0, pu: cnt ? Math.round(profSum / cnt) : 0, cnt: cnt };
+}
+function smpGoalSetMode(mode) { _smpGoalMode = mode; smpRenderGoals(); }
+function smpGoalCalc(kind) {
+  var isSale = kind === 'sale';
+  var cur = isSale ? _smpGoalCtx.curSale : _smpGoalCtx.curProf;
+  var t = Math.max(0, num((document.getElementById(isSale ? 'smpGoalSale' : 'smpGoalProf') || {}).value));
+  var u = Math.max(1, num((document.getElementById(isSale ? 'smpGoalSaleUnit' : 'smpGoalProfUnit') || {}).value));
+  var rem = Math.max(0, t - cur), pct = t > 0 ? Math.min(100, Math.round(cur / t * 100)) : 0, n = rem > 0 ? Math.ceil(rem / u) : 0;
+  var pre = isSale ? 'smpGoalSale' : 'smpGoalProf';
+  var setT = function (id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
+  setT(pre + 'CurTxt', yen(cur)); setT(pre + 'Tgt', yen(t)); setT(pre + 'Pct', pct + '%');
+  var bar = document.getElementById(pre + 'Bar'); if (bar) bar.style.width = pct + '%';
+  setT(pre + 'Rem', rem > 0 ? ('あと ' + yen(rem)) : '🎉 達成');
+  setT(pre + 'N', rem > 0 ? ('＝ 約' + n.toLocaleString('ja-JP') + '個') : '');
+}
+function smpGoalSave() {
+  var g = smpGoalsGet(); var cur = today().slice(0, 7);
+  var sT = num((document.getElementById('smpGoalSale') || {}).value), pT = num((document.getElementById('smpGoalProf') || {}).value);
+  var sU = num((document.getElementById('smpGoalSaleUnit') || {}).value), pU = num((document.getElementById('smpGoalProfUnit') || {}).value);
+  if (_smpGoalMode === 'year') { g.yearSale = sT; g.yearProf = pT; g.curSaleUnit = sU; g.curProfUnit = pU; }
+  else { var sel = document.getElementById('smpGoalMonth'); var m = (sel && sel.value) || cur; g.mSale[m] = sT; g.mProf[m] = pT; if (m === cur) { g.curSaleUnit = sU; g.curProfUnit = pU; } }
+  smpGoalsSet(g);
+}
+function smpGoalOnInput(kind) { smpGoalSave(); smpGoalCalc(kind); }
+function smpRenderGoals() {
+  var card = document.getElementById('smpGoalCard'); if (!card) return;
+  var g = smpGoalsGet(); var cur = today().slice(0, 7);
+  var by = document.getElementById('smpGoalBtnYear'), bm = document.getElementById('smpGoalBtnMonth');
+  if (by) by.classList.toggle('smp-choice-active', _smpGoalMode === 'year');
+  if (bm) bm.classList.toggle('smp-choice-active', _smpGoalMode === 'month');
+  var mw = document.getElementById('smpGoalMonthWrap'); if (mw) mw.style.display = _smpGoalMode === 'month' ? 'block' : 'none';
+  var msel = document.getElementById('smpGoalMonth');
+  if (msel && !msel.options.length) { var ch = (typeof smpBuildMonthChoices === 'function') ? smpBuildMonthChoices() : [cur]; msel.innerHTML = ch.map(function (m) { return '<option value="' + m + '"' + (m === cur ? ' selected' : '') + '>' + smpMonthLabel(m) + (m === cur ? '（当月）' : '') + '</option>'; }).join(''); }
+  var curSale, curProf, sT, pT, sU, pU, src;
+  if (_smpGoalMode === 'year') {
+    var yt = smpGoalYearTotals(); curSale = yt.sale; curProf = yt.prof;
+    sT = num(g.yearSale); pT = num(g.yearProf);
+    var av = smpGoalYearAvgUnit();
+    sU = (g.curSaleUnit != null && g.curSaleUnit !== '') ? num(g.curSaleUnit) : av.su;
+    pU = (g.curProfUnit != null && g.curProfUnit !== '') ? num(g.curProfUnit) : av.pu;
+    src = '先月までの平均（手入力で調整可）';
+  } else {
+    var m = (msel && msel.value) || cur; var t = smpProfitMonthTotals(m); curSale = t.sale; curProf = t.profit;
+    sT = num((g.mSale || {})[m]); pT = num((g.mProf || {})[m]);
+    if (m === cur) { var av2 = smpGoalYearAvgUnit(); sU = (g.curSaleUnit != null && g.curSaleUnit !== '') ? num(g.curSaleUnit) : av2.su; pU = (g.curProfUnit != null && g.curProfUnit !== '') ? num(g.curProfUnit) : av2.pu; src = '当月：手入力'; }
+    else { var cnt = smpGoalCount(m); sU = cnt ? Math.round(t.sale / cnt) : 0; pU = cnt ? Math.round(t.profit / cnt) : 0; src = '件数から自動（' + cnt + '件）'; }
+  }
+  _smpGoalCtx = { curSale: curSale, curProf: curProf };
+  var sv = function (id, v) { var el = document.getElementById(id); if (el) el.value = (v || v === 0) ? v : ''; };
+  sv('smpGoalSale', sT); sv('smpGoalProf', pT); sv('smpGoalSaleUnit', sU); sv('smpGoalProfUnit', pU);
+  var st1 = document.getElementById('smpGoalSaleUnitSrc'); if (st1) st1.textContent = src;
+  var st2 = document.getElementById('smpGoalProfUnitSrc'); if (st2) st2.textContent = src;
+  smpGoalCalc('sale'); smpGoalCalc('prof');
+}
 function smpRestoreBackupFile(input) {
   var file = input && input.files && input.files[0];
   if (!file) return;
@@ -342,6 +430,7 @@ function smpRenderHome() {
     var ybox = document.getElementById('smpHomeYearBox');
     if (ybox) ybox.innerHTML = '<div style="font-weight:800;margin-bottom:4px;color:#334155">' + sy + '年度（3月〜翌2月）累計</div>総売上 ' + yen(ys) + '<br>総仕入 ' + yen(yp) + '<br>経費 ' + yen(ye) + '<br><b style="color:' + ((ys - yp - ye) >= 0 ? '#166534' : '#dc2626') + '">粗利 ' + yen(ys - yp - ye) + '</b>';
   } catch (e) {}
+  try { smpRenderGoals(); } catch (e) {}
   const miss = smpShipMissingCount(sales());
   const w = document.getElementById('smpHomeShipWarn');
   if (w) {

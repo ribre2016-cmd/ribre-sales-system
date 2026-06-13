@@ -886,6 +886,50 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
       </div>
       <div style="font-size:11px;color:#94a3b8;text-align:center;margin:2px 0 4px">EC＋ヤフオク＋メルカリ＋明細の<b>全体</b>です。内訳は<span onclick="simpleTab('profit')" style="color:#2563eb;cursor:pointer;font-weight:700;text-decoration:underline">「粗利」タブ</span>へ</div>
       <div id="smpHomeYearBox" class="smp-card" style="background:#f8fafc;border:1px solid #e2e8f0;font-size:13px;color:#475569;line-height:1.7;padding:12px 14px"></div>
+
+      <div id="smpGoalCard" class="smp-card" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:800;color:#334155">🎯 目標（あと何個で達成）</div>
+          <div class="smp-choice" style="margin:0;display:flex;gap:4px">
+            <button class="smp-choice-btn smp-choice-active" id="smpGoalBtnYear" onclick="smpGoalSetMode('year')" style="padding:4px 10px;font-size:12px">年度</button>
+            <button class="smp-choice-btn" id="smpGoalBtnMonth" onclick="smpGoalSetMode('month')" style="padding:4px 10px;font-size:12px">月ごと</button>
+          </div>
+        </div>
+        <div id="smpGoalMonthWrap" style="display:none;margin-bottom:8px">
+          <select id="smpGoalMonth" onchange="smpRenderGoals()" style="width:100%;padding:7px 8px;border:1px solid #cbd5e1;border-radius:8px"></select>
+        </div>
+
+        <div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="font-weight:700;color:#1e40af">売上目標</span>
+            <span style="font-size:12px;color:#64748b">¥</span>
+            <input id="smpGoalSale" type="number" inputmode="numeric" step="100000" oninput="smpGoalOnInput('sale')" style="width:140px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;text-align:right">
+          </div>
+          <div style="font-size:12px;color:#64748b">現在 <b id="smpGoalSaleCurTxt" style="color:#334155">—</b> ／ 目標 <span id="smpGoalSaleTgt">—</span>（<span id="smpGoalSalePct">0%</span>）</div>
+          <div style="height:9px;border-radius:5px;background:#eef2f7;overflow:hidden;margin:6px 0"><div id="smpGoalSaleBar" style="height:100%;border-radius:5px;background:#2563eb;width:0%"></div></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;color:#64748b;margin:4px 0">
+            <span>🏷 商品単価 <span id="smpGoalSaleUnitSrc" style="color:#92400e"></span></span>
+            <span>¥</span><input id="smpGoalSaleUnit" type="number" inputmode="numeric" step="1000" oninput="smpGoalOnInput('sale')" style="width:100px;padding:5px 7px;border:1px solid #cbd5e1;border-radius:8px;text-align:right">
+          </div>
+          <div style="font-size:14px;font-weight:700;color:#1e40af"><span id="smpGoalSaleRem">—</span> <span id="smpGoalSaleN" style="color:#334155"></span></div>
+        </div>
+
+        <div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="font-weight:700;color:#166534">粗利目標</span>
+            <span style="font-size:12px;color:#64748b">¥</span>
+            <input id="smpGoalProf" type="number" inputmode="numeric" step="100000" oninput="smpGoalOnInput('prof')" style="width:140px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;text-align:right">
+          </div>
+          <div style="font-size:12px;color:#64748b">現在 <b id="smpGoalProfCurTxt" style="color:#334155">—</b> ／ 目標 <span id="smpGoalProfTgt">—</span>（<span id="smpGoalProfPct">0%</span>）</div>
+          <div style="height:9px;border-radius:5px;background:#eef2f7;overflow:hidden;margin:6px 0"><div id="smpGoalProfBar" style="height:100%;border-radius:5px;background:#16a34a;width:0%"></div></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;color:#64748b;margin:4px 0">
+            <span>🏷 1個あたり粗利 <span id="smpGoalProfUnitSrc" style="color:#92400e"></span></span>
+            <span>¥</span><input id="smpGoalProfUnit" type="number" inputmode="numeric" step="1000" oninput="smpGoalOnInput('prof')" style="width:100px;padding:5px 7px;border:1px solid #cbd5e1;border-radius:8px;text-align:right">
+          </div>
+          <div style="font-size:14px;font-weight:700;color:#166534"><span id="smpGoalProfRem">—</span> <span id="smpGoalProfN" style="color:#334155"></span></div>
+        </div>
+      </div>
+
       <div class="smp-flow">
         <div class="smp-flow-title">今日の流れ</div>
         <div class="smp-flow-steps">
@@ -2260,7 +2304,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260606c"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608zm"></script>
+<script src="pages/app-simple.js?v=20260608zn"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260608zk"></script>
 <script src="services/auth-gate.js?v=20260608b"></script>
