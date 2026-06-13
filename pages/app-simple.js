@@ -1441,15 +1441,30 @@ function simpleRenderSummary() {
   const s = smpSortReportSalesRows(sales().filter(inMonth));
   const p = purchases().filter(inMonth);
 
-  const totalSale = s.reduce((a, r) => a + num(r.amount || r.price), 0);
-  const totalFee  = s.reduce((a, r) => a + num(r.fee), 0);
-  const totalShip = s.reduce((a, r) => a + num(r.ship || r.shipping), 0);
-  const totalPur  = p.reduce((a, r) => a + num(r.total || r.amount), 0);
-  const profit    = totalSale - totalFee - totalShip - totalPur;
-  const tax = Math.floor(totalSale / 11);
-  const netSale = totalSale - tax;
-  const avgUnit = s.length ? Math.round(totalSale / s.length) : 0;
-  const avgProfit = s.length ? Math.round(profit / s.length) : 0;
+  const totalFee  = s.reduce((a, r) => a + num(r.fee), 0); // 手数料はEC分（明細・仮入力に手数料なし）
+
+  // 粗利タブの明細・仮入力も含めた「全体」に（smpProfitMonthTotalsで整合）
+  let mt = { sale: 0, pur: 0, exp: 0, profit: 0 };
+  try {
+    if (all) {
+      const _set = {};
+      (typeof smpProfitMonthsPresent === 'function' ? smpProfitMonthsPresent() : []).forEach(function (m) { _set[m] = 1; });
+      try { const st0 = smpProfitMeiGet(); (st0.sales || []).concat(st0.purchases || []).forEach(function (e) { const m = e.month || String(e.date || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(m)) _set[m] = 1; }); } catch (e) {}
+      Object.keys(_set).forEach(function (mm) { const t = smpProfitMonthTotals(mm); mt.sale += t.sale; mt.pur += t.pur; mt.exp += t.exp; mt.profit += t.profit; });
+    } else {
+      mt = smpProfitMonthTotals(month);
+    }
+  } catch (e) {}
+  const gSale = mt.sale, gPur = mt.pur, gProfit = mt.profit;
+  const gFee = totalFee;
+  const gShip = Math.max(0, mt.exp - gFee); // 送料＝経費合計−手数料
+  let meiSaleCount = 0, meiPurCount = 0;
+  try { const stc = smpProfitMeiGet(); const inM2 = function (e) { return all || (e.month || String(e.date || '').slice(0, 7)) === month; }; meiSaleCount = (stc.sales || []).filter(inM2).length; meiPurCount = (stc.purchases || []).filter(inM2).length; } catch (e) {}
+  const saleCount = s.length + meiSaleCount;
+  const tax = Math.floor(gSale / 11);
+  const netSale = gSale - tax;
+  const avgUnit = saleCount ? Math.round(gSale / saleCount) : 0;
+  const avgProfit = saleCount ? Math.round(gProfit / saleCount) : 0;
 
   const set = (id, v, color) => {
     const el = document.getElementById(id);
@@ -1457,18 +1472,18 @@ function simpleRenderSummary() {
     el.textContent = v;
     if (color) el.style.color = color;
   };
-  set('smpTotalSale',  yen(totalSale));
-  set('smpTotalFee',   yen(totalFee));
-  set('smpTotalShip',  yen(totalShip));
-  set('smpTotalPur',   yen(totalPur));
-  set('smpTotalProfit', (profit >= 0 ? '+' : '') + yen(profit), profit >= 0 ? '#166534' : '#dc2626');
+  set('smpTotalSale',  yen(gSale));
+  set('smpTotalFee',   yen(gFee));
+  set('smpTotalShip',  yen(gShip));
+  set('smpTotalPur',   yen(gPur));
+  set('smpTotalProfit', (gProfit >= 0 ? '+' : '') + yen(gProfit), gProfit >= 0 ? '#166534' : '#dc2626');
   set('smpNetSale', yen(netSale));
   set('smpSalesTax', yen(tax));
-  set('smpAvgUnit', s.length + '件 / ' + yen(avgUnit));
+  set('smpAvgUnit', saleCount + '件 / ' + yen(avgUnit));
   set('smpAvgProfit', yen(avgProfit), avgProfit >= 0 ? '#166534' : '#dc2626');
-  set('smpSaleCount',  s.length + '件');
-  set('smpPurCount',   p.length + '件');
-  set('smpAllCount', '全データ：売上 ' + sales().length + '件 / 仕入 ' + purchases().length + '件');
+  set('smpSaleCount',  saleCount + '件');
+  set('smpPurCount',   (p.length + meiPurCount) + '件');
+  set('smpAllCount', '全体（EC＋ヤフオク＋メルカリ＋明細＋仮入力）の合計です。下の内訳はEC分です');
   const missing = smpShipMissingCount(s);
   const warnEl = document.getElementById('smpShipWarn');
   if (warnEl) {
