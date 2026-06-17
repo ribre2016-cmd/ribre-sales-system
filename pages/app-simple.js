@@ -13,7 +13,7 @@ function simpleTab(tab) {
   document.querySelectorAll('.smp-nav-item').forEach(b => b.classList.toggle('smp-nav-active', b.dataset.nav === tab));
   document.querySelectorAll('.smp-screen').forEach(s => s.classList.toggle('smp-screen-active', s.dataset.screen === tab));
   if (tab === 'home') { smpRenderAuth(); smpRenderHome(); try { smpProfitMeiPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} try { smpProfitProvPullCloud().then(function (u) { if (u) smpRenderHome(); }); } catch (e) {} try { smpGoalsPullCloud().then(function (u) { if (u) smpRenderGoals(); }); } catch (e) {} }
-  if (tab === 'inbox') { smpInitInboxMonth(); try { smpRenderLockUI(); } catch (e) {} try { smpLockedPullCloud().then(function (u) { if (u) smpRenderLockUI(); }); } catch (e) {} }
+  if (tab === 'inbox') smpInitInboxMonth();
   if (tab === 'summary') smpSummaryEnter();
   if (tab === 'profit') {
     simpleRenderProfitTable();
@@ -22,6 +22,8 @@ function simpleTab(tab) {
     if (_pst) _pst.textContent = _pcr ? ('ログイン中: ' + _pcr.em + '（🔄で最新取得）') : '⚠️ 未ログイン（同期にはログインが必要）';
     try { smpProfitMeiPullCloud().then(function (u) { if (u) { simpleRenderProfitTable(); if (_pst && _pcr) _pst.textContent = '✅ 最新を取得しました（' + _pcr.em + '）'; } }); } catch (e) {}
     try { smpProfitProvPullCloud().then(function (u) { if (u) simpleRenderProfitTable(); }); } catch (e) {}
+    try { smpRenderLockUI(); } catch (e) {}
+    try { smpLockedPullCloud().then(function (u) { if (u) smpRenderLockUI(); }); } catch (e) {}
   }
   if (tab === 'manual') smpManualInit();
   if (tab === 'list') smpRenderList();
