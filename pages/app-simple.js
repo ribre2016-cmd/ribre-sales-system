@@ -1752,11 +1752,12 @@ function smpProfitData(startYear) {
   var chanKey = function (r) { return String(r.shop || r.type || r.matchStatus || '').trim() || 'その他'; };
   var venKey = function (r) { return String(r.vendor || r.type || '').trim() || 'その他'; };
   var isMei = function (r) { return String(r.source || '') === '明細'; };
-  var chanReal = {}, venReal = {}, shipByM = {};
-  months.forEach(function (m) { shipByM[m.key] = 0; });
+  var chanReal = {}, venReal = {}, shipByM = {}, feeByM = {};
+  months.forEach(function (m) { shipByM[m.key] = 0; feeByM[m.key] = 0; });
   sales().forEach(function (r) {
     var mk = monthOf(r); if (!keyset[mk] || isMei(r)) return;
-    shipByM[mk] += num(r.ship != null ? r.ship : r.shipping) + num(r.fee); // 送料＋手数料(経費)
+    shipByM[mk] += num(r.ship != null ? r.ship : r.shipping); // 送料
+    feeByM[mk] += num(r.fee); // 手数料
     var c = chanKey(r);
     chanReal[c] = chanReal[c] || {}; chanReal[c][mk] = (chanReal[c][mk] || 0) + num(r.amount != null ? r.amount : r.price);
   });
@@ -1770,7 +1771,7 @@ function smpProfitData(startYear) {
   var meiPur = store.purchases.filter(function (e) { return keyset[mOf(e)]; }).map(function (e) { return { id: e.id, date: e.date, name: e.name, amount: num(e.amount), mk: mOf(e) }; });
   meiSales.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
   meiPur.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
-  return { months: months, chanReal: chanReal, venReal: venReal, shipByM: shipByM, meiSales: meiSales, meiPur: meiPur };
+  return { months: months, chanReal: chanReal, venReal: venReal, shipByM: shipByM, feeByM: feeByM, meiSales: meiSales, meiPur: meiPur };
 }
 function simpleRenderProfitTable() {
   var wrap = document.getElementById('smpProfitTableWrap');
@@ -1791,7 +1792,9 @@ function simpleRenderProfitTable() {
   var prov = smpProfitProvGet();
   var curMonth = today().slice(0, 7);
   var provShip = (prov[curMonth] && prov[curMonth]['__ship__']);
-  if (provShip != null && d.shipByM[curMonth] != null) d.shipByM[curMonth] = num(provShip); // 当月の送料は手入力を優先
+  if (provShip != null && provShip !== '' && d.shipByM[curMonth] != null) d.shipByM[curMonth] = num(provShip); // 当月の送料は手入力を優先
+  var provFee = (prov[curMonth] && prov[curMonth]['__fee__']);
+  if (provFee != null && provFee !== '' && d.feeByM[curMonth] != null) d.feeByM[curMonth] = num(provFee); // 当月の手数料は手入力を優先
   var months = d.months;
   var fmt = function (n) { return (Math.round(n) || 0).toLocaleString(); };
   var bd = function (extra) { return 'border:1px solid #e5e7eb;padding:1px 3px;white-space:nowrap;' + (extra || ''); };
@@ -1884,10 +1887,20 @@ function simpleRenderProfitTable() {
     }
     return '<td style="text-align:right;' + bd() + '">' + fmt(v) + '</td>';
   }).join('');
-  body += '<tr><td style="position:sticky;left:0;font-weight:700;' + bd('background:#fff') + '">送料 合計（経費含む）</td>' + shCells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(shT) + '</td></tr>';
+  body += '<tr><td style="position:sticky;left:0;font-weight:700;' + bd('background:#fff') + '">送料 合計</td>' + shCells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(shT) + '</td></tr>';
+  // 手数料 合計（当月は手入力で上書き。CSV取込後は実数＝落札システム利用料/手数料）
+  var feT = 0;
+  var feCells = months.map(function (m) {
+    var mk = m.key; var v = d.feeByM[mk] || 0; feT += v;
+    if (mk === curMonth) {
+      return '<td onclick="smpProfitEditCell(this,\'' + mk + '\',\'__fee__\')" style="cursor:pointer;text-align:right;' + bd('background:#fffef5') + '">' + (v ? fmt(v) : '<span style="color:#cbd5e1">手数料</span>') + '</td>';
+    }
+    return '<td style="text-align:right;' + bd() + '">' + fmt(v) + '</td>';
+  }).join('');
+  body += '<tr><td style="position:sticky;left:0;font-weight:700;' + bd('background:#fff') + '">手数料 合計</td>' + feCells + '<td style="text-align:right;font-weight:700;' + bd('background:#f8fafc') + '">' + fmt(feT) + '</td></tr>';
   var gT = 0;
-  var gCells = months.map(function (m) { var v = saleByM(m.key) - purByM(m.key) - (d.shipByM[m.key] || 0); gT += v; return '<td style="text-align:right;font-weight:800;color:' + (v >= 0 ? '#166534' : '#dc2626') + ';' + bd('background:#ecfdf5') + '">' + fmt(v) + '</td>'; }).join('');
-  body += '<tr><td style="position:sticky;left:0;font-weight:800;' + bd('background:#ecfdf5') + '">粗利（売上−仕入−経費）</td>' + gCells + '<td style="text-align:right;font-weight:800;color:' + (gT >= 0 ? '#166534' : '#dc2626') + ';' + bd('background:#d1fae5') + '">' + fmt(gT) + '</td></tr>';
+  var gCells = months.map(function (m) { var v = saleByM(m.key) - purByM(m.key) - (d.shipByM[m.key] || 0) - (d.feeByM[m.key] || 0); gT += v; return '<td style="text-align:right;font-weight:800;color:' + (v >= 0 ? '#166534' : '#dc2626') + ';' + bd('background:#ecfdf5') + '">' + fmt(v) + '</td>'; }).join('');
+  body += '<tr><td style="position:sticky;left:0;font-weight:800;' + bd('background:#ecfdf5') + '">粗利（売上−仕入−送料−手数料）</td>' + gCells + '<td style="text-align:right;font-weight:800;color:' + (gT >= 0 ? '#166534' : '#dc2626') + ';' + bd('background:#d1fae5') + '">' + fmt(gT) + '</td></tr>';
 
   wrap.innerHTML =
     '<div style="font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 8px;margin-bottom:8px">黄色の列＝当月（' + curMonth + '）。ヤフオク1〜8・メルカリの空欄に<b>仮の数字</b>を入力できます。CSVを取り込むと自動で実数に切り替わります。</div>' +
@@ -1901,7 +1914,9 @@ function smpProfitExportCsv() {
   var prov = smpProfitProvGet();
   var curMonth = today().slice(0, 7);
   var provShipE = (prov[curMonth] && prov[curMonth]['__ship__']);
-  if (provShipE != null && d.shipByM[curMonth] != null) d.shipByM[curMonth] = num(provShipE);
+  if (provShipE != null && provShipE !== '' && d.shipByM[curMonth] != null) d.shipByM[curMonth] = num(provShipE);
+  var provFeeE = (prov[curMonth] && prov[curMonth]['__fee__']);
+  if (provFeeE != null && provFeeE !== '' && d.feeByM[curMonth] != null) d.feeByM[curMonth] = num(provFeeE);
   var months = d.months;
   var totC = function (c) { return months.reduce(function (s, m) { return s + ((d.chanReal[c] && d.chanReal[c][m.key]) || 0); }, 0); };
   var others = Object.keys(d.chanReal).filter(function (c) { return SMP_SALES_CHANNELS.indexOf(c) < 0; }).sort(function (a, b) { return totC(b) - totC(a); });
@@ -1926,7 +1941,8 @@ function smpProfitExportCsv() {
   var chanSale = function (mk) { return chans.reduce(function (s, c) { return s + saleEff(c, mk); }, 0); };
   pushRow('売上 合計', function (mk) { return chanSale(mk) + meiSaleM(mk); });
   pushRow('送料 合計', function (mk) { return d.shipByM[mk] || 0; });
-  pushRow('粗利', function (mk) { return chanSale(mk) + meiSaleM(mk) - venPur(mk) - meiPurM(mk) - (d.shipByM[mk] || 0); });
+  pushRow('手数料 合計', function (mk) { return d.feeByM[mk] || 0; });
+  pushRow('粗利', function (mk) { return chanSale(mk) + meiSaleM(mk) - venPur(mk) - meiPurM(mk) - (d.shipByM[mk] || 0) - (d.feeByM[mk] || 0); });
   csvDownload(rows, 'gross_profit_' + startYear + '.csv');
 }
 
@@ -1938,12 +1954,14 @@ function smpProfitMonthTotals(month) {
   var prov = smpProfitProvGet();
   var cur = today().slice(0, 7);
   var provShip = (prov[cur] && prov[cur]['__ship__']);
-  if (provShip != null && d.shipByM[cur] != null) d.shipByM[cur] = num(provShip);
+  if (provShip != null && provShip !== '' && d.shipByM[cur] != null) d.shipByM[cur] = num(provShip);
+  var provFee = (prov[cur] && prov[cur]['__fee__']);
+  if (provFee != null && provFee !== '' && d.feeByM[cur] != null) d.feeByM[cur] = num(provFee);
   var chans = SMP_SALES_CHANNELS.concat(Object.keys(d.chanReal).filter(function (c) { return SMP_SALES_CHANNELS.indexOf(c) < 0; }));
   var saleEff = function (c, mk) { var real = (d.chanReal[c] && d.chanReal[c][mk]) || 0; if (real > 0) return real; if (mk === cur) return (prov[mk] && prov[mk][c]) || 0; return 0; };
   var sale = chans.reduce(function (s, c) { return s + saleEff(c, month); }, 0) + d.meiSales.reduce(function (s, e) { return s + (e.mk === month ? e.amount : 0); }, 0);
   var pur = Object.keys(d.venReal).reduce(function (s, v) { return s + ((d.venReal[v] && d.venReal[v][month]) || 0); }, 0) + d.meiPur.reduce(function (s, e) { return s + (e.mk === month ? e.amount : 0); }, 0);
-  var exp = d.shipByM[month] || 0;
+  var exp = (d.shipByM[month] || 0) + (d.feeByM[month] || 0);
   return { sale: sale, pur: pur, exp: exp, profit: sale - pur - exp };
 }
 function smpRenderTotalDash() {
@@ -2053,10 +2071,14 @@ function smpProfitRenderEntry() {
   var inM = function (r) { return (r.month || String(r.date || r.sale_date || r.purchase_date || '').slice(0, 7)) === M; };
   var sIn = sales().filter(inM);
   var ec = sIn.reduce(function (a, r) { return a + num(r.amount != null ? r.amount : r.price); }, 0);
-  var rowExp = sIn.reduce(function (a, r) { return a + num(r.ship != null ? r.ship : r.shipping) + num(r.fee); }, 0); // 送料＋手数料(経費)
+  var ecShip = sIn.reduce(function (a, r) { return a + num(r.ship != null ? r.ship : r.shipping); }, 0); // 送料
+  var ecFee = sIn.reduce(function (a, r) { return a + num(r.fee); }, 0); // 手数料
   var prov = smpProfitProvGet();
   var provShip = (prov[cur] && prov[cur]['__ship__']);
-  var exp = (M === cur && provShip != null) ? num(provShip) : rowExp;
+  var provFee = (prov[cur] && prov[cur]['__fee__']);
+  var expShip = (M === cur && provShip != null && provShip !== '') ? num(provShip) : ecShip;
+  var expFee = (M === cur && provFee != null && provFee !== '') ? num(provFee) : ecFee;
+  var exp = expShip + expFee;
   var net = (M === cur) ? (ec - exp) : ec;
   var ecEl = document.getElementById('smpProfitEcNet');
   if (ecEl) ecEl.innerHTML = 'EC売上 − 経費（' + M + '）：¥' + Math.round(net).toLocaleString() +
