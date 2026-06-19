@@ -1752,7 +1752,7 @@ function smpProfitData(startYear) {
   var chanKey = function (r) { return String(r.shop || r.type || r.matchStatus || '').trim() || 'その他'; };
   var venKey = function (r) { return String(r.vendor || r.type || '').trim() || 'その他'; };
   var isMei = function (r) { return String(r.source || '') === '明細'; };
-  var chanReal = {}, venReal = {}, shipByM = {}, feeByM = {};
+  var chanReal = {}, chanFee = {}, venReal = {}, shipByM = {}, feeByM = {};
   months.forEach(function (m) { shipByM[m.key] = 0; feeByM[m.key] = 0; });
   sales().forEach(function (r) {
     var mk = monthOf(r); if (!keyset[mk] || isMei(r)) return;
@@ -1760,6 +1760,7 @@ function smpProfitData(startYear) {
     feeByM[mk] += num(r.fee); // 手数料
     var c = chanKey(r);
     chanReal[c] = chanReal[c] || {}; chanReal[c][mk] = (chanReal[c][mk] || 0) + num(r.amount != null ? r.amount : r.price);
+    chanFee[c] = chanFee[c] || {}; chanFee[c][mk] = (chanFee[c][mk] || 0) + num(r.fee); // チャネル別の手数料
   });
   purchases().forEach(function (r) {
     var mk = monthOf(r); if (!keyset[mk] || isMei(r)) return;
@@ -1771,7 +1772,7 @@ function smpProfitData(startYear) {
   var meiPur = store.purchases.filter(function (e) { return keyset[mOf(e)]; }).map(function (e) { return { id: e.id, date: e.date, name: e.name, amount: num(e.amount), mk: mOf(e) }; });
   meiSales.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
   meiPur.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
-  return { months: months, chanReal: chanReal, venReal: venReal, shipByM: shipByM, feeByM: feeByM, meiSales: meiSales, meiPur: meiPur };
+  return { months: months, chanReal: chanReal, chanFee: chanFee, venReal: venReal, shipByM: shipByM, feeByM: feeByM, meiSales: meiSales, meiPur: meiPur };
 }
 function simpleRenderProfitTable() {
   var wrap = document.getElementById('smpProfitTableWrap');
@@ -1831,6 +1832,10 @@ function simpleRenderProfitTable() {
       if (mk === curMonth && !(real > 0)) {
         var pv = (prov[mk] && prov[mk][c]) || '';
         return '<td onclick="smpProfitEditCell(this,\'' + mk + '\',\'' + c + '\')" style="cursor:pointer;text-align:right;' + bd('background:#fffef5') + '">' + (pv ? fmt(pv) : '<span style="color:#cbd5e1">仮</span>') + '</td>';
+      }
+      var cFee = (d.chanFee[c] && d.chanFee[c][mk]) || 0;
+      if (eff > 0 && cFee > 0) {
+        return '<td onclick="smpProfitToggleNet(this)" data-gross="' + Math.round(eff) + '" data-net="' + Math.round(eff - cFee) + '" title="クリックで手数料引き後↔総額（手数料 ' + fmt(cFee) + '）" style="cursor:pointer;text-align:right;' + bd(mk === curMonth ? 'background:#fffef5' : '') + '">' + fmt(eff) + '</td>';
       }
       return '<td style="text-align:right;' + bd(mk === curMonth ? 'background:#fffef5' : '') + '">' + fmt(eff) + '</td>';
     }).join('');
@@ -2005,6 +2010,13 @@ function smpProfitEditCell(td, mk, chan) {
   var v = (prov[mk] && prov[mk][chan]); v = (v != null ? v : '');
   td.innerHTML = '<input type="text" inputmode="numeric" value="' + v + '" style="box-sizing:border-box;width:58px;text-align:right;border:1px solid #f59e0b;border-radius:4px;padding:1px 2px;font-size:10px" onblur="smpProfitSetProv(\'' + mk + '\',\'' + chan + '\',this.value)" onkeydown="if(event.key===\'Enter\'){this.blur();}">';
   var inp = td.querySelector('input'); if (inp) { inp.focus(); try { inp.select(); } catch (e) {} }
+}
+function smpProfitToggleNet(td) {
+  var net = td.getAttribute('data-net'), gross = td.getAttribute('data-gross');
+  if (net == null || gross == null) return;
+  var f = function (n) { return (Math.round(+n) || 0).toLocaleString(); };
+  if (td.getAttribute('data-mode') === 'net') { td.setAttribute('data-mode', 'gross'); td.innerHTML = f(gross); }
+  else { td.setAttribute('data-mode', 'net'); td.innerHTML = '<span style="color:#b45309" title="手数料引き後">' + f(net) + '</span>'; }
 }
 function smpProfitToggleMonth(mk) {
   try {
