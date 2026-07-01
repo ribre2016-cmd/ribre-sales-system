@@ -1108,6 +1108,17 @@ function smpRecordImportSig(sig, acc) {
   }
 }
 
+/* ファイル名から月を推定（"2026年6月"/"2026-06"/"202606"/"6月" 等）。年つきは'YYYY-MM'、月のみは'M6'、無ければnull */
+function smpFilenameMonth(name) {
+  var s = String(name || '');
+  var m = s.match(/(20\d{2})\s*[-_年.\/]?\s*(\d{1,2})\s*月/);
+  if (m) return m[1] + '-' + String(m[2]).padStart(2, '0');
+  m = s.match(/(20\d{2})[-_.]?(0[1-9]|1[0-2])(?!\d)/);
+  if (m) return m[1] + '-' + m[2];
+  m = s.match(/(?:^|[^0-9])([1-9]|1[0-2])\s*月/);
+  if (m) return 'M' + m[1];
+  return null;
+}
 function smpInboxImportSales() {
   if (!_smpInboxFile) { alert('ファイルを選んでください'); return; }
   const acc = document.getElementById('smpInboxAccount').value;
@@ -1127,6 +1138,20 @@ function smpInboxImportSales() {
   const _lockSnap = smpLockSnapshotSales();
   // 取込対象月を指定していれば、その月に反映させる（CSVの日付に依らない）
   var _forceMonth = (document.getElementById('smpInboxMonth') || {}).value || '';
+  // ファイル名の月と取込対象月が食い違う場合はブロック（別月への誤取込防止）
+  if (/^\d{4}-\d{2}$/.test(_forceMonth)) {
+    var _fnM = smpFilenameMonth(_smpInboxFile.name);
+    if (_fnM) {
+      var _tgtNum = parseInt(_forceMonth.slice(5, 7), 10);
+      var _mismatch = (_fnM.charAt(0) === 'M') ? (parseInt(_fnM.slice(1), 10) !== _tgtNum) : (_fnM !== _forceMonth);
+      if (_mismatch) {
+        var _fnLabel = (_fnM.charAt(0) === 'M') ? (_fnM.slice(1) + '月') : smpMonthLabel(_fnM);
+        smpSetStatus('smpInboxStatus', '❌ ファイル名は「' + _fnLabel + '」ですが取込対象月は「' + smpMonthLabel(_forceMonth) + '」です。月を合わせてください', 'err');
+        try { alert('❌ ファイル名は「' + _fnLabel + '」ですが、取込対象月は「' + smpMonthLabel(_forceMonth) + '」です。\n\n上の「取込対象月」をファイルに合わせるか、正しいファイルを選んでから取り込んでください。'); } catch (e) {}
+        return;
+      }
+    }
+  }
   window.__ribreImportMonth = /^\d{4}-\d{2}$/.test(_forceMonth) ? _forceMonth : '';
   try {
     importYahooSalesCsv();
