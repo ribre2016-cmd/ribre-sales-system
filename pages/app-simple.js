@@ -1125,9 +1125,13 @@ function smpInboxImportSales() {
   const dt = new DataTransfer(); dt.items.add(_smpInboxFile); oF.files = dt.files;
   smpSetStatus('smpInboxStatus', '取込中...', 'info');
   const _lockSnap = smpLockSnapshotSales();
+  // 取込対象月を指定していれば、その月に反映させる（CSVの日付に依らない）
+  var _forceMonth = (document.getElementById('smpInboxMonth') || {}).value || '';
+  window.__ribreImportMonth = /^\d{4}-\d{2}$/.test(_forceMonth) ? _forceMonth : '';
   try {
     importYahooSalesCsv();
     setTimeout(() => {
+      window.__ribreImportMonth = '';
       const rv = smpLockProtectAfterImport(_lockSnap);
       const c = document.getElementById('yahooSalesCount') ? document.getElementById('yahooSalesCount').textContent : '?';
       smpRecordImportSig(sig, acc);

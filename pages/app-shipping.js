@@ -457,6 +457,8 @@ function importYahooSalesCsv() {
         const v = String(s || '');
         return !v || v.includes('�') || v.includes('□');
       };
+      // 取込対象月が指定されていれば、その月に強制的に割り当てる（CSVの日付に依らず指定月へ反映）
+      const forceMonth = (typeof window !== 'undefined' && typeof window.__ribreImportMonth === 'string' && /^\d{4}-\d{2}$/.test(window.__ribreImportMonth)) ? window.__ribreImportMonth : '';
 
       rows.slice(1).forEach((r, i) => {
         const csvOrder = i + 1;
@@ -542,11 +544,15 @@ function importYahooSalesCsv() {
 
         const fee = yNum(r[idxFee]);
         const shipping = yNum(r[idxShip]);
+        const effMonth = forceMonth || dateStr.slice(0, 7);
+        const effDate = forceMonth
+          ? (forceMonth + '-' + (/^\d{4}-\d{2}-(\d{2})/.test(dateStr) ? dateStr.slice(8, 10) : '01'))
+          : dateStr;
         const row = {
           id: itemId,
           itemId: itemId,
-          date: dateStr,
-          month: dateStr.slice(0, 7),
+          date: effDate,
+          month: effMonth,
           shop: account,
           name: r[idxName] || '',
           amount: amount,
