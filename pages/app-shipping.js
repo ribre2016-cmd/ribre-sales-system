@@ -581,6 +581,8 @@ function importYahooSalesCsv() {
         imported++;
       });
 
+      try { window.__ribreLastImport = { added: imported, patched: patched, skipped: skipped, account: account, month: forceMonth || '(CSVの日付)', rows: rows.length - 1, idxId: idxId, idxAmount: idxAmount, sampleId: (added[0] && added[0].itemId) || '' }; } catch (e) {}
+
       if (added.length === 0 && patched === 0) {
         alert('取込できる行がありませんでした。重複またはCSV形式を確認してください。');
         if (window.logOp) window.logOp('CSV取込警告（0件）：' + file.name);

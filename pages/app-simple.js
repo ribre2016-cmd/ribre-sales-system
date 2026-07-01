@@ -1173,12 +1173,14 @@ function smpInboxImportSales() {
       // 保存済みの配送CSVで自動照合（先月に入れた配送CSVも、一致した売上に送料・伝票を自動反映）
       var shipMatched = false;
       try { if (typeof shipRows === 'function' && shipRows().length && typeof matchShipping === 'function') { matchShipping(); shipMatched = true; } } catch (e) {}
+      var li = window.__ribreLastImport || {};
+      var diag = '【診断】CSV ' + (li.rows != null ? li.rows : '?') + '行 → 新規 ' + (li.added != null ? li.added : '?') + '件・更新 ' + (li.patched != null ? li.patched : '?') + '件・スキップ ' + (li.skipped != null ? li.skipped : '?') + '件／取込元 ' + (li.account || '?') + '／対象月 ' + (li.month || '?');
       if (rv > 0) {
         var lm = smpLockedMonthsGet().map(function (m) { return smpMonthLabel(m); }).join('・');
-        smpSetStatus('smpInboxStatus', `⚠️ ロック中の月（${lm}）があり ${rv} 件は取り込みませんでした。取り込むには「粗利」タブ→「月のロック」で解除してください`, 'warn');
+        smpSetStatus('smpInboxStatus', `⚠️ ロック中の月（${lm}）があり ${rv} 件は取り込みませんでした。粗利タブ→月のロックで解除してください　` + diag, 'warn');
         try { alert('🔒 ロック中の月（' + lm + '）があるため ' + rv + ' 件は取り込みませんでした。\n\nその月を取り込むには、「粗利」タブ →「月のロック」で対象の月を解除してから、もう一度取り込んでください。'); } catch (e) {}
       } else {
-        smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}（重複する商品は自動でまとめました）` + (shipMatched ? '／配送CSVと自動照合しました' : ''), 'ok');
+        smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}（重複する商品は自動でまとめました）` + (shipMatched ? '／配送CSVと自動照合' : '') + '　' + diag, 'ok');
       }
       smpInboxAfterItem();
     }, 800);
