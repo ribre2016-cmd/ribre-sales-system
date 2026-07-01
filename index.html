@@ -1076,6 +1076,13 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
       </div>
 
       <div class="smp-card">
+        <h2>🧹 空き容量を作る</h2>
+        <div class="smp-guide">「容量オーバー(quota)」で取り込み・照合ができない時に。<b>不要データ</b>(自動バックアップ履歴・過去の生コピー・ログ・OCR一時)を削除して空きを作ります。<b>売上・仕入・明細・仮入力・登録先・設定は消えません。</b></div>
+        <button class="smp-btn smp-btn-secondary" onclick="smpFreeSpace()" style="margin-bottom:6px">🧹 不要データを削除して空きを作る</button>
+        <div id="smpFreeStatus" style="font-size:12px;color:#64748b"></div>
+      </div>
+
+      <div class="smp-card">
         <h2>🛟 バックアップから復元</h2>
         <div class="smp-guide">以前保存したバックアップ(JSON)から<b>EC売上・仕入</b>を元に戻します。ログイン中なら自動でクラウドにも保存され、次回ログインでも保持されます。（粗利タブの明細・登録先は対象外＝そのまま残ります）</div>
         <label class="smp-dropzone smp-inbox-zone" style="margin-bottom:8px">
@@ -2280,7 +2287,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 
 </main>
 
-<script src="services/core.js?v=20260602b"></script>
+<script src="services/core.js?v=20260608a"></script>
 <script src="services/supabase-rest.js"></script>
 <script src="services/supabase-auth.js"></script>
 <script src="services/openai-ocr.js"></script>
@@ -2306,7 +2313,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/storage-sync.js"></script>
 <script src="pages/app-shipping.js?v=20260608b"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608zv"></script>
+<script src="pages/app-simple.js?v=20260608zw"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260608zk"></script>
 <script src="services/auth-gate.js?v=20260608b"></script>

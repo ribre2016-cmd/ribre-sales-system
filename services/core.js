@@ -118,7 +118,7 @@ function createLocalSnapshot(reason) {
   const rows = get('ribre_auto_snapshots_v1', []);
   rows.unshift(snap);
   try {
-    localStorage.setItem('ribre_auto_snapshots_v1', JSON.stringify(rows.slice(0, 10)));
+    localStorage.setItem('ribre_auto_snapshots_v1', JSON.stringify(rows.slice(0, 3)));
   } catch (e) {
     try {
       const light = rows.slice(0, 5).map((x) => ({

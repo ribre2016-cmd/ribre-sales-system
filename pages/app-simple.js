@@ -246,6 +246,15 @@ function smpFullRestore(input) {
   rd.readAsText(f);
 }
 
+function smpFreeSpace() {
+  var sizeOf = function (k) { try { var v = localStorage.getItem(k); return v ? v.length : 0; } catch (e) { return 0; } };
+  var killKeys = ['ribre_auto_snapshots_v1', 'ribre_prod_sales460', 'ribre_prod_purchases460', 'ribre_realtime_logs460', 'ribre_ocr_candidates200', 'ribre_shipping_results230'];
+  var freed = 0, removed = 0;
+  killKeys.forEach(function (k) { var s = sizeOf(k); if (s > 0) { freed += s; removed++; try { localStorage.removeItem(k); } catch (e) {} } });
+  var mb = (freed / 1024 / 1024).toFixed(2);
+  var st = document.getElementById('smpFreeStatus'); if (st) st.textContent = '✅ 約 ' + mb + ' MB 空けました（不要データ ' + removed + ' 種類を削除）。もう一度取り込み・照合をお試しください';
+  try { alert('不要データを削除して約 ' + mb + ' MB の空きを作りました。\n（自動バックアップ履歴・過去の生コピー・ログ・OCR一時などを削除。売上・仕入・明細・仮入力・登録先・設定は残しています）\n\nもう一度、取り込みや照合をお試しください。'); } catch (e) {}
+}
 async function smpReloadFromCloud() {
   var st = document.getElementById('smpReloadStatus');
   var setSt = function (m) { if (st) st.textContent = m; };
