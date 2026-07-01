@@ -161,12 +161,12 @@ function smpLockProtectAfterImport(snap) {
   var lset = {}; locked.forEach(function (m) { lset[m] = 1; });
   var mof = function (r) { return r.month || String(r.date || r.sale_date || '').slice(0, 7); };
   var reverted = 0;
-  [['ribre_full_sales221', snap.s], ['ribre_yahoo_sales240', snap.y]].forEach(function (pair) {
+  [['ribre_full_sales221', snap.s], ['ribre_yahoo_sales240', snap.y]].forEach(function (pair, i) {
     var key = pair[0], pre = pair[1] || [];
     var cur = []; try { cur = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch (e) {}
     var kept = cur.filter(function (r) { return !lset[mof(r)]; });        // 取込後・ロック外
     var preLocked = pre.filter(function (r) { return lset[mof(r)]; });    // 取込前・ロック月
-    reverted += (cur.length - kept.length);
+    if (i === 0) reverted += (cur.length - kept.length);                  // 件数は主キーのみ（二重カウント防止）
     try { setLS(key, kept.concat(preLocked)); } catch (e) {}
   });
   try { refreshAll(); } catch (e) {}
@@ -1134,7 +1134,13 @@ function smpInboxImportSales() {
       // 保存済みの配送CSVで自動照合（先月に入れた配送CSVも、一致した売上に送料・伝票を自動反映）
       var shipMatched = false;
       try { if (typeof shipRows === 'function' && shipRows().length && typeof matchShipping === 'function') { matchShipping(); shipMatched = true; } } catch (e) {}
-      smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}（重複する商品は自動でまとめました）` + (shipMatched ? '／配送CSVと自動照合しました' : '') + (rv ? `／🔒ロック月は保護(${rv}件は取込前のまま)` : ''), 'ok');
+      if (rv > 0) {
+        var lm = smpLockedMonthsGet().map(function (m) { return smpMonthLabel(m); }).join('・');
+        smpSetStatus('smpInboxStatus', `⚠️ ロック中の月（${lm}）があり ${rv} 件は取り込みませんでした。取り込むには「粗利」タブ→「月のロック」で解除してください`, 'warn');
+        try { alert('🔒 ロック中の月（' + lm + '）があるため ' + rv + ' 件は取り込みませんでした。\n\nその月を取り込むには、「粗利」タブ →「月のロック」で対象の月を解除してから、もう一度取り込んでください。'); } catch (e) {}
+      } else {
+        smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}（重複する商品は自動でまとめました）` + (shipMatched ? '／配送CSVと自動照合しました' : ''), 'ok');
+      }
       smpInboxAfterItem();
     }, 800);
   } catch (e) { smpSetStatus('smpInboxStatus', '❌ エラー：' + e.message, 'err'); }
