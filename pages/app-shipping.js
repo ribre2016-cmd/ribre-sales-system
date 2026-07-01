@@ -305,8 +305,25 @@ function yRows() {
   }
 }
 function ySave(arr) {
-  localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(arr.slice(0, 20000)));
-  setLS(LS.sales, arr.slice(0, 20000));
+  var data = arr.slice(0, 20000);
+  var write = function () {
+    localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(data));
+    setLS(LS.sales, data);
+  };
+  try {
+    write();
+  } catch (e) {
+    // 容量オーバー：不要データ(自動バックアップ履歴・生コピー・ログ等)を消して再試行
+    try {
+      ['ribre_auto_snapshots_v1', 'ribre_prod_sales460', 'ribre_prod_purchases460', 'ribre_realtime_logs460', 'ribre_ocr_candidates200', 'ribre_shipping_results230'].forEach(function (k) { try { localStorage.removeItem(k); } catch (_) {} });
+    } catch (_) {}
+    try {
+      write();
+    } catch (e2) {
+      try { alert('⚠️ 保存容量オーバーで取り込みを保存できませんでした。\n\n「取り込み」タブの「🧹 空き容量を作る」を押して空きを作ってから、もう一度取り込んでください。'); } catch (_) {}
+      throw e2;
+    }
+  }
   shipMarkChanged('sales-sync');
 }
 const Y_SALES_ACCOUNT_ORDER = ['ヤフオク1', 'ヤフオク2', 'ヤフオク3', 'ヤフオク4', 'ヤフオク5', 'ヤフオク6', 'ヤフオク7', 'ヤフオク8', 'メルカリShops'];
