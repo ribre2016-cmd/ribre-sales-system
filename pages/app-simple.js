@@ -166,7 +166,8 @@ function smpLockProtectAfterImport(snap) {
     var cur = []; try { cur = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch (e) {}
     var kept = cur.filter(function (r) { return !lset[mof(r)]; });        // 取込後・ロック外
     var preLocked = pre.filter(function (r) { return lset[mof(r)]; });    // 取込前・ロック月
-    if (i === 0) reverted += (cur.length - kept.length);                  // 件数は主キーのみ（二重カウント防止）
+    // 実際に取込で“増えた”ロック月の件数だけカウント（既存のロック月データは誤カウントしない）
+    if (i === 0) reverted += Math.max(0, (cur.length - kept.length) - preLocked.length);
     try { setLS(key, kept.concat(preLocked)); } catch (e) {}
   });
   try { refreshAll(); } catch (e) {}
