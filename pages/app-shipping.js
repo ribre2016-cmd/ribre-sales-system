@@ -496,6 +496,14 @@ function importYahooSalesCsv() {
             const csvSettleAmount = yNum(r[idxAmount]);
             const csvName = r[idxName] || '';
             let touched = false;
+            // 再取込：指定アカウント・指定月に既存アイテムも移す（取込元/取込対象月を優先）
+            if (account && existing.shop !== account) { existing.shop = account; touched = true; }
+            if (forceMonth && existing.month !== forceMonth) {
+              existing.month = forceMonth;
+              var _exd = /^\d{4}-\d{2}-(\d{2})/.test(String(existing.date || '')) ? String(existing.date).slice(8, 10) : '01';
+              existing.date = forceMonth + '-' + _exd;
+              touched = true;
+            }
             if (existing.order !== csvOrder) { existing.order = csvOrder; touched = true; }
             if (!Number(existing.fee) && csvFee) { existing.fee = csvFee; touched = true; }
             const statusText = [existing.matchStatus, existing.memo].map(v => String(v || '')).join(' ');
