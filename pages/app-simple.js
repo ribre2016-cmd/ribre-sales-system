@@ -1131,7 +1131,10 @@ function smpInboxImportSales() {
       const rv = smpLockProtectAfterImport(_lockSnap);
       const c = document.getElementById('yahooSalesCount') ? document.getElementById('yahooSalesCount').textContent : '?';
       smpRecordImportSig(sig, acc);
-      smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}（重複する商品は自動でまとめました）` + (rv ? `／🔒ロック月は保護(${rv}件は取込前のまま)` : ''), 'ok');
+      // 保存済みの配送CSVで自動照合（先月に入れた配送CSVも、一致した売上に送料・伝票を自動反映）
+      var shipMatched = false;
+      try { if (typeof shipRows === 'function' && shipRows().length && typeof matchShipping === 'function') { matchShipping(); shipMatched = true; } } catch (e) {}
+      smpSetStatus('smpInboxStatus', `✅ 売上CSV取込完了：${c}（重複する商品は自動でまとめました）` + (shipMatched ? '／配送CSVと自動照合しました' : '') + (rv ? `／🔒ロック月は保護(${rv}件は取込前のまま)` : ''), 'ok');
       smpInboxAfterItem();
     }, 800);
   } catch (e) { smpSetStatus('smpInboxStatus', '❌ エラー：' + e.message, 'err'); }

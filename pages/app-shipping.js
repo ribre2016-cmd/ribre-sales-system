@@ -87,10 +87,26 @@ function extractItemId(v) {
   if (s.length >= 8) return s;
   return '';
 }
+/* 配送CSVの種類を中身から自動判別（ヤマト送り状=商品ID/伝票、ヤマト運賃=伝票/運賃、佐川） */
+function detectShipType(rows) {
+  var y1 = 0, y2 = 0, sg = 0;
+  (rows || []).forEach(function (r, idx) {
+    var joined = (r || []).join('');
+    if (!joined.trim()) return;
+    if (idx === 0 && joined.match(/お客様|原票|運賃|伝票|管理|送料|問い合わせ|問合|商品/)) return; // ヘッダ行
+    if (num(r[11]) > 0 && normalizeSlip(r[4] || '')) y2++;                                   // E列=伝票 / L列=運賃
+    else if (extractItemId(r[0] || '') || extractItemId(r[27] || '')) y1++;                  // A/AB列=商品ID
+    if (extractItemId(r[4] || '') && num(r[10]) > 0) sg++;                                    // 佐川: E列=商品ID / 送料
+  });
+  if (y2 > 0 && y2 >= y1 && y2 >= sg) return 'yamato2';
+  if (y1 > 0 && y1 >= sg) return 'yamato1';
+  if (sg > 0) return 'sagawa';
+  return null;
+}
 function importShippingCsv() {
   const input = document.getElementById('shipCsvFile');
   const file = input && input.files ? input.files[0] : null;
-  const type = document.getElementById('shipCsvType').value;
+  let type = document.getElementById('shipCsvType').value;
   if (!file) {
     alert('CSVを選択してください');
     return;
@@ -104,6 +120,14 @@ function importShippingCsv() {
   reader.onload = () => {
     try {
       const rows = parseCsv(reader.result);
+      if (type === 'auto') {
+        type = detectShipType(rows);
+        if (!type) {
+          shipSet('shipStatus', '判別不可');
+          shipRender([{ type: '注意', level: 'warn', msg: 'CSVの種類を自動判別できませんでした。手動で種類を選んで再取込してください。' }]);
+          return;
+        }
+      }
       const mapped = [];
 
       rows.forEach((r, idx) => {

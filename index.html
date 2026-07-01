@@ -1028,14 +1028,15 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
         <!-- 配送CSV設定 -->
         <div id="smpInboxShipCsv" style="display:none">
           <div class="smp-field">
-            <label>配送会社</label>
+            <label>種類（自動判別できます）</label>
             <select id="smpInboxShipType">
+              <option value="auto" selected>🔎 自動判別（おすすめ）</option>
               <option value="yamato1">ヤマト（商品ID照合）</option>
               <option value="yamato2">ヤマト（伝票番号照合）</option>
               <option value="sagawa">佐川急便</option>
             </select>
           </div>
-          <button class="smp-btn smp-btn-green" onclick="smpInboxImportShipping()">取込んで照合する</button>
+          <button class="smp-btn smp-btn-green" onclick="smpInboxImportShipping()">取込んで自動反映</button>
         </div>
 
         <!-- 画像OCR：読み取り＋確認 -->
@@ -1751,6 +1752,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
     <h2>🚚 ヤマト・佐川 自動照合 Ver60.0</h2>
     <div class="controls">
       <select id="shipCsvType">
+        <option value="auto">自動判別</option>
         <option value="yamato1">ヤマトCSV1 A列=商品ID / D列=伝票番号</option>
         <option value="yamato2">ヤマトCSV2 E列=原票No / L列=運賃</option>
         <option value="sagawa">佐川CSV E列=商品ID / K列=運賃</option>
@@ -2302,9 +2304,9 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 <script src="pages/ocr.js?v=20260601a"></script>
 <script src="pages/storage-backup.js"></script>
 <script src="pages/storage-sync.js"></script>
-<script src="pages/app-shipping.js?v=20260606c"></script>
+<script src="pages/app-shipping.js?v=20260608a"></script>
 <script src="pages/app-sync.js?v=20260607d"></script>
-<script src="pages/app-simple.js?v=20260608zq"></script>
+<script src="pages/app-simple.js?v=20260608zr"></script>
 <script src="services/icons.js?v=20260606a"></script>
 <script src="services/data-store.js?v=20260608zk"></script>
 <script src="services/auth-gate.js?v=20260608b"></script>
