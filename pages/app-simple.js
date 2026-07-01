@@ -703,17 +703,50 @@ async function smpCloudSave(opt) {
   if (!em) { if (!silent) smpAuthStatus('先にログインしてください', 'warn'); return { ok: false, reason: 'auth' }; }
   const c = sb();
   if (!c.url || !c.key) { if (!silent) smpAuthStatus('Supabase設定がありません', 'warn'); return { ok: false, reason: 'config' }; }
-  const s = sess();
   if (smpSessionExpired()) {
     smpHandleExpiredSession(silent);
     return { ok: false, reason: 'expired' };
   }
+  if (!silent) smpAuthStatus('クラウドに保存中...', 'info');
+  // 安全な置き換え：data-store の共通ロジック（upsert→不要行のみ削除）に委譲する。
+  // 旧方式の「全削除→挿入」は途中でネットワークが切れるとクラウドが空のまま残り
+  // データを失う危険があったため、client_id ベースの非破壊置き換えに統一する。
+  if (window.ribreStore && typeof window.ribreStore.replaceCloudWithLocal === 'function') {
+    try {
+      const rr = await window.ribreStore.replaceCloudWithLocal();
+      if (rr && rr.ok) {
+        const res = rr.result || {};
+        const upS = (res.sales && res.sales.up) || 0;
+        const upP = (res.purchases && res.purchases.up) || 0;
+        smpMarkSaveComplete();
+        if (!silent) smpAuthStatus('✅ 保存しました（売上' + upS + '・仕入' + upP + '）', 'ok');
+        return { ok: true, sales: upS, purchases: upP };
+      }
+      if (rr && (rr.reason === 'session-lost' || rr.status === 401 || rr.status === 403)) {
+        smpHandleExpiredSession(silent);
+        return { ok: false, reason: 'expired' };
+      }
+      if (rr && rr.reason === 'not-logged-in') {
+        if (!silent) smpAuthStatus('先にログインしてください', 'warn');
+        return { ok: false, reason: 'auth' };
+      }
+      const msg = smpCloudErrorMessage((rr && (rr.error || rr.reason || rr.status)) || 'error');
+      if (!silent) smpAuthStatus('保存エラー: ' + msg, 'warn');
+      return { ok: false, reason: msg };
+    } catch (e) {
+      const msg = smpCloudErrorMessage(e.message);
+      if (msg === smpAuthExpiredMessage()) smpHandleExpiredSession(silent);
+      if (!silent) smpAuthStatus('保存エラー: ' + msg, 'err');
+      return { ok: false, reason: msg };
+    }
+  }
+  // フォールバック：ribreStore が使えない場合のみ旧方式（自分の行を消して入れ直し）
+  const s = sess();
   const token = s.access_token || c.key;
   const base = c.url.replace(/\/$/, '') + '/rest/v1/';
   const delH = { apikey: c.key, Authorization: 'Bearer ' + token };
   const insH = { apikey: c.key, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', Prefer: 'return=minimal' };
   const q = '?user_email=eq.' + encodeURIComponent(em);
-  if (!silent) smpAuthStatus('クラウドに保存中...', 'info');
   try {
     const delSales = await fetch(base + 'sales' + q, { method: 'DELETE', headers: delH });
     if (!delSales.ok) throw new Error(await delSales.text());
@@ -792,13 +825,15 @@ async function smpAfterLogin() {
   if (!em) return;
   const migKey = 'ribre_smp_migrated_' + em;
   if (!localStorage.getItem(migKey)) {
+    let migOk = true;
     if (sales().length || purchases().length) {
       smpAuthStatus('このPCのデータをアカウントへ移行中...', 'info');
       const r = await smpUploadAllToCloud(em);
-      if (r.err) smpAuthStatus('移行で一部エラー: ' + String(r.err).slice(0, 80), 'warn');
+      if (r.err) { migOk = false; smpAuthStatus('移行で一部エラー（次回ログインで再試行します）: ' + String(r.err).slice(0, 80), 'warn'); }
       else smpAuthStatus('移行完了（売上' + r.okS + '・仕入' + r.okP + '）', 'ok');
     }
-    try { localStorage.setItem(migKey, new Date().toISOString()); } catch (e) {}
+    // 移行が成功した時だけ「移行済み」にする（一部失敗なら次回再試行）
+    if (migOk) { try { localStorage.setItem(migKey, new Date().toISOString()); } catch (e) {} }
   }
   if (smpHasUnsyncedLocal()) {
     smpAuthStatus('このPCの未保存データを先に保存中...', 'info');

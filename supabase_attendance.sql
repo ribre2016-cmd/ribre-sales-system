@@ -1,5 +1,7 @@
 -- 勤怠管理システム テーブル設計
 -- 既存の ribre-sales-system Supabase プロジェクトに追加
+-- ※ セキュリティ修正済み（LINEトークン分離 / staff RLS 再帰回避 / 匿名締め出し）
+--   既に旧版を適用済みの場合は supabase_attendance_security_fix.sql を流してください。
 
 -- =====================
 -- 1. スタッフテーブル
@@ -15,7 +17,7 @@ create table if not exists staff (
 );
 
 -- =====================
--- 2. 会社設定テーブル
+-- 2. 会社設定テーブル（GPS等の非機密のみ。機密は company_secrets へ）
 -- =====================
 create table if not exists company_settings (
   id uuid primary key default gen_random_uuid(),
@@ -25,6 +27,15 @@ create table if not exists company_settings (
   radius_meters integer default 50,     -- 打刻可能範囲（デフォルト50m）
   alert_clock_in time default '09:00',  -- 出勤打刻忘れアラート時刻
   alert_clock_out time default '20:00', -- 退勤打刻忘れアラート時刻
+  updated_at timestamptz default now()
+);
+
+-- =====================
+-- 2b. 機密設定テーブル（LINEトークン等・管理者のみ）
+--     LINE Bot はサービスロールキーで読むため RLS を素通りできる
+-- =====================
+create table if not exists company_secrets (
+  id uuid primary key default gen_random_uuid(),
   line_channel_access_token text,       -- LINE Bot トークン
   line_admin_user_id text,              -- 管理者のLINE User ID
   updated_at timestamptz default now()
@@ -59,51 +70,55 @@ create index if not exists idx_staff_email on staff(email);
 create index if not exists idx_staff_line_user_id on staff(line_user_id);
 
 -- =====================
+-- 管理者判定関数（SECURITY DEFINER で staff の RLS を回避 → 再帰しない）
+-- =====================
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.staff
+    where email = auth.jwt() ->> 'email'
+      and role = 'admin'
+      and coalesce(is_active, true) = true
+  );
+$$;
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to authenticated;
+
+-- =====================
 -- RLS 有効化
 -- =====================
 alter table staff enable row level security;
 alter table attendance enable row level security;
 alter table company_settings enable row level security;
+alter table company_secrets enable row level security;
 
 -- =====================
 -- RLS ポリシー（staff テーブル）
 -- =====================
 drop policy if exists staff_select_all on staff;
+drop policy if exists staff_select_auth on staff;
 drop policy if exists staff_insert_admin on staff;
 drop policy if exists staff_update_admin on staff;
 drop policy if exists staff_delete_admin on staff;
 
--- 全スタッフが他スタッフ情報を閲覧可能（名前表示のため）
-create policy staff_select_all on staff
-for select using (true);
+-- ログイン済みユーザーのみ閲覧可（匿名には email / line_user_id を出さない）
+create policy staff_select_auth on staff
+for select to authenticated using (true);
 
--- 管理者のみ登録・更新・削除可能
+-- 管理者のみ登録・更新・削除可能（is_admin() で再帰回避）
 create policy staff_insert_admin on staff
-for insert with check (
-  exists (
-    select 1 from staff s
-    where s.email = auth.jwt() ->> 'email'
-    and s.role = 'admin'
-  )
-);
+for insert to authenticated with check (public.is_admin());
 
 create policy staff_update_admin on staff
-for update using (
-  exists (
-    select 1 from staff s
-    where s.email = auth.jwt() ->> 'email'
-    and s.role = 'admin'
-  )
-);
+for update to authenticated using (public.is_admin()) with check (public.is_admin());
 
 create policy staff_delete_admin on staff
-for delete using (
-  exists (
-    select 1 from staff s
-    where s.email = auth.jwt() ->> 'email'
-    and s.role = 'admin'
-  )
-);
+for delete to authenticated using (public.is_admin());
 
 -- =====================
 -- RLS ポリシー（attendance テーブル）
@@ -117,77 +132,55 @@ drop policy if exists attendance_delete_admin on attendance;
 
 -- 自分の打刻は自分が見られる
 create policy attendance_select_own on attendance
-for select using (
-  staff_id = (
-    select id from staff where email = auth.jwt() ->> 'email'
-  )
+for select to authenticated using (
+  staff_id = (select id from staff where email = auth.jwt() ->> 'email')
 );
 
 -- 管理者は全員分見られる
 create policy attendance_select_admin on attendance
-for select using (
-  exists (
-    select 1 from staff s
-    where s.email = auth.jwt() ->> 'email'
-    and s.role = 'admin'
-  )
-);
+for select to authenticated using (public.is_admin());
 
 -- 自分の打刻は自分が登録できる
 create policy attendance_insert_own on attendance
-for insert with check (
-  staff_id = (
-    select id from staff where email = auth.jwt() ->> 'email'
-  )
+for insert to authenticated with check (
+  staff_id = (select id from staff where email = auth.jwt() ->> 'email')
 );
 
 -- 自分の打刻は自分が更新できる（退勤打刻用）
 create policy attendance_update_own on attendance
-for update using (
-  staff_id = (
-    select id from staff where email = auth.jwt() ->> 'email'
-  )
+for update to authenticated using (
+  staff_id = (select id from staff where email = auth.jwt() ->> 'email')
 );
 
 -- 管理者は全員分修正できる
 create policy attendance_update_admin on attendance
-for update using (
-  exists (
-    select 1 from staff s
-    where s.email = auth.jwt() ->> 'email'
-    and s.role = 'admin'
-  )
-);
+for update to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- 管理者のみ削除可能
 create policy attendance_delete_admin on attendance
-for delete using (
-  exists (
-    select 1 from staff s
-    where s.email = auth.jwt() ->> 'email'
-    and s.role = 'admin'
-  )
-);
+for delete to authenticated using (public.is_admin());
 
 -- =====================
 -- RLS ポリシー（company_settings テーブル）
 -- =====================
 drop policy if exists settings_select_all on company_settings;
+drop policy if exists settings_select_auth on company_settings;
 drop policy if exists settings_update_admin on company_settings;
 
--- 全員が設定を閲覧可能（GPS座標取得のため）
-create policy settings_select_all on company_settings
-for select using (true);
+-- GPS 座標などはログイン済みスタッフが閲覧（打刻画面はログイン後に開く前提）
+create policy settings_select_auth on company_settings
+for select to authenticated using (true);
 
 -- 管理者のみ更新可能
 create policy settings_update_admin on company_settings
-for update using (
-  exists (
-    select 1 from staff s
-    where s.email = auth.jwt() ->> 'email'
-    and s.role = 'admin'
-  )
-);
+for update to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- =====================
+-- RLS ポリシー（company_secrets テーブル・管理者のみ）
+-- =====================
+drop policy if exists secrets_admin_all on company_secrets;
+create policy secrets_admin_all on company_secrets
+for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
 -- =====================
 -- サンプルデータ（初期設定用）
