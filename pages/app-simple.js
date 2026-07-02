@@ -1705,43 +1705,133 @@ function smpProfitProvTsSet(t) { try { localStorage.setItem('ribre_smp_profit_pr
 function smpProfitProvSet(o, noPush) { try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(o)); } catch (e) {} if (!noPush) { smpProfitProvTsSet(Date.now()); smpProfitProvPushDebounced(); } }
 var _smpProvPushTimer = null;
 function smpProfitProvPushDebounced() { if (_smpProvPushTimer) clearTimeout(_smpProvPushTimer); _smpProvPushTimer = setTimeout(smpProfitProvPushCloud, 800); }
+/* 仮入力のマージ：マスごと（月×チャネル）に更新時刻(_m)を持ち、新しい方を採用。
+   一方の端末にしか無い入力は必ず残す（塊ごとの上書きで消さない）。 */
+function smpProvMerge(aData, aTs, bData, bTs) {
+  var a = aData || {}, b = bData || {};
+  var am = (a._m && typeof a._m === 'object') ? a._m : {};
+  var bm = (b._m && typeof b._m === 'object') ? b._m : {};
+  var keys = {};
+  var collect = function (o, m) {
+    Object.keys(o).forEach(function (mo) {
+      if (mo === '_m') return;
+      var row = o[mo];
+      if (row && typeof row === 'object') Object.keys(row).forEach(function (ch) { keys[mo + '|' + ch] = 1; });
+    });
+    Object.keys(m).forEach(function (k) { keys[k] = 1; });
+  };
+  collect(a, am); collect(b, bm);
+  var out = { _m: {} };
+  Object.keys(keys).forEach(function (k) {
+    var i = k.indexOf('|'); if (i < 0) return;
+    var mo = k.slice(0, i), ch = k.slice(i + 1);
+    var hasA = a[mo] && a[mo][ch] != null, hasB = b[mo] && b[mo][ch] != null;
+    var ta = Number(am[k] || (hasA ? (aTs || 0) : 0)) || 0;
+    var tb = Number(bm[k] || (hasB ? (bTs || 0) : 0)) || 0;
+    var useA = ta >= tb; // 同時刻はローカル優先（merge(local, cloud)で呼ぶ）
+    var val = useA ? (hasA ? a[mo][ch] : undefined) : (hasB ? b[mo][ch] : undefined);
+    out._m[k] = Math.max(ta, tb);
+    if (val != null) { out[mo] = out[mo] || {}; out[mo][ch] = val; }
+  });
+  var lim = Date.now() - 180 * 24 * 3600 * 1000;
+  Object.keys(out._m).forEach(function (k) { var i = k.indexOf('|'); var mo = k.slice(0, i); var ch = k.slice(i + 1); if (out._m[k] < lim && !(out[mo] && out[mo][ch] != null)) delete out._m[k]; });
+  return out;
+}
+async function smpProfitProvFetchCloud(cr) {
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.profit_prov&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return null;
+    var data = await r.json();
+    var cloud = data && data[0] && data[0].value;
+    return (cloud && typeof cloud === 'object' && cloud.data) ? cloud : null;
+  } catch (e) { return null; }
+}
 async function smpProfitProvPushCloud() {
   if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' };
   var cr = smpProfitMeiCreds(); if (!cr) return { ok: false, reason: 'no-login' };
   try {
+    // 先にクラウドを読んでマスごとに合成してから保存
+    var body = smpProfitProvGet();
+    var cloud = await smpProfitProvFetchCloud(cr);
+    if (cloud) {
+      body = smpProvMerge(smpProfitProvGet(), smpProfitProvTsGet(), cloud.data, cloud.ts || 0);
+      try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(body)); } catch (e) {}
+    }
+    var now = Date.now();
+    smpProfitProvTsSet(now);
     var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
       method: 'POST',
       headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify([{ user_email: cr.em, skey: 'profit_prov', value: { data: smpProfitProvGet(), ts: smpProfitProvTsGet() } }])
+      body: JSON.stringify([{ user_email: cr.em, skey: 'profit_prov', value: { data: body, ts: now } }])
     });
     return { ok: r.ok, status: r.status };
   } catch (e) { return { ok: false, reason: e.message }; }
 }
 async function smpProfitProvPullCloud() {
   var cr = smpProfitMeiCreds(); if (!cr) return false;
-  try {
-    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.profit_prov&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
-    if (!r.ok) return false;
-    var data = await r.json();
-    var cloud = data && data[0] && data[0].value;
-    if (cloud && typeof cloud === 'object' && cloud.data) {
-      if ((cloud.ts || 0) > smpProfitProvTsGet()) {
-        try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(cloud.data)); } catch (e) {}
-        smpProfitProvTsSet(cloud.ts);
-        return true;
-      }
-    }
-  } catch (e) {}
-  return false;
+  var cloud = await smpProfitProvFetchCloud(cr);
+  if (!cloud) return false;
+  var local = smpProfitProvGet();
+  var merged = smpProvMerge(local, smpProfitProvTsGet(), cloud.data, cloud.ts || 0);
+  var changed = JSON.stringify(merged) !== JSON.stringify(local);
+  try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(merged)); } catch (e) {}
+  smpProfitProvTsSet(Math.max(smpProfitProvTsGet(), Number(cloud.ts || 0)));
+  // この端末にしか無い入力があればクラウドへ押し戻す
+  if (JSON.stringify(merged) !== JSON.stringify(cloud.data)) smpProfitProvPushDebounced();
+  return changed;
 }
 function smpProfitSetProv(month, chan, val) {
   var o = smpProfitProvGet(); o[month] = o[month] || {};
+  o._m = (o._m && typeof o._m === 'object') ? o._m : {};
   var n = Number(String(val == null ? '' : val).replace(/[^0-9.-]/g, '')) || 0;
   if (n) o[month][chan] = n; else if (o[month]) delete o[month][chan];
+  o._m[month + '|' + chan] = Date.now(); // マス単位の更新時刻（消した操作も記録され、同期で復活しない）
   smpProfitProvSet(o);
   simpleRenderProfitTable();
 }
 /* 明細は「粗利ページ専用」の別データ（売上一覧/ダッシュボード/集計には反映しない）。Supabaseで他PCと同期。 */
+/* ===== 端末間マージ =====
+   以前は「データ塊ごと時刻の新しい方が勝ち」だったため、別端末の入力が
+   丸ごと消えることがあった。行単位で合成する方式に変更：
+   - 各行に up(更新時刻) を持たせ、同じ行は新しい方を採用
+   - 削除は tomb(墓標: id→削除時刻) に記録し、全端末で削除を維持
+   - どちらか一方にしか無い行は必ず残す（＝入力が消えない） */
+function smpMeiMergeLists(aList, bList, tomb) {
+  var byId = {};
+  function addAll(list) {
+    (list || []).forEach(function (r) {
+      if (!r || r.id == null) return;
+      var id = String(r.id);
+      var up = Number(r.up || 0) || 0;
+      var cur = byId[id];
+      if (!cur || up >= (Number(cur.up || 0) || 0)) byId[id] = r;
+    });
+  }
+  addAll(aList); addAll(bList);
+  var out = [];
+  Object.keys(byId).forEach(function (id) {
+    var delAt = Number((tomb || {})[id] || 0);
+    if (delAt && delAt >= (Number(byId[id].up || 0) || 0)) return; // 削除の方が新しい
+    out.push(byId[id]);
+  });
+  out.sort(function (x, y) { return String(y.date || '').localeCompare(String(x.date || '')) || ((Number(y.up || 0) || 0) - (Number(x.up || 0) || 0)); });
+  return out;
+}
+function smpMeiMerge(a, b) {
+  a = a || {}; b = b || {};
+  var tomb = {};
+  [a.tomb, b.tomb].forEach(function (t) {
+    if (t && typeof t === 'object') Object.keys(t).forEach(function (k) { tomb[k] = Math.max(Number(tomb[k] || 0), Number(t[k] || 0)); });
+  });
+  var lim = Date.now() - 180 * 24 * 3600 * 1000; // 180日より古い墓標は破棄
+  Object.keys(tomb).forEach(function (k) { if (tomb[k] < lim) delete tomb[k]; });
+  return {
+    sales: smpMeiMergeLists(a.sales, b.sales, tomb),
+    purchases: smpMeiMergeLists(a.purchases, b.purchases, tomb),
+    tomb: tomb,
+    ts: Math.max(Number(a.ts || 0), Number(b.ts || 0))
+  };
+}
 function smpProfitMeiGet() { try { var o = JSON.parse(localStorage.getItem('ribre_smp_profit_meisai_v1') || '{}') || {}; o.sales = o.sales || []; o.purchases = o.purchases || []; return o; } catch (e) { return { sales: [], purchases: [] }; } }
 function smpProfitMeiSet(o, noPush) { o.ts = Date.now(); try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(o)); } catch (e) {} if (!noPush) smpProfitMeiPushDebounced(); }
 var _smpMeiPushTimer = null;
@@ -1749,35 +1839,47 @@ function smpProfitMeiPushDebounced() { if (_smpMeiPushTimer) clearTimeout(_smpMe
 function smpProfitMeiCreds() {
   try { var c = (typeof sb === 'function') ? sb() : {}; var s = (typeof sess === 'function') ? sess() : {}; var tok = s.access_token || (s.session && s.session.access_token) || ''; var em = (typeof email === 'function') ? email() : ''; if (c.url && c.key && tok && em) return { url: c.url.replace(/\/$/, ''), key: c.key, tok: tok, em: em }; } catch (e) {} return null;
 }
+async function smpProfitMeiFetchCloud(cr) {
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.profit_meisai&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return null;
+    var data = await r.json();
+    var cloud = data && data[0] && data[0].value;
+    return (cloud && typeof cloud === 'object') ? cloud : null;
+  } catch (e) { return null; }
+}
 async function smpProfitMeiPushCloud() {
   if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' };
   var cr = smpProfitMeiCreds(); if (!cr) return { ok: false, reason: 'no-login' };
   try {
+    // 先にクラウドを読んで行単位で合成してから保存（塊ごとの上書きで他端末の入力を消さない）
+    var body = smpProfitMeiGet();
+    var cloud = await smpProfitMeiFetchCloud(cr);
+    if (cloud) {
+      body = smpMeiMerge(smpProfitMeiGet(), cloud);
+      try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(body)); } catch (e) {}
+    }
+    body.ts = Date.now();
     var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
       method: 'POST',
       headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify([{ user_email: cr.em, skey: 'profit_meisai', value: smpProfitMeiGet() }])
+      body: JSON.stringify([{ user_email: cr.em, skey: 'profit_meisai', value: body }])
     });
     return { ok: r.ok, status: r.status };
   } catch (e) { return { ok: false, reason: e.message }; }
 }
 async function smpProfitMeiPullCloud() {
   var cr = smpProfitMeiCreds(); if (!cr) return false;
-  try {
-    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.profit_meisai&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
-    if (!r.ok) return false;
-    var data = await r.json();
-    var cloud = data && data[0] && data[0].value;
-    if (cloud && typeof cloud === 'object') {
-      var local = smpProfitMeiGet();
-      if ((cloud.ts || 0) > (local.ts || 0)) {
-        cloud.sales = cloud.sales || []; cloud.purchases = cloud.purchases || [];
-        try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(cloud)); } catch (e) {}
-        return true;
-      }
-    }
-  } catch (e) {}
-  return false;
+  var cloud = await smpProfitMeiFetchCloud(cr);
+  if (!cloud) return false;
+  var local = smpProfitMeiGet();
+  var merged = smpMeiMerge(local, cloud);
+  var changed = JSON.stringify({ s: merged.sales, p: merged.purchases }) !== JSON.stringify({ s: local.sales, p: local.purchases });
+  try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(merged)); } catch (e) {}
+  // クラウド側に無い行をこの端末が持っていた場合は押し戻して復元する
+  var cloudNorm = JSON.stringify({ s: smpMeiMerge(cloud, cloud).sales, p: smpMeiMerge(cloud, cloud).purchases });
+  if (JSON.stringify({ s: merged.sales, p: merged.purchases }) !== cloudNorm) smpProfitMeiPushDebounced();
+  return changed;
 }
 /* 手動同期（ログイン中アカウントを表示。両PC/携帯で同じ ribre2016@gmail.com が必要） */
 async function smpProfitSyncNow() {
@@ -2200,7 +2302,7 @@ function smpProfitAddSale() {
   if (!amt) { alert('金額を入力してください'); return; }
   smpPartnersAdd('sale', shop);
   var mei = smpProfitMeiGet();
-  mei.sales.unshift({ id: 's_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), date: date, month: String(date).slice(0, 7), name: shop, amount: amt });
+  mei.sales.unshift({ id: 's_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), date: date, month: String(date).slice(0, 7), name: shop, amount: amt, up: Date.now() });
   smpProfitMeiSet(mei);
   if (sel) sel.value = ''; if (inp) { inp.value = ''; inp.style.display = 'none'; }
   document.getElementById('smpPEntSaleAmt').value = '';
@@ -2216,7 +2318,7 @@ function smpProfitAddPurchase() {
   if (!amt) { alert('金額を入力してください'); return; }
   smpPartnersAdd('purchase', vendor);
   var mei = smpProfitMeiGet();
-  mei.purchases.unshift({ id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), date: date, month: String(date).slice(0, 7), name: vendor, amount: amt });
+  mei.purchases.unshift({ id: 'p_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), date: date, month: String(date).slice(0, 7), name: vendor, amount: amt, up: Date.now() });
   smpProfitMeiSet(mei);
   if (sel) sel.value = ''; if (inp) { inp.value = ''; inp.style.display = 'none'; }
   document.getElementById('smpPEntPurAmt').value = '';
@@ -2231,6 +2333,9 @@ function smpProfitDeleteRow(kind, id) {
   var before = (mei[key] || []).length;
   mei[key] = (mei[key] || []).filter(function (e) { return String(e.id) !== String(id); });
   if (mei[key].length !== before) {
+    // 墓標を記録（他端末でもこの削除が維持され、同期で復活しない）
+    mei.tomb = (mei.tomb && typeof mei.tomb === 'object') ? mei.tomb : {};
+    mei.tomb[String(id)] = Date.now();
     smpProfitMeiSet(mei); // 明細ストアから削除
   } else {
     // 通常データ（売上一覧/ダッシュボード側）から削除
@@ -3264,6 +3369,30 @@ function smpInboxBindPaste() {
     if (imgs.length) { e.preventDefault(); smpInboxAddFiles(imgs); }
   });
 }
+
+/* 画面に戻ってきたら明細・仮入力・目標をクラウドとマージして最新化
+   （携帯⇔PCの行き来で古いまま操作して上書きする事故を防ぐ） */
+var _smpLastFocusPull = 0;
+document.addEventListener('visibilitychange', function () {
+  try {
+    if (document.visibilityState !== 'visible') return;
+    if (!document.body.classList.contains('simple-mode')) return;
+    if (!(typeof email === 'function' && email())) return;
+    var now = Date.now();
+    if (now - _smpLastFocusPull < 30000) return; // 30秒に1回まで
+    _smpLastFocusPull = now;
+    Promise.all([
+      smpProfitMeiPullCloud().catch(function () { return false; }),
+      smpProfitProvPullCloud().catch(function () { return false; }),
+      smpGoalsPullCloud().catch(function () { return false; })
+    ]).then(function (r) {
+      if (r[0] || r[1] || r[2]) {
+        try { simpleRenderProfitTable(); } catch (e) {}
+        try { smpRenderHome(); } catch (e) {}
+      }
+    });
+  } catch (e) {}
+});
 
 window.addEventListener('load', function() {
   smpInitMonthOptions();
