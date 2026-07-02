@@ -87,6 +87,29 @@ function extractItemId(v) {
   if (s.length >= 8) return s;
   return '';
 }
+/* 商品ID照合を堅牢化：大文字小文字・全角・記号/空白の差を無視して比較する */
+function shipNormId(v) {
+  return String(v == null ? '' : v)
+    .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
+    .replace(/[Ａ-Ｚａ-ｚ]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, '');
+}
+/* 売上行 sale が 配送CSVの商品ID rawId を含むか（id/itemId/memo/name を個別に確認） */
+function shipIdHit(sale, rawId) {
+  const id = shipNormId(rawId);
+  if (!id || id.length < 4) return false;
+  return [sale && sale.id, sale && sale.itemId, sale && sale.memo, sale && sale.name].some((f) => {
+    const fv = shipNormId(f);
+    return fv && fv.includes(id);
+  });
+}
+/* 売上行 sale が 配送CSVの伝票番号 slip を持つか（slip/invoiceNo/memo を個別に確認） */
+function shipSlipHit(sale, slip) {
+  const t = normalizeSlip(slip);
+  if (!t) return false;
+  return [sale && sale.slip, sale && sale.invoiceNo, sale && sale.memo].some((f) => normalizeSlip(f) === t);
+}
 /* 配送CSVの種類を中身から自動判別（ヤマト送り状=商品ID/伝票、ヤマト運賃=伝票/運賃、佐川） */
 function detectShipType(rows) {
   var y1 = 0, y2 = 0, sg = 0;
@@ -211,15 +234,26 @@ function matchShipping() {
   const results = [];
   let matched = 0,
     unmatched = 0;
+  const diag = { total: ships.length, matched: 0, byItemId: 0, bySlip: 0, unmatched: 0, noKey: 0, itemIdMiss: 0, slipMiss: 0, samples: [] };
   ships.forEach((sh) => {
     let target = null;
+    let how = '';
     if (sh.itemId) {
-      target = s.find(
-        (x) => String(x.id || x.itemId || x.memo || '').includes(sh.itemId) || String(x.name || '').includes(sh.itemId)
-      );
+      target = s.find((x) => shipIdHit(x, sh.itemId));
+      if (target) how = 'itemId';
     }
     if (!target && sh.slip) {
-      target = s.find((x) => normalizeSlip(x.slip || x.invoiceNo || x.memo || '') == sh.slip);
+      target = s.find((x) => shipSlipHit(x, sh.slip));
+      if (target) how = 'slip';
+    }
+    if (!target) {
+      if (!sh.itemId && !sh.slip) diag.noKey++;
+      else if (sh.itemId) diag.itemIdMiss++;
+      else diag.slipMiss++;
+      if (diag.samples.length < 20) diag.samples.push({ type: sh.type, itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, reason: (!sh.itemId && !sh.slip) ? 'キー無し' : (sh.itemId ? '商品ID不一致' : '伝票番号が売上に無い(送り状CSV未取込の可能性)') });
+    } else {
+      diag.matched++;
+      if (how === 'itemId') diag.byItemId++; else diag.bySlip++;
     }
     if (target) {
       if (sh.slip) target.slip = sh.slip;
@@ -261,6 +295,8 @@ function matchShipping() {
       });
     }
   });
+  diag.unmatched = unmatched;
+  try { window.__ribreLastShipMatch = diag; } catch (e) {}
   setLS(LS.sales, s);
   shipMarkChanged('shipping-match');
   refreshAll();
