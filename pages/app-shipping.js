@@ -176,19 +176,15 @@ function importShippingCsv() {
         if (obj.itemId || obj.slip || obj.shipping) mapped.push(obj);
       });
 
-      let finalRows;
-      if (type === 'yamato2') {
-        const prev = shipRows();
-        const nonY2 = prev.filter(r => r.type !== 'yamato2');
-        const slipMap = new Map(prev.filter(r => r.type === 'yamato2' && r.slip).map(r => [r.slip, r]));
-        const noSlipPrev = prev.filter(r => r.type === 'yamato2' && !r.slip);
-        const noSlipNew = [];
-        mapped.forEach(r => { r.slip ? slipMap.set(r.slip, r) : noSlipNew.push(r); });
-        finalRows = nonY2.concat(Array.from(slipMap.values())).concat(noSlipPrev).concat(noSlipNew);
-      } else {
-        const prev = shipRows();
-        finalRows = prev.filter(r => r.type === 'yamato2' || r.type !== type).concat(mapped);
-      }
+      // 過去に取り込んだ配送CSVを月をまたいで保持する（種類ごとに置き換えず蓄積）。
+      // これにより、先月に入れた送り状/運賃CSVで今月取り込んだ売上も照合できる。
+      // 重複は (種類 + 伝票番号 or 商品ID) をキーに排除し、新しい行で上書きする。
+      const prev = shipRows();
+      const keyOf = (r) => r.type + '|' + (normalizeSlip(r.slip) || String(r.itemId || '') || ('row' + r.row));
+      const merged = new Map();
+      prev.forEach((r) => merged.set(keyOf(r), r));
+      mapped.forEach((r) => merged.set(keyOf(r), r));
+      const finalRows = Array.from(merged.values());
       saveShipRows(finalRows);
       shipSet('shipCsvCount', finalRows.length + '件');
       shipSet('shipStatus', '取込OK');
