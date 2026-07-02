@@ -198,9 +198,9 @@
   }
 
   async function reconcile(kind) {
-    if (__hydrating || pushing[kind] || !loggedIn()) return;
-    if (!__hydratedOnce) return; // クラウド未読込のうちは保存しない（古いローカルでクラウドを上書き/重複させない）
-    if (window.__ribreSessionLost) return; // 別端末にログインされ無効化された端末は保存しない
+    if (__hydrating || pushing[kind] || !loggedIn()) return { ok: false, reason: 'busy' };
+    if (!__hydratedOnce) return { ok: false, reason: 'not-hydrated' }; // クラウド未読込のうちは保存しない（古いローカルでクラウドを上書き/重複させない）
+    if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' }; // 別端末にログインされ無効化された端末は保存しない
     pushing[kind] = true;
     try {
       var cur = buildCurrent(kind);
@@ -210,24 +210,26 @@
       var dels = Object.keys(last).filter(function (cid) { return !cur[cid]; });
       // 大量削除ガード：壊れた/部分的/古いローカルキャッシュがクラウドの行を縮小させる事故を防ぐ。
       // 5件超 かつ 既存の20%超 の一括削除は異常とみなしスキップ（upsertは実施）。意図的な一括削除は seed で対応。
+      var delsSkipped = false;
       if (dels.length > 5 && dels.length > Object.keys(last).length * 0.2) {
         note('安全のためクラウドの大量削除(' + dels.length + '件)を中止しました。正しいデータなら「クラウドから最新を取得」で読み直してください。', 'warn');
-        dels = [];
+        dels = []; delsSkipped = true;
       }
-      if (!ups.length && !dels.length) { pushing[kind] = false; return; }
+      if (!ups.length && !dels.length) return { ok: true, upserted: 0, deleted: 0, delsSkipped: delsSkipped };
       if (ups.length) for (var i = 0; i < ups.length; i += 500) {
         var r = await upsert(kind, ups.slice(i, i + 500));
-        if (!r.ok) { handleErr(r); pushing[kind] = false; return; }
+        if (!r.ok) { handleErr(r); return { ok: false, status: r.status }; }
       }
       if (dels.length) for (var j = 0; j < dels.length; j += 200) {
         var rd = await removeRows(kind, dels.slice(j, j + 200));
-        if (!rd.ok) { handleErr(rd); pushing[kind] = false; return; }
+        if (!rd.ok) { handleErr(rd); return { ok: false, status: rd.status }; }
       }
       var fresh = {}; cids.forEach(function (cid) { fresh[cid] = cur[cid].hash; });
       synced[kind] = fresh; saveSynced(synced);
       __setupNeeded = false; __authNeeded = false;
       setStatus('保存OK（クラウド同期）' + (lastSkipped ? '／異常値' + lastSkipped + '件は除外' : ''));
-    } catch (e) { note('クラウド保存に失敗: ' + e.message, 'danger'); }
+      return { ok: true, upserted: ups.length, deleted: dels.length, delsSkipped: delsSkipped };
+    } catch (e) { note('クラウド保存に失敗: ' + e.message, 'danger'); return { ok: false, error: e.message }; }
     finally { pushing[kind] = false; }
   }
 
@@ -236,6 +238,28 @@
     if (timers[kind]) clearTimeout(timers[kind]);
     setStatus('クラウド保存中…');
     timers[kind] = setTimeout(function () { reconcile(kind); }, 900);
+  }
+
+  // ---- 安全な即時保存（write-through と同じ検証つきupsert/削除を使う） ----
+  //  自動保存・手動保存ボタン共通の入口。reconcile() の大量削除ガード／
+  //  hydrate前ガードを必ず通すため、replaceCloudWithLocal（無条件の完全置換・
+  //  バックアップ復元専用）より安全。呼び出し側が結果を待って表示できるよう
+  //  Promiseで返す。
+  async function pushSafe() {
+    if (!loggedIn()) return { ok: false, reason: 'not-logged-in' };
+    if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' };
+    if (!__hydratedOnce) return { ok: false, reason: 'not-hydrated' };
+    var out = {};
+    for (var ki = 0; ki < 2; ki++) {
+      var kind = ki === 0 ? 'sales' : 'purchases';
+      for (var w = 0; w < 20 && pushing[kind]; w++) { await new Promise(function (r) { setTimeout(r, 200); }); }
+      var r = await reconcile(kind);
+      out[kind] = r;
+      if (r && r.ok === false && r.reason !== 'busy') {
+        return { ok: false, status: r.status, error: r.error, reason: r.reason, kind: kind, result: out };
+      }
+    }
+    return { ok: true, result: out };
   }
 
   // ---- hydrate: Supabase → キャッシュ（空クラウドでは上書きしない） ----
@@ -375,6 +399,7 @@
     seedFromThisPC: seedFromThisPC,
     replaceCloudWithLocal: replaceCloudWithLocal,
     pushNow: function () { reconcile('sales'); reconcile('purchases'); },
+    pushSafe: pushSafe,
     clearCache: clearCache,
     status: function () { return { loggedIn: loggedIn(), setupNeeded: __setupNeeded, authNeeded: __authNeeded, hydratedAt: window.localStorage.getItem(HYDRATED_AT) || null }; }
   };

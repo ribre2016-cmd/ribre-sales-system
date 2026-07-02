@@ -122,6 +122,23 @@ for delete to authenticated using (public.is_admin());
 -- =====================================================================
 -- 4. attendance の管理者ポリシーも is_admin() に統一（再帰の芽を摘む）
 -- =====================================================================
+-- attendance が未作成（supabase_attendance.sql 未適用）でも落ちないようガード
+create table if not exists attendance (
+  id uuid primary key default gen_random_uuid(),
+  staff_id uuid references staff(id) on delete cascade,
+  date date not null,
+  clock_in timestamptz,
+  clock_out timestamptz,
+  clock_in_method text,
+  clock_out_method text,
+  clock_in_lat double precision,
+  clock_in_lng double precision,
+  clock_out_lat double precision,
+  clock_out_lng double precision,
+  note text,
+  created_at timestamptz default now(),
+  unique(staff_id, date)
+);
 alter table attendance enable row level security;
 
 drop policy if exists attendance_select_own on attendance;

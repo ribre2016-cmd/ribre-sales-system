@@ -119,6 +119,9 @@ function smpInitInboxMonth() {
 function smpLockedMonthsGet() { try { return JSON.parse(localStorage.getItem('ribre_smp_locked_months') || '[]') || []; } catch (e) { return []; } }
 function smpLockedTsGet() { return Number(localStorage.getItem('ribre_smp_locked_ts') || 0) || 0; }
 function smpLockedTsSet(t) { try { localStorage.setItem('ribre_smp_locked_ts', String(t || Date.now())); } catch (e) {} }
+/* 月ごとの最終操作(ロック/解除)時刻。マージで「その月を最後にどちらが触ったか」を判定するのに使う */
+function smpLockedMetaGet() { try { return JSON.parse(localStorage.getItem('ribre_smp_locked_meta_v1') || '{}') || {}; } catch (e) { return {}; } }
+function smpLockedMetaSet(o) { try { localStorage.setItem('ribre_smp_locked_meta_v1', JSON.stringify(o || {})); } catch (e) {} }
 function smpLockedMonthsSet(arr, noPush) {
   arr = (arr || []).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).sort();
   try { localStorage.setItem('ribre_smp_locked_months', JSON.stringify(arr)); } catch (e) {}
@@ -129,28 +132,70 @@ function smpToggleLockMonth(m) {
   if (!m) return;
   var arr = smpLockedMonthsGet(); var i = arr.indexOf(m);
   if (i >= 0) arr.splice(i, 1); else arr.push(m);
+  var meta = smpLockedMetaGet(); meta[m] = Date.now(); smpLockedMetaSet(meta);
   smpLockedMonthsSet(arr);
   smpRenderLockUI();
 }
+/* 月ロックのマージ：月ごとの最終操作(ロック/解除)時刻が新しい方を採用する。
+   meta の無い月(旧データ)はブロブ全体のtsにフォールバック（過渡期のみ）。 */
+function smpLockedMerge(aArr, aMeta, aTs, bArr, bMeta, bTs) {
+  var aSet = {}; (aArr || []).forEach(function (m) { aSet[m] = 1; });
+  var bSet = {}; (bArr || []).forEach(function (m) { bSet[m] = 1; });
+  var months = {};
+  Object.keys(aSet).forEach(function (m) { months[m] = 1; });
+  Object.keys(bSet).forEach(function (m) { months[m] = 1; });
+  Object.keys(aMeta || {}).forEach(function (m) { months[m] = 1; });
+  Object.keys(bMeta || {}).forEach(function (m) { months[m] = 1; });
+  var outMeta = {}; var outArr = [];
+  Object.keys(months).forEach(function (m) {
+    var ta = Number((aMeta && aMeta[m]) || (aSet[m] ? aTs : 0)) || 0;
+    var tb = Number((bMeta && bMeta[m]) || (bSet[m] ? bTs : 0)) || 0;
+    var useA = ta >= tb;
+    var locked = useA ? !!aSet[m] : !!bSet[m];
+    outMeta[m] = Math.max(ta, tb);
+    if (locked) outArr.push(m);
+  });
+  return { arr: outArr.sort(), meta: outMeta };
+}
 var _smpLockPushTimer = null;
 function smpLockedPushDebounced() { if (_smpLockPushTimer) clearTimeout(_smpLockPushTimer); _smpLockPushTimer = setTimeout(smpLockedPushCloud, 800); }
+async function smpLockedFetchCloud(cr) {
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.locked_months&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return null;
+    var d = await r.json(); var c = d && d[0] && d[0].value;
+    return (c && c.data) ? c : null;
+  } catch (e) { return null; }
+}
 async function smpLockedPushCloud() {
   if (window.__ribreSessionLost) return { ok: false };
   var cr = smpProfitMeiCreds(); if (!cr) return { ok: false };
   try {
-    var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', { method: 'POST', headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([{ user_email: cr.em, skey: 'locked_months', value: { data: smpLockedMonthsGet(), ts: smpLockedTsGet() } }]) });
+    var body = { data: smpLockedMonthsGet(), _m: smpLockedMetaGet(), ts: smpLockedTsGet() };
+    var cloud = await smpLockedFetchCloud(cr);
+    if (cloud) {
+      var merged = smpLockedMerge(smpLockedMonthsGet(), smpLockedMetaGet(), smpLockedTsGet(), cloud.data, cloud._m, cloud.ts || 0);
+      smpLockedMetaSet(merged.meta);
+      try { localStorage.setItem('ribre_smp_locked_months', JSON.stringify(merged.arr)); } catch (e) {}
+      body = { data: merged.arr, _m: merged.meta, ts: Date.now() };
+    }
+    smpLockedTsSet(body.ts);
+    var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', { method: 'POST', headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([{ user_email: cr.em, skey: 'locked_months', value: body }]) });
     return { ok: r.ok, status: r.status };
   } catch (e) { return { ok: false }; }
 }
 async function smpLockedPullCloud() {
   var cr = smpProfitMeiCreds(); if (!cr) return false;
-  try {
-    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.locked_months&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
-    if (!r.ok) return false;
-    var d = await r.json(); var c = d && d[0] && d[0].value;
-    if (c && c.data && (c.ts || 0) > smpLockedTsGet()) { try { localStorage.setItem('ribre_smp_locked_months', JSON.stringify(c.data)); } catch (e) {} smpLockedTsSet(c.ts); return true; }
-  } catch (e) {}
-  return false;
+  var cloud = await smpLockedFetchCloud(cr);
+  if (!cloud) return false;
+  var merged = smpLockedMerge(smpLockedMonthsGet(), smpLockedMetaGet(), smpLockedTsGet(), cloud.data, cloud._m, cloud.ts || 0);
+  var before = smpLockedMonthsGet();
+  var changed = JSON.stringify(merged.arr) !== JSON.stringify(before);
+  try { localStorage.setItem('ribre_smp_locked_months', JSON.stringify(merged.arr)); } catch (e) {}
+  smpLockedMetaSet(merged.meta);
+  smpLockedTsSet(Math.max(smpLockedTsGet(), Number(cloud.ts || 0)));
+  if (JSON.stringify(merged.arr) !== JSON.stringify(cloud.data || [])) smpLockedPushDebounced();
+  return changed;
 }
 function smpLockSnapshotSales() {
   if (!smpLockedMonthsGet().length) return null;
@@ -272,6 +317,35 @@ async function smpReloadFromCloud() {
     alert('クラウドの最新に揃えました。\n売上 ' + s + '件 / 仕入 ' + p + '件');
   } catch (e) { setSt('⚠️ 取得に失敗しました'); alert('取得に失敗しました: ' + (e && e.message)); }
 }
+/* ===== 汎用: キー付きマス（月など）のマージ =====
+   value = { キー: 値, ..., _m: { キー: 更新時刻 } }。同じキーは新しい方を採用、
+   _m の無いキー（旧データ）はブロブ全体のts(aTs/bTs)にフォールバック。
+   片方にしか無いキーは必ず残す。180日より古い_mは破棄。
+   仮入力(smpProvMerge)は月×チャネルの2階層なので専用実装のまま残すが、
+   目標(goals)・月ロック(locked_months)の月1階層マップはこれを共有する。 */
+function smpFlatMerge(a, aTs, b, bTs) {
+  a = a || {}; b = b || {};
+  var am = (a._m && typeof a._m === 'object') ? a._m : {};
+  var bm = (b._m && typeof b._m === 'object') ? b._m : {};
+  var keys = {};
+  Object.keys(a).forEach(function (k) { if (k !== '_m') keys[k] = 1; });
+  Object.keys(b).forEach(function (k) { if (k !== '_m') keys[k] = 1; });
+  Object.keys(am).forEach(function (k) { keys[k] = 1; });
+  Object.keys(bm).forEach(function (k) { keys[k] = 1; });
+  var out = { _m: {} };
+  Object.keys(keys).forEach(function (k) {
+    var hasA = a[k] != null, hasB = b[k] != null;
+    var ta = Number(am[k] || (hasA ? (aTs || 0) : 0)) || 0;
+    var tb = Number(bm[k] || (hasB ? (bTs || 0) : 0)) || 0;
+    var useA = ta >= tb;
+    var val = useA ? (hasA ? a[k] : undefined) : (hasB ? b[k] : undefined);
+    out._m[k] = Math.max(ta, tb);
+    if (val !== undefined) out[k] = val;
+  });
+  var lim = Date.now() - 180 * 24 * 3600 * 1000;
+  Object.keys(out._m).forEach(function (k) { if (out._m[k] < lim && out[k] == null) delete out._m[k]; });
+  return out;
+}
 /* ===== 目標（年度／月ごと・あと何個で達成） ===== */
 var _smpGoalMode = 'year';
 var _smpGoalCtx = { curSale: 0, curProf: 0 };
@@ -279,16 +353,56 @@ function smpGoalsGet() { try { var o = JSON.parse(localStorage.getItem('ribre_sm
 function smpGoalsTsGet() { return Number(localStorage.getItem('ribre_smp_goals_ts') || 0) || 0; }
 function smpGoalsTsSet(t) { try { localStorage.setItem('ribre_smp_goals_ts', String(t || Date.now())); } catch (e) {} }
 function smpGoalsSet(o, noPush) { try { localStorage.setItem('ribre_smp_goals_v1', JSON.stringify(o)); } catch (e) {} if (!noPush) { smpGoalsTsSet(Date.now()); smpGoalsPushDebounced(); } }
+/* 月ごとの目標(mSale/mProf)はマス単位でマージ。年間目標・単位設定はブロブ全体で新しい方。 */
+function smpGoalsMerge(a, aTs, b, bTs) {
+  a = a || {}; b = b || {};
+  var useA = (aTs || 0) >= (bTs || 0);
+  var top = useA ? a : b, other = useA ? b : a;
+  var out = {};
+  ['yearSale', 'yearProf', 'curSaleUnit', 'curProfUnit'].forEach(function (k) {
+    out[k] = (top[k] != null && top[k] !== 0) ? top[k] : other[k];
+  });
+  out.mSale = smpFlatMerge(a.mSale, aTs, b.mSale, bTs);
+  out.mProf = smpFlatMerge(a.mProf, aTs, b.mProf, bTs);
+  return out;
+}
 var _smpGoalsPushTimer = null;
 function smpGoalsPushDebounced() { if (_smpGoalsPushTimer) clearTimeout(_smpGoalsPushTimer); _smpGoalsPushTimer = setTimeout(smpGoalsPushCloud, 800); }
+async function smpGoalsFetchCloud(cr) {
+  try {
+    var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.goals&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return null;
+    var d = await r.json(); var c = d && d[0] && d[0].value;
+    return (c && c.data) ? c : null;
+  } catch (e) { return null; }
+}
 async function smpGoalsPushCloud() {
   if (window.__ribreSessionLost) return { ok: false };
   var cr = smpProfitMeiCreds(); if (!cr) return { ok: false };
-  try { var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', { method: 'POST', headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([{ user_email: cr.em, skey: 'goals', value: { data: smpGoalsGet(), ts: smpGoalsTsGet() } }]) }); return { ok: r.ok, status: r.status }; } catch (e) { return { ok: false }; }
+  try {
+    var body = smpGoalsGet();
+    var cloud = await smpGoalsFetchCloud(cr);
+    if (cloud) {
+      body = smpGoalsMerge(smpGoalsGet(), smpGoalsTsGet(), cloud.data, cloud.ts || 0);
+      try { localStorage.setItem('ribre_smp_goals_v1', JSON.stringify(body)); } catch (e) {}
+    }
+    var now = Date.now();
+    smpGoalsTsSet(now);
+    var r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', { method: 'POST', headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([{ user_email: cr.em, skey: 'goals', value: { data: body, ts: now } }]) });
+    return { ok: r.ok, status: r.status };
+  } catch (e) { return { ok: false }; }
 }
 async function smpGoalsPullCloud() {
   var cr = smpProfitMeiCreds(); if (!cr) return false;
-  try { var r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.goals&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } }); if (!r.ok) return false; var d = await r.json(); var c = d && d[0] && d[0].value; if (c && c.data && (c.ts || 0) > smpGoalsTsGet()) { try { localStorage.setItem('ribre_smp_goals_v1', JSON.stringify(c.data)); } catch (e) {} smpGoalsTsSet(c.ts); return true; } } catch (e) {} return false;
+  var cloud = await smpGoalsFetchCloud(cr);
+  if (!cloud) return false;
+  var local = smpGoalsGet();
+  var merged = smpGoalsMerge(local, smpGoalsTsGet(), cloud.data, cloud.ts || 0);
+  var changed = JSON.stringify(merged) !== JSON.stringify(local);
+  try { localStorage.setItem('ribre_smp_goals_v1', JSON.stringify(merged)); } catch (e) {}
+  smpGoalsTsSet(Math.max(smpGoalsTsGet(), Number(cloud.ts || 0)));
+  if (JSON.stringify(merged) !== JSON.stringify(cloud.data)) smpGoalsPushDebounced();
+  return changed;
 }
 function smpGoalCount(m) {
   var c = 0;
@@ -326,7 +440,13 @@ function smpGoalSave() {
   var sT = num((document.getElementById('smpGoalSale') || {}).value), pT = num((document.getElementById('smpGoalProf') || {}).value);
   var sU = num((document.getElementById('smpGoalSaleUnit') || {}).value), pU = num((document.getElementById('smpGoalProfUnit') || {}).value);
   if (_smpGoalMode === 'year') { g.yearSale = sT; g.yearProf = pT; g.curSaleUnit = sU; g.curProfUnit = pU; }
-  else { var sel = document.getElementById('smpGoalMonth'); var m = (sel && sel.value) || cur; g.mSale[m] = sT; g.mProf[m] = pT; if (m === cur) { g.curSaleUnit = sU; g.curProfUnit = pU; } }
+  else {
+    var sel = document.getElementById('smpGoalMonth'); var m = (sel && sel.value) || cur;
+    g.mSale[m] = sT; g.mProf[m] = pT;
+    g.mSale._m = g.mSale._m || {}; g.mSale._m[m] = Date.now();
+    g.mProf._m = g.mProf._m || {}; g.mProf._m[m] = Date.now();
+    if (m === cur) { g.curSaleUnit = sU; g.curProfUnit = pU; }
+  }
   smpGoalsSet(g);
 }
 function smpGoalOnInput(kind) { smpGoalSave(); smpGoalCalc(kind); }
@@ -568,6 +688,16 @@ async function smpEmailSignup() {
 }
 /* ローカルの売上/仕入をクラウドへ（移行用・正準スキーマ・upsert） */
 /* クラウド送信用の payload（売上/仕入）を現在のローカルデータから作る */
+/* 内容から決まる安定id（Date.now()を使わないため、同じ行なら同じ結果になり
+   移行の再試行で重複を作らない）。仕入行にはローカルidが無いことがあるため。 */
+function smpMigStableId(prefix, raw) {
+  var h = 5381, i = raw.length; while (i) { h = (h * 33) ^ raw.charCodeAt(--i); }
+  return prefix + '_' + (h >>> 0).toString(36);
+}
+function smpMigPurchaseClientId(r) {
+  if (r && (r.id || r.client)) return String(r.client || r.id).slice(0, 120);
+  return smpMigStableId('mig_p', (r && (r.date || '')) + '|' + (r && (r.vendor || '')) + '|' + (r && (r.name || '')) + '|' + num(r && (r.total != null ? r.total : r.amount)));
+}
 function smpBuildCloudBodies(em) {
   const sBody = sales().map(r => {
     const amt = num(r.amount || r.price), fee = num(r.fee), ship = num(r.ship || r.shipping);
@@ -577,12 +707,14 @@ function smpBuildCloudBodies(em) {
   });
   const pBody = purchases().map(r => {
     const total = num(r.total || r.amount);
-    return { user_email: em, purchase_date: r.date || null, month: r.month || String(r.date || '').slice(0, 7), vendor: r.vendor || '', item_name: r.name || '', cost: total, total: total, invoice_number: '', status: r.matchStatus || '手入力', memo: r.memo || '', source: 'かんたん' };
+    return { user_email: em, client_id: smpMigPurchaseClientId(r), purchase_date: r.date || null, month: r.month || String(r.date || '').slice(0, 7), vendor: r.vendor || '', item_name: r.name || '', cost: total, total: total, invoice_number: '', status: r.matchStatus || '手入力', memo: r.memo || '', source: 'かんたん' };
   });
   return { sBody: sBody, pBody: pBody };
 }
 
-/* 初回移行：ローカル→クラウド（upsert/merge。既存クラウドは消さない） */
+/* 初回移行：ローカル→クラウド（upsert/merge。既存クラウドは消さない）
+   sales/purchases とも on_conflict で重複防止。移行が部分失敗して次回
+   再試行になっても、同じ内容の行は同じキーになるため重複登録されない。 */
 async function smpUploadAllToCloud(em) {
   const c = sb();
   if (!c.url || !c.key) return { err: 'no config' };
@@ -593,7 +725,7 @@ async function smpUploadAllToCloud(em) {
   const { sBody, pBody } = smpBuildCloudBodies(em);
   let okS = 0, okP = 0, err = null;
   try { if (sBody.length) { const res = await fetch(base + 'sales?on_conflict=user_email,item_id', { method: 'POST', headers: headers, body: JSON.stringify(sBody) }); if (res.ok) okS = sBody.length; else err = await res.text(); } } catch (e) { err = e.message; }
-  try { if (pBody.length) { const res = await fetch(base + 'purchases', { method: 'POST', headers: headers, body: JSON.stringify(pBody) }); if (res.ok) okP = pBody.length; else err = err || await res.text(); } } catch (e) { err = err || e.message; }
+  try { if (pBody.length) { const res = await fetch(base + 'purchases?on_conflict=user_email,client_id', { method: 'POST', headers: headers, body: JSON.stringify(pBody) }); if (res.ok) okP = pBody.length; else err = err || await res.text(); } } catch (e) { err = err || e.message; }
   return { okS: okS, okP: okP, err: err };
 }
 
@@ -707,76 +839,43 @@ async function smpCloudSave(opt) {
     smpHandleExpiredSession(silent);
     return { ok: false, reason: 'expired' };
   }
-  if (!silent) smpAuthStatus('クラウドに保存中...', 'info');
-  // 安全な置き換え：data-store の共通ロジック（upsert→不要行のみ削除）に委譲する。
-  // 旧方式の「全削除→挿入」は途中でネットワークが切れるとクラウドが空のまま残り
-  // データを失う危険があったため、client_id ベースの非破壊置き換えに統一する。
-  if (window.ribreStore && typeof window.ribreStore.replaceCloudWithLocal === 'function') {
-    try {
-      const rr = await window.ribreStore.replaceCloudWithLocal();
-      if (rr && rr.ok) {
-        const res = rr.result || {};
-        const upS = (res.sales && res.sales.up) || 0;
-        const upP = (res.purchases && res.purchases.up) || 0;
-        smpMarkSaveComplete();
-        if (!silent) smpAuthStatus('✅ 保存しました（売上' + upS + '・仕入' + upP + '）', 'ok');
-        return { ok: true, sales: upS, purchases: upP };
-      }
-      if (rr && (rr.reason === 'session-lost' || rr.status === 401 || rr.status === 403)) {
-        smpHandleExpiredSession(silent);
-        return { ok: false, reason: 'expired' };
-      }
-      if (rr && rr.reason === 'not-logged-in') {
-        if (!silent) smpAuthStatus('先にログインしてください', 'warn');
-        return { ok: false, reason: 'auth' };
-      }
-      const msg = smpCloudErrorMessage((rr && (rr.error || rr.reason || rr.status)) || 'error');
-      if (!silent) smpAuthStatus('保存エラー: ' + msg, 'warn');
-      return { ok: false, reason: msg };
-    } catch (e) {
-      const msg = smpCloudErrorMessage(e.message);
-      if (msg === smpAuthExpiredMessage()) smpHandleExpiredSession(silent);
-      if (!silent) smpAuthStatus('保存エラー: ' + msg, 'err');
-      return { ok: false, reason: msg };
-    }
+  // data-store の reconcile（hydrate済みチェック＋大量削除ガードつき）に必ず通す。
+  // 以前は自動保存もクラウド完全置換（バックアップ復元専用の無ガード処理）に
+  // 委譲しており、未hydrateの端末で1回編集しただけで他端末のクラウドデータを
+  // 全削除しうる危険があったため、安全な pushSafe() に統一する。
+  if (!window.ribreStore || typeof window.ribreStore.pushSafe !== 'function') {
+    if (!silent) smpAuthStatus('⚠ 同期モジュールが読み込めていません。ページを再読み込みしてください', 'warn');
+    return { ok: false, reason: 'store-unavailable' };
   }
-  // フォールバック：ribreStore が使えない場合のみ旧方式（自分の行を消して入れ直し）
-  const s = sess();
-  const token = s.access_token || c.key;
-  const base = c.url.replace(/\/$/, '') + '/rest/v1/';
-  const delH = { apikey: c.key, Authorization: 'Bearer ' + token };
-  const insH = { apikey: c.key, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', Prefer: 'return=minimal' };
-  const q = '?user_email=eq.' + encodeURIComponent(em);
+  if (!silent) smpAuthStatus('クラウドに保存中...', 'info');
   try {
-    const delSales = await fetch(base + 'sales' + q, { method: 'DELETE', headers: delH });
-    if (!delSales.ok) throw new Error(await delSales.text());
-    const delPurchases = await fetch(base + 'purchases' + q, { method: 'DELETE', headers: delH });
-    if (!delPurchases.ok) throw new Error(await delPurchases.text());
-    const { sBody, pBody } = smpBuildCloudBodies(em);
-    let err = null;
-    if (sBody.length) { const r = await fetch(base + 'sales', { method: 'POST', headers: insH, body: JSON.stringify(sBody) }); if (!r.ok) err = await r.text(); }
-    if (pBody.length) { const r = await fetch(base + 'purchases', { method: 'POST', headers: insH, body: JSON.stringify(pBody) }); if (!r.ok) err = err || await r.text(); }
-    if (err) {
-      const msg = smpCloudErrorMessage(err);
-      if (msg === smpAuthExpiredMessage()) smpHandleExpiredSession(silent);
-      if (!silent) smpAuthStatus(msg, 'warn');
-      return { ok: false, reason: msg };
+    const rr = await window.ribreStore.pushSafe();
+    if (rr && rr.ok) {
+      const res = rr.result || {};
+      const upS = (res.sales && res.sales.upserted) || 0;
+      const upP = (res.purchases && res.purchases.upserted) || 0;
+      smpMarkSaveComplete();
+      if (!silent) smpAuthStatus('✅ 保存しました（売上' + upS + '・仕入' + upP + '）', 'ok');
+      return { ok: true, sales: upS, purchases: upP };
     }
-    if (!silent) smpAuthStatus('✅ 保存しました（売上' + sBody.length + '・仕入' + pBody.length + '）', 'ok');
-    try {
-      const verifyH = { apikey: c.key, Authorization: 'Bearer ' + token };
-      const vrS = await fetch(base + 'sales?select=item_id&user_email=eq.' + encodeURIComponent(em) + '&limit=10000', { headers: verifyH });
-      if (vrS.ok) {
-        const cloudSales = await vrS.json();
-        const cloudSaleIds = new Set((cloudSales || []).map(r => String(r.item_id || '')));
-        const missingSale = sBody.find(r => r.item_id && !cloudSaleIds.has(String(r.item_id)));
-        if (missingSale) console.warn('RIBRE save verify warning: missing sale item_id', missingSale.item_id);
-      }
-    } catch (verifyErr) {
-      console.warn('RIBRE save verify warning:', verifyErr);
+    if (rr && (rr.reason === 'session-lost' || rr.status === 401 || rr.status === 403)) {
+      smpHandleExpiredSession(silent);
+      return { ok: false, reason: 'expired' };
     }
-    smpMarkSaveComplete();
-    return { ok: true, sales: sBody.length, purchases: pBody.length };
+    if (rr && rr.reason === 'not-logged-in') {
+      if (!silent) smpAuthStatus('先にログインしてください', 'warn');
+      return { ok: false, reason: 'auth' };
+    }
+    if (rr && rr.reason === 'not-hydrated') {
+      // クラウド読込がまだ済んでいない（ログイン直後など）。ここで保存すると
+      // 古いローカルでクラウドを縮小させる恐れがあるため待つ。編集内容は
+      // dirtyフラグが立ったままなので、次回の自動保存で改めて反映される。
+      if (!silent) smpAuthStatus('クラウド読込中のため少し待ってから保存します', 'info');
+      return { ok: false, reason: 'not-hydrated' };
+    }
+    const msg = smpCloudErrorMessage((rr && (rr.error || rr.reason || rr.status)) || 'error');
+    if (!silent) smpAuthStatus('保存エラー: ' + msg, 'warn');
+    return { ok: false, reason: msg };
   } catch (e) {
     const msg = smpCloudErrorMessage(e.message);
     if (msg === smpAuthExpiredMessage()) smpHandleExpiredSession(silent);
@@ -1874,11 +1973,12 @@ async function smpProfitMeiPullCloud() {
   if (!cloud) return false;
   var local = smpProfitMeiGet();
   var merged = smpMeiMerge(local, cloud);
-  var changed = JSON.stringify({ s: merged.sales, p: merged.purchases }) !== JSON.stringify({ s: local.sales, p: local.purchases });
+  var mergedKey = JSON.stringify({ s: merged.sales, p: merged.purchases });
+  var changed = mergedKey !== JSON.stringify({ s: local.sales, p: local.purchases });
   try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(merged)); } catch (e) {}
   // クラウド側に無い行をこの端末が持っていた場合は押し戻して復元する
-  var cloudNorm = JSON.stringify({ s: smpMeiMerge(cloud, cloud).sales, p: smpMeiMerge(cloud, cloud).purchases });
-  if (JSON.stringify({ s: merged.sales, p: merged.purchases }) !== cloudNorm) smpProfitMeiPushDebounced();
+  var cloudNorm = smpMeiMerge(cloud, cloud);
+  if (mergedKey !== JSON.stringify({ s: cloudNorm.sales, p: cloudNorm.purchases })) smpProfitMeiPushDebounced();
   return changed;
 }
 /* 手動同期（ログイン中アカウントを表示。両PC/携帯で同じ ribre2016@gmail.com が必要） */
@@ -3384,12 +3484,14 @@ document.addEventListener('visibilitychange', function () {
     Promise.all([
       smpProfitMeiPullCloud().catch(function () { return false; }),
       smpProfitProvPullCloud().catch(function () { return false; }),
-      smpGoalsPullCloud().catch(function () { return false; })
+      smpGoalsPullCloud().catch(function () { return false; }),
+      smpLockedPullCloud().catch(function () { return false; })
     ]).then(function (r) {
       if (r[0] || r[1] || r[2]) {
         try { simpleRenderProfitTable(); } catch (e) {}
         try { smpRenderHome(); } catch (e) {}
       }
+      if (r[3]) { try { smpRenderLockUI(); } catch (e) {} }
     });
   } catch (e) {}
 });

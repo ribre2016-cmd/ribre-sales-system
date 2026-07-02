@@ -7,7 +7,23 @@ function shipRows() {
   }
 }
 function saveShipRows(arr) {
-  localStorage.setItem('ribre_shipping_rows230', JSON.stringify(arr.slice(0, 10000)));
+  // 月をまたいで蓄積するため上限に達したら「古い方」ではなく「新しく取り込んだ方」を残す
+  // （マージ時に prev→new の順で Map へ積むため、配列の末尾ほど新しい）。
+  var data = (arr || []).slice(-10000);
+  var write = function () { localStorage.setItem('ribre_shipping_rows230', JSON.stringify(data)); };
+  try {
+    write();
+  } catch (e) {
+    try {
+      ['ribre_auto_snapshots_v1', 'ribre_prod_sales460', 'ribre_prod_purchases460', 'ribre_realtime_logs460', 'ribre_ocr_candidates200', 'ribre_shipping_results230'].forEach(function (k) { try { localStorage.removeItem(k); } catch (_) {} });
+    } catch (_) {}
+    try {
+      write();
+    } catch (e2) {
+      try { alert('⚠️ 保存容量オーバーで配送CSVを保存できませんでした。\n\n「取り込み」タブの「🧹 空き容量を作る」を押してから、もう一度取り込んでください。'); } catch (_) {}
+      throw e2;
+    }
+  }
 }
 function shipResults() {
   try {
@@ -179,8 +195,11 @@ function importShippingCsv() {
       // 過去に取り込んだ配送CSVを月をまたいで保持する（種類ごとに置き換えず蓄積）。
       // これにより、先月に入れた送り状/運賃CSVで今月取り込んだ売上も照合できる。
       // 重複は (種類 + 伝票番号 or 商品ID) をキーに排除し、新しい行で上書きする。
+      // 伝票・商品IDが無い行（運賃CSVの一部行など）はCSV行番号ではなく行の中身そのもの
+      // をキーにする。行番号だと別の月・別ファイルの無関係な行が同じ番号で衝突し、
+      // 片方が消えてしまうため（内容が同じ＝本当の重複、内容が違えば必ず両方残す）。
       const prev = shipRows();
-      const keyOf = (r) => r.type + '|' + (normalizeSlip(r.slip) || String(r.itemId || '') || ('row' + r.row));
+      const keyOf = (r) => r.type + '|' + (normalizeSlip(r.slip) || String(r.itemId || '') || ('c' + (Array.isArray(r.raw) ? r.raw.join('') : String(r.raw || ''))));
       const merged = new Map();
       prev.forEach((r) => merged.set(keyOf(r), r));
       mapped.forEach((r) => merged.set(keyOf(r), r));
@@ -230,7 +249,7 @@ function matchShipping() {
   const results = [];
   let matched = 0,
     unmatched = 0;
-  const diag = { total: ships.length, matched: 0, byItemId: 0, bySlip: 0, unmatched: 0, noKey: 0, itemIdMiss: 0, slipMiss: 0, samples: [] };
+  const diag = { total: ships.length, matched: 0, byItemId: 0, bySlip: 0, unmatched: 0, noKey: 0, itemIdMiss: 0, slipMiss: 0, protectedManual: 0, samples: [] };
   ships.forEach((sh) => {
     let target = null;
     let how = '';
@@ -242,13 +261,31 @@ function matchShipping() {
       target = s.find((x) => shipSlipHit(x, sh.slip));
       if (target) how = 'slip';
     }
+    // 手入力で修正した送料・伝票は、後から配送CSVを取り込んでも上書きしない
+    // （そうしないと、古いCSVが蓄積される仕様と組み合わさって修正が毎回巻き戻る）
+    if (target && target.matchStatus === '手入力') {
+      diag.protectedManual++;
+      results.push({
+        status: '保護(手入力)',
+        company: sh.company,
+        source: sh.source || '',
+        carrier: sh.carrier || sh.company || '',
+        trackingNumber: sh.trackingNumber || sh.slip || '',
+        evidence_url: sh.evidence_url || '',
+        itemId: sh.itemId,
+        slip: sh.slip,
+        shipping: sh.shipping,
+        name: target.name || '',
+        msg: '手入力保護のためCSV値を適用しませんでした: ' + (target.name || '')
+      });
+      return;
+    }
     if (!target) {
       if (!sh.itemId && !sh.slip) diag.noKey++;
       else if (sh.itemId) diag.itemIdMiss++;
       else diag.slipMiss++;
       if (diag.samples.length < 20) diag.samples.push({ type: sh.type, itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping, reason: (!sh.itemId && !sh.slip) ? 'キー無し' : (sh.itemId ? '商品ID不一致' : '伝票番号が売上に無い(送り状CSV未取込の可能性)') });
     } else {
-      diag.matched++;
       if (how === 'itemId') diag.byItemId++; else diag.bySlip++;
     }
     if (target) {
@@ -291,6 +328,7 @@ function matchShipping() {
       });
     }
   });
+  diag.matched = matched;
   diag.unmatched = unmatched;
   try { window.__ribreLastShipMatch = diag; } catch (e) {}
   setLS(LS.sales, s);
