@@ -7,9 +7,10 @@ const { getAccessToken, postVoucher, NotConnectedError, MF_ACCOUNTING_API_BASE }
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const MF_STORAGE_BUCKET = 'mf-evidence';
-const MARGIN_DAYS = 3;
+const MARGIN_DAYS = 7; // 仕訳取得ウィンドウ（取引先マッチの±7日をカバー）
 const MAX_VOUCHER_FILES_PER_JOURNAL = 5;
 const FUZZY_MARGIN_DAYS = 3;
+const VENDOR_DATE_MARGIN_DAYS = 7; // 取引先名＋日付近接マッチ（外貨建て等の金額不一致向け）
 
 function supabaseHeaders() {
   return {
@@ -197,6 +198,26 @@ function findFuzzyCandidates(journals, evidence) {
   });
 }
 
+// 第三段: 金額を使わず「取引先名の一致＋日付±7日」で候補を探す。
+// 外貨建て請求書（Anthropic/OpenAI等）は円換算額が読めず金額照合が不可能なため、
+// カード明細の摘要に含まれる加盟店名と証憑の取引先名を突き合わせる。
+// 金額の裏取りができない以上、自動添付は絶対にしない（候補提示のみ）。
+function findVendorDateCandidates(journals, evidence) {
+  const dateStr = evidence.ocr_date;
+  const vendorNorm = normalizeText(evidence && evidence.ocr_vendor);
+  if (!dateStr || !vendorNorm) return [];
+  const startDate = addDays(dateStr, -VENDOR_DATE_MARGIN_DAYS);
+  const endDate = addDays(dateStr, VENDOR_DATE_MARGIN_DAYS);
+  return journals.filter((j) => {
+    if (!j.transaction_date) return false;
+    if (j.transaction_date < startDate || j.transaction_date > endDate) return false;
+    const summaryNorm = normalizeText(journalVendorText(j));
+    if (!summaryNorm) return false;
+    if (!(summaryNorm.includes(vendorNorm) || vendorNorm.includes(summaryNorm))) return false;
+    return journalPassesCommonFilters(j, evidence);
+  });
+}
+
 // 証憑をStorageから読み出し、指定仕訳へ添付。成功したらevidence行を更新する。
 async function attachEvidenceToJournal({ accessToken, evidence, journalId }) {
   const fileDataBase64 = await fetchStorageFileBase64(evidence.storage_path);
@@ -290,7 +311,19 @@ async function runAutoMatch(accessToken) {
           candidates: fuzzyCandidates.map((j) => journalSummary(j, true)),
         });
       } else {
-        unmatched.push(evidence.id);
+        // 第三段: 取引先名＋日付±7日（金額不問・外貨建て向け）。候補提示のみ。
+        const vendorCandidates = findVendorDateCandidates(journals, evidence);
+        if (vendorCandidates.length) {
+          ambiguous.push({
+            evidence_id: evidence.id,
+            file_name: evidence.file_name,
+            fuzzy: true,
+            vendor_date: true,
+            candidates: vendorCandidates.map((j) => journalSummary(j, true)),
+          });
+        } else {
+          unmatched.push(evidence.id);
+        }
       }
     }
   }

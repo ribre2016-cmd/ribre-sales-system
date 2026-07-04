@@ -602,7 +602,9 @@ function mfRenderAmbiguous(ambiguousList) {
     if (item.fuzzy) {
       const note = document.createElement('div');
       note.className = 'safe-hint warn';
-      note.textContent = '※日付が±3日ずれた候補です';
+      note.textContent = item.vendor_date
+        ? '※金額不一致でも取引先名と日付(±7日)で抽出した候補です（外貨建て請求書など）。金額を確認のうえ添付してください'
+        : '※日付が±3日ずれた候補です';
       wrap.appendChild(note);
     }
 
