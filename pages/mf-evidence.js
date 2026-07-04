@@ -479,7 +479,7 @@ async function mfResendEvidence(evidenceId, btnEl) {
   }
 }
 
-/* 控えファイルをサーバー経由で取得し、別タブでプレビュー表示する */
+/* 控えファイルをサーバー経由で取得し、ページ上のモーダルでプレビュー表示する */
 async function mfPreviewEvidence(evidenceId, linkEl) {
   if (linkEl) linkEl.style.pointerEvents = 'none';
   try {
@@ -495,15 +495,67 @@ async function mfPreviewEvidence(evidenceId, linkEl) {
     const bin = atob(d.file_data);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const blob = new Blob([bytes], { type: d.content_type || 'application/octet-stream' });
+    const type = d.content_type || 'application/octet-stream';
+    const blob = new Blob([bytes], { type });
     const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    mfShowPreviewModal({ url, type, fileName: d.file_name || '' });
   } catch (e) {
     mfToast('プレビュー失敗: ' + e.message, 'error');
   } finally {
     if (linkEl) linkEl.style.pointerEvents = '';
   }
+}
+
+/* プレビューモーダルの表示。×ボタン・背景クリック・Escで閉じる */
+function mfShowPreviewModal({ url, type, fileName }) {
+  const old = document.querySelector('.mf-preview-overlay');
+  if (old) old.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'mf-preview-overlay';
+
+  const box = document.createElement('div');
+  box.className = 'mf-preview-modal';
+
+  const head = document.createElement('div');
+  head.className = 'mf-preview-modal-head';
+  const title = document.createElement('span');
+  title.textContent = fileName || 'プレビュー';
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'secondary';
+  closeBtn.textContent = '✕ 閉じる';
+  head.appendChild(title);
+  head.appendChild(closeBtn);
+  box.appendChild(head);
+
+  const body = document.createElement('div');
+  body.className = 'mf-preview-modal-body';
+  if (type.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = url;
+    body.appendChild(img);
+  } else {
+    const frame = document.createElement('iframe');
+    frame.src = url;
+    body.appendChild(frame);
+  }
+  box.appendChild(body);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  function close() {
+    overlay.remove();
+    URL.revokeObjectURL(url);
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') close();
+  }
+  closeBtn.onclick = close;
+  overlay.onclick = (e) => {
+    if (e.target === overlay) close();
+  };
+  document.addEventListener('keydown', onKey);
 }
 
 /* 送信前(pending)/失敗の証憑を削除する（メール取込の却下操作） */
