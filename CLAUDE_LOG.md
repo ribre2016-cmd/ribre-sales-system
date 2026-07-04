@@ -1,0 +1,231 @@
+# Claude 作業ログ
+
+このファイルは、Claude（AIアシスタント）がこのプロジェクトに加えた変更の記録です。
+新しい変更は上に追記します。
+
+## 2026-07-03 Phase3: ±3日緩和マッチ／証憑カバー率メーター／月次Slackレポート
+
+**追加ファイル**:
+- `api/mf/_lib/mf-journals.js` — 仕訳取得(`fetchJournals`)・税込金額計算(`journalAmount`)・摘要抽出(`journalSummaryText`)・日付加算(`addDays`)の共通ヘルパー。coverage.js/monthly-report.js から使用。match.js自体は既存実装のまま変更していない（重複はあるが本番稼働中ロジックへの影響を避けた）。
+- `api/mf/_lib/mf-coverage.js` — `computeCoverage({accessToken, month})` で指定月(省略時は当月)の仕訳を取得し、`voucher_file_ids`の有無でカバー率を集計。missingは日付昇順で最大50件。
+- `api/mf/coverage.js` — `GET /api/mf/coverage?month=YYYY-MM`。verifySupabaseTokenでログイン必須。
+- `api/mf/monthly-report.js` — `GET /api/mf/monthly-report`。Vercel Cron（`Authorization: Bearer CRON_SECRET`）またはログインユーザーのどちらかで認証。当月カバー率＋`mf_evidence.status='box_saved'`件数を集計しSlack Incoming Webhookへ日本語メッセージを送信。`SLACK_WEBHOOK_URL`未設定時は`{ok:false, error:'slack_not_configured'}`を200で返す（クラッシュさせない）。
+
+**変更ファイル**:
+- `api/mf/match.js`: `findCandidates`（完全一致）に加え`findFuzzyCandidates`を追加。完全一致が0件のときのみ、ocr_dateの±3日以内・税込金額一致の仕訳を検索し、見つかれば自動添付せず全件を`ambiguous`（`fuzzy:true`付き）として返す。完全一致が1件以上あるときは従来通り緩和検索はしない。
+- `vercel.json`: `crons`に`/api/mf/monthly-report`を毎月28日0:00 UTC実行する設定を追加。既存の`routes`は変更なし。
+- `mf-evidence.html`: 「仕訳マッチング」パネルの下に「証憑カバー率」パネル（月選択・集計ボタン・メーター・証憑なし仕訳一覧・Slack送信テストボタン）を追加。
+- `pages/mf-evidence.js`: `mfRenderAmbiguous`にfuzzy注記表示を追加。`mfRunCoverage`/`mfRenderCoverageMeter`/`mfRenderCoverageMissing`/`mfSendSlackTest`を新規追加。DOMContentLoadedで対象月inputに当月を初期セット。
+- `styles/mf-evidence.css`: `.mf-meter-wrap`/`.mf-meter-bar`/`.mf-missing-table`/`.mf-missing-row`/`.mf-missing-head`を追加。
+- `docs/MF_SETUP.md`: 「5. Phase3」節を追記（SLACK_WEBHOOK_URL/CRON_SECRETの設定手順、Cronの動作、カバー率の見方）。
+
+**判断した点**:
+- match.js内の`fetchJournals`等を`_lib/mf-journals.js`へ切り出して共用する案もあったが、match.jsは直近の本番デバッグ対象で「必ず流用する」指示があったため、match.js自体の実装・エクスポート形は一切変更せず、coverage.js/monthly-report.js側だけが新設の共通libを使う設計にした（重複コードは残るがリスクを避けた）。
+- カバー率の「証憑あり」判定は`voucher_file_ids.length > 0`のみを見ている。自動マッチ添付・手動添付・MF本体からの直接添付のいずれも区別せず「あり」として扱う。
+- Cronのタイムゾーンは0 0 28 * *（UTC）とした。日本時間では28日9:00頃の実行になる。
+
+**node --check結果**: `api/mf/match.js` `api/mf/_lib/mf-journals.js` `api/mf/_lib/mf-coverage.js` `api/mf/coverage.js` `api/mf/monthly-report.js` `pages/mf-evidence.js` すべてOK。`vercel.json`は`JSON.parse`で妥当性確認済み。
+
+**未実施**: `SLACK_WEBHOOK_URL`/`CRON_SECRET`のVercel環境変数設定、実機でのSlack送信テスト、本番デプロイ。
+
+---
+
+## 2026-07-03 — MF証憑連携 Phase2: 登録済み仕訳への自動マッチング添付＋PDF OCR対応
+
+**背景**: Phase1で証憑をMFのBoxへ送信するところまでは実装済みだったが、登録済み仕訳への添付は
+手動（送信時にjournal_idを指定する場合のみ）に限られていた。Phase2として、Box保存済みの証憑を
+MF会計の仕訳一覧と自動照合し、日付・金額が一致する仕訳へ自動添付する機能を追加。あわせて
+PDF証憑がOCR時に`unsupported MIME type`エラーになっていた不具合も解消した。
+
+**追加ファイル**:
+- `api/mf/match.js`（284行）— `POST /api/mf/match`。自動モード（ボディ空）でbox_saved証憑を仕訳と
+  自動マッチング・添付。手動確定モード（`{evidence_id, journal_id}`）で候補複数時の確定添付にも対応。
+- `supabase_mf_storage.sql`（15行）— Supabase Storageバケット`mf-evidence`作成SQL（service role専用、
+  RLSポリシーは意図的に未作成）。
+
+**変更ファイル**:
+- `api/mf/vouchers.js`（190行）— MF送信成功後、同じファイルbytesをSupabase Storage
+  (`mf-evidence`バケット)へ控え保存し`storage_path`をmf_evidenceにINSERTする処理を追加。
+  Storage保存失敗時もMF送信自体は成功として扱う（fail-safe、`storage_path`はnullのまま）。
+- `pages/mf-evidence.js`（480行）— (1) `mfRunOcr()`のPDF分岐を修正。従来PDFもdata URLを
+  `input_image`として送っておりOpenAIがMIMEエラーを返していたが、既存の`services/openai-ocr.js`
+  `uploadOpenAIFile()`を流用してOpenAI Files APIへアップロードし`input_file`+`file_id`で渡す方式に変更
+  （画像はこれまで通り`input_image`のまま）。(2) 「仕訳マッチング」パネルの制御関数
+  (`mfRunMatch`, `mfRenderAmbiguous`, `mfConfirmMatch`等)を追加。摘要等はtextContentで描画しXSSを回避。
+- `mf-evidence.html`（87行）— 台帳リストの上に「仕訳マッチング」パネル（マッチング実行ボタン・
+  結果サマリー・候補複数時の選択UI）を追加。
+
+**openapi.yaml (https://developers.api-accounting.moneyforward.com/v3/openapi.yaml) で確認した仕様**:
+- `GetJournalsResponse`: `{metadata:{total_count, total_pages}, journals:[JournalItem]}`。
+  `JournalItem.branches[]`は`{remark, creditor:JournalLineDetails, debitor:JournalLineDetails}`の配列で、
+  各`JournalLineDetails.value`が金額(integer)。1仕訳の金額は「各branchのdebitor.valueの合計」として算出
+  （貸借は各branch内で同額のためdebitor側のみ合計すれば仕訳合計に一致する）。
+- ページネーションは`page`(1始まり)/`per_page`(最大10000, デフォルト10)のクエリパラメータ方式。
+  `metadata.total_pages`が尽きるまでページを進める（`match.js`では`per_page=200`で実装）。
+- `JournalItem.voucher_file_ids`は文字列配列（file_idの配列。`{file_name,file_id}`オブジェクトではない点に注意。
+  これは`PostVouchersResponse.voucher_file_ids`との違い）。
+
+**マッチング判定ロジック（`api/mf/match.js`）**:
+1. `mf_evidence`から`status='box_saved'` かつ `storage_path is not null`の行を取得
+2. 対象証憑群の`ocr_date`最小〜最大の前後±3日で`GET /api/v3/journals`をページ送りしながら全件取得
+3. 各証憑について`transaction_date`一致 かつ 仕訳金額一致（除外条件: `voucher_file_ids`が5件以上、
+   または既に同一`mf_file_id`を含む）で候補仕訳を絞り込み
+4. 候補ちょうど1件→Storageからファイル取得しbase64化→`postVoucher()`で添付→
+   `mf_evidence`を`status='attached', journal_id, mf_file_id`に更新。複数→ambiguousとして返却
+   （候補一覧の日付/金額/摘要を添える）。0件→unmatched。
+5. 同一実行内で二重添付を避けるため、添付が決まった仕訳の`voucher_file_ids`をメモリ上でのみ
+   マーカー追加し、後続証憑の候補判定から除外する簡易ガードを入れている。
+
+**node --check結果**: `api/mf/vouchers.js` / `api/mf/match.js` / `pages/mf-evidence.js` すべてOK。
+
+**判断が必要だった点・実装できなかった点**:
+- MF会計APIには「Box内の既存ファイルを後から仕訳に紐づける」専用APIが存在しないため、
+  マッチング添付は指示どおりStorageに控えたファイル本体を`POST /api/v3/vouchers`で再送する方式とした
+  （Box上には同じファイルが二重に残る形になるが、MF側の仕様上これ以外の方法がない）。
+- 自動マッチング中に同一仕訳へ複数証憑が同時にマッチしてしまうケース（同日・同額の証憑が複数ある場合）は、
+  実行順に処理し先に添付が決まった証憑をメモリ上でのみ仕訳の`voucher_file_ids`に反映して以降の判定から
+  除外しているが、これは同一リクエスト内のみのガードであり、次回実行時にMF側の実データで
+  `voucher_file_ids`が更新されている前提に依存する。極端に大量の同額同日証憑がある場合は
+  ambiguous判定で人手確認に回る設計とした。
+- ローカルにMF/Supabase実認証情報がなく、`vercel dev`等での実機E2E確認は未実施
+  （静的ファイルサーバーのプレビューのみで、`/api/mf/*`は未検証。デプロイ後の実機確認が必要）。
+
+---
+
+## 2026-07-03 — OpenAI OCR呼び出しをサーバー経由プロキシへ移行（APIキーのブラウザ露出を解消）
+
+**背景**: ブラウザ側JSがOpenAI APIキーを `localStorage`（`ribre_openai_key200`）に平文保存し、
+`https://api.openai.com` を直接叩いていたため、開発者ツール/ネットワークタブでAPIキーが丸見えだった。
+Vercel Serverless Functions経由に変更し、キーはサーバー側環境変数のみで保持するようにした。
+
+**追加ファイル**:
+- `api/openai/responses.js`（92行）— `POST /api/openai/responses`。ブラウザのリクエストボディをほぼそのまま
+  `https://api.openai.com/v1/responses` へ転送。`Authorization`はサーバー側で付与。10MB超は413、
+  `OPENAI_API_KEY`未設定は500 `{error:'server_not_configured'}`。
+- `api/openai/files.js`（103行）— `POST /api/openai/files`。`{purpose, file_name, file_data(base64), content_type}`
+  を受け取り、Node18標準の`FormData`/`Blob`で`multipart/form-data`に組み立てて
+  `https://api.openai.com/v1/files`へ転送（追加パッケージなし）。
+- `docs/OPENAI_SETUP.md`（27行）— `OPENAI_API_KEY`環境変数の設定手順・未設定時の挙動・動作確認手順。
+
+**変更ファイル**:
+- `pages/mf-evidence.js` `mfRunOcr()` — APIキーのlocalStorage参照・未設定チェックを削除し、
+  `fetch('/api/openai/responses', {headers:{'Content-Type':'application/json'}})` に変更。
+  `server_not_configured`時は「OCR機能が利用できません（管理者に連絡してください）」を表示。
+- `pages/ocr-engine.js` `ver500OpenAiAnalyze()` — 同様にAPIキー取得処理を削除し `/api/openai/responses` 経由に変更。
+- `services/openai-ocr.js` `uploadOpenAIFile()` — 引数から `key` を削除。データURLから取得したBlobを
+  base64化して `/api/openai/files` にJSON POSTする形に変更（署名変更のため呼び出し元 `runOcr()` も追随）。
+- `services/openai-ocr.js` `runOcr()` — APIキー未設定チェックを削除、`/api/openai/responses` 経由に変更。
+- `index.html` — 設定画面のOpenAI APIキー入力欄・保存ボタンを削除し、
+  「OpenAI APIキーはサーバー側で管理されています（設定不要）」という説明文に置き換え。
+- `pages/settings.js` / `services/app-main-v2.js` — 重複定義されていた `saveOpenAI()` を両方とも削除
+  （`app-main-v2.js`側は `window.saveOpenAI` エクスポートは元々無し、`settings.js`側のエクスポートも削除）。
+  `app-main-v2.js` の `refreshTop()` 内のAPIキー保存有無ステータス表示を、
+  サーバー管理前提の固定文言「サーバー管理」に変更。
+- `services/core.js` — `LS.openai` 定数は既存参照コードとの互換のため削除せず維持（新規保存は行わない）。
+
+**確認**: `grep -rn "api.openai.com" pages/ services/` は0件（プロキシ側の `api/openai/*.js` のみに残存）。
+`node --check` は変更・新規作成した全JSファイルで成功。
+
+**判断が必要だった点**:
+- `uploadOpenAIFile()` は元々ブラウザで直接blobをFormData化していたため、プロキシ越しにするには
+  一度base64化してJSONで送る形に変える必要があった（サーバー側 `api/openai/files.js` で再度Blob化）。
+  既存のOCRプロンプト・レスポンス解析ロジックには手を入れていない。
+- `OPENAI_API_KEY` 未設定時のエラーメッセージ文言は、指示にあった
+  「OCR機能が利用できません（管理者に連絡してください）」をそのまま採用。
+
+**環境変数**（未設定・要Vercel側で追加）: `OPENAI_API_KEY`
+
+---
+
+## 2026-07-03 — マネーフォワード会計API連携 バックエンド実装
+
+**背景**: 別セッションで先行実装されたフロントエンド（`mf-evidence.html` / `pages/mf-evidence.js`）が
+呼び出す `/api/mf/*` エンドポイントとSupabaseテーブルが未実装だったため、Vercel Serverless Functionsとして実装。
+
+**追加ファイル**:
+- `api/mf/_lib/mf-client.js`（181行）— 共通クライアント。Supabase `mf_tokens`（id=1固定1行）でトークン管理、
+  5分以内期限切れならrefresh_tokenで自動更新、authorization code⇔token交換、証憑POST処理。
+- `api/mf/status.js`（16行）— `GET /api/mf/status`。`{connected: boolean}`を返す。
+- `api/mf/auth/start.js`（26行）— `GET /api/mf/auth/start`。MF認可URLを`{url}`で返す（state検証は未実装、コメントで明示）。
+- `api/mf/auth/callback.js`（33行）— `GET /api/mf/auth/callback?code=`。トークン交換しmf_tokensへ保存、
+  `/mf-evidence.html?connected=1`（失敗時`?mf_error=token_exchange_failed`）へ302リダイレクト。
+- `api/mf/vouchers.js`（155行）— `POST /api/mf/vouchers`。file_data必須・base64デコード後5MB以下・
+  file_name 255文字以下を検証→MF証憑API送信→成否をSupabase `mf_evidence`へINSERT。
+- `supabase_mf_evidence.sql`（65行）— `mf_tokens`（RLS有効・ポリシー無し=service roleのみ）、
+  `mf_evidence`（認証済みユーザーselect/insert可、status check制約）。
+- `docs/MF_SETUP.md`（48行）— MFアプリポータル登録手順・Vercel環境変数・SQL適用・接続テスト手順。
+
+**変更ファイル**:
+- `vercel.json` — 既存の `routes` はcatch-all `{"src":"/(.*)","dest":"/$1"}` のみで
+  `"handle":"filesystem"` フェーズが無く、新設した `api/mf/*` サーバーレス関数がfilesystem/function解決より先に
+  catch-allに飲まれる懸念があったため、`{ "src": "/", "dest": "/index.html" }` の直後に
+  `{ "handle": "filesystem" }` を追加した。既存のSPAフォールバック（catch-all）自体はそのまま維持。
+
+**確認したMF OAuthエンドポイント**: WebFetchで開発者ポータル（developers.biz.moneyforward.com配下）の
+authorize/tokenの具体URLを直接確認できなかったため、`api/mf/_lib/mf-client.js` 内に暫定値
+（`https://api.biz.moneyforward.com/authorize`, `.../token`）をTODOコメント付きで定数化した。
+本番接続前に公式ドキュメントでの再確認が必要。証憑APIのベースURL
+`https://api-accounting.moneyforward.com` はopenapi.yamlのserversセクションで確認済み。
+
+**環境変数**（未設定・要Vercel側で追加）: `MF_CLIENT_ID`, `MF_CLIENT_SECRET`, `MF_REDIRECT_URI`,
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+
+**未実施**: `supabase_mf_evidence.sql`の実適用、Vercel環境変数設定、実機での接続テスト、デプロイ。
+
+---
+
+## 2026-07-03 — マネーフォワード証憑インボックス新規ページ追加
+
+**背景/依頼元**: 別セッション（auction_tool_v138側）から、ribre-sales-system に対して
+「マネーフォワード証憑インボックス」ページの実装を依頼された。バックエンド（/api/mf/* エンドポイント、
+Supabase mf_evidence テーブル）は別エージェントが並行実装中という前提で、フロントエンドのみ担当。
+
+**追加ファイル**:
+- `mf-evidence.html` — 独立ページ。ヘッダーにMF接続ステータス、貼り付け/D&Dゾーン、OCRプレビュー編集フォーム、台帳リストを配置。
+  既存の signIn()/signOut()/auth-gate.js が参照する非表示の `#email`/`#password`/`#role`/`#settingsList` を用意し、
+  index.html を経由しない単独ページでも共通ログイン処理がエラーなく動くようにした。
+- `pages/mf-evidence.js` — ページ本体ロジック（貼り付け/D&D受付、5MB・PNG/JPG/PDF制限、OpenAI OCR呼び出し、
+  ファイル名自動生成、重複警告、`/api/mf/vouchers` `/api/mf/status` `/api/mf/auth/start` 呼び出し、台帳一覧描画、トースト通知）。
+- `styles/mf-evidence.css` — ドロップゾーン・台帳行・ステータスバッジ・トーストの専用スタイル。
+
+**変更ファイル**: なし（index.html・vercel.json・既存servicesは未変更、読み取りのみ）
+
+**流用した既存関数**:
+- `services/core.js`: `escHtml`, `sb`, `sess`, `email`, `LS`, `today`, `num`, `yen`, `renderList`, `safeLevel`
+- `services/supabase-rest.js`: `restUrl`, `restHeaders`（mf_evidence テーブルへの直接REST読み取りに流用）
+- `services/openai-ocr.js`: `window.ribreOptimizeOcrImage`, `window.ribreExtractOcrJson`, `window.ribreNormalizeOcrSchema`
+- `services/auth-gate.js`: そのまま読み込み、ログインオーバーレイをこのページにも適用
+
+**判断した点**:
+- `services/app-main-v2.js` と `pages/app-simple.js` は `window.addEventListener('load', ...)` 内で
+  index.html 固有のDOM要素（`#sbUrl` 等）を無条件参照しており、mf-evidence.html にそのまま読み込むと
+  ロード時にJSエラーになるため、あえて読み込み対象から除外した（Googleログインボタンは
+  `smpGoogleLogin` 未定義時のフォールバックメッセージが auth-gate.js 側に既にあるため問題なし）。
+- PDFファイルはOCR時に画像として最適化できないため、`ribreOptimizeOcrImage` をスキップし
+  dataURLをそのまま画像入力としてOpenAIへ渡す実装とした（失敗時は手入力にフォールバック）。
+
+**影響/前提**: バックエンドAPI（/api/mf/status, /api/mf/auth/start, /api/mf/vouchers）と
+Supabaseテーブル mf_evidence が存在しない間はエラー表示（トースト/ステータス欄）にフォールバックする。
+デプロイ・実機確認は未実施（バックエンド実装完了後に要確認）。
+
+### 2026-07-03 追記（レビュー修正）
+- `pages/mf-evidence.js`: `refreshAll()` 互換スタブを追加（supabase-auth.js の `signIn`/`signOut` が
+  `refreshAll()` を呼ぶため、未定義だとゲートからのメールログインが成功してもエラー扱いになる不具合を修正）
+- `mf-evidence.html`: 隠し要素 `#settingsList` を追加（`signIn` が `renderList('settingsList')` を呼ぶため必須）
+- `styles/mf-evidence.css`: トースト（.mf-toast / .ok / .error）スタイルを追加
+- `node --check pages/mf-evidence.js` → OK
+
+## 2026-07-03 レビュー修正（Fable 5 / コーディネータ）
+- api/mf/vouchers.js: MFレスポンスの mf_file_id 抽出を修正（誤: mfResult.id / voucher_files[0].id → 正: voucher_file_ids[0].file_id、openapi.yaml PostVouchersResponse準拠）
+- api/mf/_lib/mf-client.js: OAuth authorize/token URLのTODOコメントを確定値に更新（openapi.yaml securitySchemesで裏取り）
+
+## 2026-07-03 相互リンク追加
+- index.html: かんたんモード下部ナビに6個目「🧾証憑」を追加（/mf-evidence へ遷移、grid列数5→6）
+- mf-evidence.html: ヘッダーに「← 売上管理へ」リンクを追加
+
+## 2026-07-04 便利機能①〜⑤実装（Phase4）
+- api/mf/_lib/mf-match-core.js: match.jsのマッチングコアを共通化＋摘要第二キー(NFKC正規化・部分一致で1件に絞れたら自動添付 via:'vendor')。取引先名はbranches[].debitor/creditor.trade_partner_nameからも取得
+- api/mf/auto-match.js: 毎朝JST7時のcron自動マッチング(vercel.json crons追加)。結果があるときだけSlack通知
+- api/mf/monthly-report.js: Chatwork送信対応(CHATWORK_API_TOKEN/CHATWORK_ROOM_ID)、?target=slack|chatwork|all
+- supabase_mf_phase4.sql: box_meta_doneカラム＋authenticated update policy
+- mf-evidence.html/js/css: 📷撮影ボタン、台帳フィルタ(月/検索/状態/Box入力待ち)、Box入力チェック列、クラウドBoxリンク、Chatworkテストボタン

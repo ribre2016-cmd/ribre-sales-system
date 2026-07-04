@@ -21,39 +21,7 @@ async function checkSupabase() {
     }
   ]);
 }
-function saveOpenAI() {
-  const k = document.getElementById('openaiKey').value.trim();
-  if (!k) {
-    alert('APIキーを入れてください');
-    return;
-  }
-  let compacted = false;
-  try {
-    localStorage.setItem(LS.openai, k);
-    localStorage.setItem('ribre_openai_key180', k);
-  } catch (e) {
-    if (!(e && e.name === 'QuotaExceededError')) throw e;
-    localStorage.removeItem('ribre_ai_auto_candidates500');
-    compacted = true;
-    try {
-      localStorage.setItem(LS.openai, k);
-      localStorage.setItem('ribre_openai_key180', k);
-    } catch (e2) {
-      renderList('settingsList', [{ type: '容量', level: 'warn', msg: '保存容量がいっぱいです。古い候補を削除しました' }]);
-      throw e2;
-    }
-  }
-  document.getElementById('openaiKey').value = '';
-  refreshAll();
-  if (compacted) {
-    renderList('settingsList', [
-      { type: '容量', level: 'warn', msg: '保存容量がいっぱいです。古い候補を削除しました' },
-      { type: 'OK', msg: 'OpenAI APIキーを保存しました' }
-    ]);
-    return;
-  }
-  renderList('settingsList', [{ type: 'OK', msg: 'OpenAI APIキーを保存しました' }]);
-}
+/* OpenAI APIキーはサーバー側(環境変数)で管理するため、保存処理は廃止（services/openai-ocr.js 等はサーバー経由のプロキシAPIを利用） */
 
 /* signUp / signIn / signOut は services/supabase-auth.js に一本化（重複定義を削除） */
 
@@ -652,7 +620,6 @@ window.addEventListener('load', () => {
 
 window.saveSupabase = saveSupabase;
 window.checkSupabase = checkSupabase;
-window.saveOpenAI = saveOpenAI;
 window.signUp = signUp;
 window.signIn = signIn;
 window.signOut = signOut;

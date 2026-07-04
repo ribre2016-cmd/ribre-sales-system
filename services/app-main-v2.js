@@ -71,10 +71,8 @@ function refreshTop() {
   document.getElementById('loginStatus').textContent = email() ? 'ログイン中' : '未ログイン';
   document.getElementById('cloudUser').textContent = email() || '未ログイン';
   document.getElementById('sbStatus').textContent = sb().url ? '設定済' : '未設定';
-  document.getElementById('openaiStatus').textContent =
-    localStorage.getItem(LS.openai) || localStorage.getItem('ribre_openai_key180')
-      ? '保存済'
-      : '未設定';
+  // OpenAI APIキーはサーバー側(環境変数)で管理するためクライアントでは常に「サーバー管理」表示
+  document.getElementById('openaiStatus').textContent = 'サーバー管理';
 }
 function refreshAll() {
   refreshTop();
@@ -149,18 +147,7 @@ async function checkSupabase() {
     }
   ]);
 }
-function saveOpenAI() {
-  const k = document.getElementById('openaiKey').value.trim();
-  if (!k) {
-    alert('APIキーを入れてください');
-    return;
-  }
-  localStorage.setItem(LS.openai, k);
-  localStorage.setItem('ribre_openai_key180', k);
-  document.getElementById('openaiKey').value = '';
-  refreshAll();
-  renderList('settingsList', [{ type: 'OK', msg: 'OpenAI APIキーを保存しました' }]);
-}
+/* OpenAI APIキーはサーバー側(環境変数)で管理するため、保存処理は廃止 */
 function renderSales() {
   const vm = _vmMonth();
   const allSales = sales();

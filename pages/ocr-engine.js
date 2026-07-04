@@ -1,8 +1,5 @@
 /* RIBRE OCR [??] engine: OpenAI??????????/?? */
 async function ver500OpenAiAnalyze(inputText, imageDataUrl) {
-  const key = localStorage.getItem('ribre_openai_key200') || localStorage.getItem('ribre_openai_key180') || '';
-  if (!key) return null;
-
   const prompt =
     'あなたは日本の売上管理OCRです。必ずJSONのみ返すこと。説明文は禁止。推測は禁止。存在しない値は null。' +
     '日本のEC/配送/買取伝票を想定し、documentType/category/sourceTypeを推定してください。不明時は unknown。documentType を必ず推定してください。' +
@@ -26,13 +23,16 @@ async function ver500OpenAiAnalyze(inputText, imageDataUrl) {
   }
 
   try {
-    const res = await fetch('https://api.openai.com/v1/responses', {
+    const res = await fetch('/api/openai/responses', {
       method: 'POST',
-      headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sess().access_token || '') },
       body: JSON.stringify({ model: 'gpt-4.1-mini', input, temperature: 0 })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error((data.error && data.error.message) || JSON.stringify(data));
+    if (!res.ok) {
+      if (data && data.error === 'server_not_configured') throw new Error('OCR機能が利用できません（管理者に連絡してください）');
+      throw new Error((data.error && data.error.message) || data.error || JSON.stringify(data));
+    }
     let out = data.output_text || '';
     if (!out && data.output)
       out = data.output

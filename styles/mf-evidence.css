@@ -1,0 +1,99 @@
+/* MF証憑インボックス 専用スタイル */
+.mf-dropzone {
+  border: 2px dashed #93c5fd;
+  border-radius: 16px;
+  background: #f8fbff;
+  padding: 36px 18px;
+  text-align: center;
+  color: #475569;
+  font-weight: 700;
+  transition: all .15s ease;
+}
+.mf-dropzone.drag-over {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.mf-ledger-row {
+  display: grid;
+  grid-template-columns: 100px 1fr 110px 1fr 90px 150px 90px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px dashed #e2e8f0;
+  font-size: 13px;
+}
+.mf-ledger-head {
+  font-weight: 900;
+  color: #64748b;
+  background: #f8fafc;
+  font-size: 12px;
+}
+.mf-status-badge {
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+  text-align: center;
+}
+.mf-status-pending { background: #f1f5f9; color: #475569; }
+.mf-status-box_saved { background: #dbeafe; color: #1d4ed8; }
+.mf-status-attached { background: #dcfce7; color: #166534; }
+.mf-status-failed { background: #fef2f2; color: #991b1b; }
+.mf-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 2147483000;
+  background: #0f172a;
+  color: #fff;
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .25);
+  max-width: 90vw;
+}
+.mf-toast.error { background: #b91c1c; }
+.mf-toast.ok { background: #166534; }
+#mfPreviewThumb img {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+.mf-meter-wrap {
+  width: 100%;
+  height: 16px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.mf-meter-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  transition: width .2s ease, background .2s ease;
+}
+.mf-missing-table {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+.mf-missing-row {
+  display: grid;
+  grid-template-columns: 110px 100px 110px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px dashed #e2e8f0;
+  font-size: 13px;
+  min-width: 480px;
+}
+.mf-missing-head {
+  font-weight: 900;
+  color: #64748b;
+  background: #f8fafc;
+  font-size: 12px;
+}

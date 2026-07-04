@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>MF証憑インボックス</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/mobile.css">
+<link rel="stylesheet" href="styles/mf-evidence.css">
+</head>
+<body>
+<!-- auth-gate.js/signIn()が参照する共通ログインフォーム要素（非表示・値はゲートのフォームから転記） -->
+<input id="email" type="email" style="display:none">
+<input id="password" type="password" style="display:none">
+<select id="role" style="display:none"><option value="staff">スタッフ</option><option value="admin">管理者</option><option value="viewer">閲覧のみ</option></select>
+<div id="settingsList" style="display:none"></div>
+<header>
+  <h1>MF証憑インボックス</h1>
+  <div id="mfConnBox" style="display:flex;align-items:center;gap:10px">
+    <a href="/" style="color:#fff;font-size:13px;font-weight:700;text-decoration:underline;white-space:nowrap">← 売上管理へ</a>
+    <span id="mfConnLabel" class="badge">MF連携: 確認中...</span>
+    <button id="mfConnBtn" class="secondary" style="display:none" onclick="mfConnect()">MFと接続</button>
+  </div>
+</header>
+<main>
+  <div class="panel">
+    <h2>証憑を貼り付け・ドロップ</h2>
+    <div class="safe-hint ok">画面のどこでも <b>Ctrl+V</b> で貼り付け、またはファイルをドラッグ＆ドロップできます（PNG/JPG/PDF、5MBまで）</div>
+    <div id="mfDropZone" class="mf-dropzone">
+      <div>ここにドラッグ＆ドロップ</div>
+      <div style="margin:8px 0;color:#94a3b8;font-weight:700">または</div>
+      <button type="button" onclick="document.getElementById('mfFileInput').click()">ファイルを選択</button>
+      <button type="button" onclick="document.getElementById('mfCameraInput').click()">📷 撮影して登録</button>
+      <input id="mfFileInput" type="file" accept="image/png,image/jpeg,application/pdf" style="display:none" onchange="mfHandleFileInput(event)">
+      <input id="mfCameraInput" type="file" accept="image/*" capture="environment" style="display:none" onchange="mfHandleFileInput(event)">
+    </div>
+  </div>
+
+  <div id="mfPreviewPanel" class="panel" style="display:none">
+    <h2>OCRプレビュー・編集</h2>
+    <div class="controls">
+      <div class="card" style="min-width:220px">
+        <div class="label">プレビュー</div>
+        <div id="mfPreviewThumb" style="margin-top:8px"></div>
+      </div>
+      <div style="flex:1;min-width:260px">
+        <div class="controls">
+          <label>取引日<br><input id="mfDate" type="date"></label>
+          <label>金額<br><input id="mfAmount" type="number" placeholder="金額"></label>
+          <label>取引先<br><input id="mfVendor" type="text" placeholder="取引先名"></label>
+        </div>
+        <div class="controls">
+          <label style="flex:1">ファイル名<br><input id="mfFileName" type="text" style="width:100%"></label>
+        </div>
+        <div id="mfOcrStatus" class="list" style="max-height:120px"></div>
+        <div class="controls">
+          <button id="mfSendBtn" class="green" onclick="mfSendToMf()">MFへ送信</button>
+          <button class="secondary" onclick="mfResetForm()">キャンセル</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>仕訳マッチング</h2>
+    <div class="safe-hint ok">登録済みのMF仕訳と証憑を自動で照合し、一致すればそのまま添付します（日付・金額が完全一致かつ候補が1件の場合のみ）</div>
+    <div class="controls">
+      <button id="mfMatchBtn" class="green" onclick="mfRunMatch()">マッチング実行</button>
+    </div>
+    <div id="mfMatchSummary" class="list"></div>
+    <div id="mfMatchAmbiguous"></div>
+  </div>
+
+  <div class="panel">
+    <h2>証憑カバー率</h2>
+    <div class="controls">
+      <label>対象月<br><input id="mfCoverageMonth" type="month"></label>
+      <button id="mfCoverageBtn" class="green" onclick="mfRunCoverage()">集計</button>
+      <button id="mfSlackTestBtn" class="secondary" onclick="mfSendSlackTest()">Slackへ送信テスト</button>
+      <button id="mfChatworkTestBtn" class="secondary" onclick="mfSendChatworkTest()">Chatworkへ送信テスト</button>
+    </div>
+    <div id="mfCoverageSummary" class="list"></div>
+    <div id="mfCoverageMeterWrap" class="mf-meter-wrap" style="display:none">
+      <div id="mfCoverageMeterBar" class="mf-meter-bar"></div>
+    </div>
+    <div id="mfCoverageMissingTitle" style="display:none;font-weight:900;margin-top:12px">証憑なしの仕訳</div>
+    <div id="mfCoverageMissingList" class="mf-missing-table"></div>
+  </div>
+
+  <div class="panel">
+    <h2>台帳リスト</h2>
+    <div class="controls">
+      <button class="secondary" onclick="mfLoadLedger()">再読込</button>
+      <a href="https://box.moneyforward.com/" target="_blank" rel="noopener">クラウドBoxを開く</a>
+    </div>
+    <div class="controls">
+      <label>月<br><input id="mfFilterMonth" type="month"></label>
+      <label style="flex:1">検索（取引先/ファイル名）<br><input id="mfFilterKeyword" type="text" style="width:100%"></label>
+      <label>状態<br>
+        <select id="mfFilterStatus">
+          <option value="">全て</option>
+          <option value="pending">送信前</option>
+          <option value="box_saved">Box保存済</option>
+          <option value="attached">仕訳添付済</option>
+          <option value="failed">失敗</option>
+        </select>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;white-space:nowrap"><input id="mfFilterBoxTodo" type="checkbox"> Box入力待ちのみ</label>
+      <button class="green" onclick="mfLoadLedger()">絞り込み</button>
+    </div>
+    <div class="safe-hint ok">Box入力 = MFのBox画面で取引日・取引先・金額を入力済みにしたらチェック（電帳法要件の管理用）</div>
+    <div id="mfLedgerList" class="list"></div>
+  </div>
+</main>
+
+<script src="services/core.js"></script>
+<script src="services/supabase-rest.js"></script>
+<script src="services/supabase-auth.js"></script>
+<script src="services/openai-ocr.js"></script>
+<script src="services/auth-gate.js"></script>
+<script src="pages/mf-evidence.js"></script>
+</body>
+</html>

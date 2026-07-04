@@ -639,7 +639,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
 .smp-action-emoji { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px; border-radius: 10px; background: #eff6ff; color: #2563eb; }
 .smp-action-emoji .ui-icon { width: 20px; height: 20px; }
 /* === ボトムナビ === */
-.smp-bottomnav { background: #fff; border-top: 1px solid #e5e7eb; display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px 0 8px; flex-shrink: 0; }
+.smp-bottomnav { background: #fff; border-top: 1px solid #e5e7eb; display: grid; grid-template-columns: repeat(6, 1fr); padding: 6px 0 8px; flex-shrink: 0; }
 .smp-nav-item { text-align: center; cursor: pointer; color: #94a3b8; font-size: 10px; font-weight: 700; padding: 4px 0; }
 .smp-nav-ico { display: flex; justify-content: center; margin-bottom: 3px; opacity: .72; color: #64748b; }
 .smp-nav-ico .ui-icon { width: 19px; height: 19px; }
@@ -1402,6 +1402,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
     <div class="smp-nav-item"                data-nav="manual"  onclick="simpleTab('manual')"><span class="smp-nav-ico">✍️</span>手入力</div>
     <div class="smp-nav-item"                data-nav="summary" onclick="simpleTab('summary')"><span class="smp-nav-ico">📊</span>集計</div>
     <div class="smp-nav-item"                data-nav="profit"  onclick="simpleTab('profit')"><span class="smp-nav-ico">💹</span>粗利</div>
+    <div class="smp-nav-item"                data-nav="mfevidence" onclick="location.href='/mf-evidence'"><span class="smp-nav-ico">🧾</span>証憑</div>
   </nav>
 </div>
 
@@ -1587,8 +1588,7 @@ body.simple-mode.smp-summary-wide .smp-content { max-width: 1120px; }
       <button class="secondary" onclick="signOut()">ログアウト</button>
     </div>
     <div class="controls">
-      <input id="openaiKey" type="password" placeholder="OpenAI APIキー">
-      <button onclick="saveOpenAI()">OpenAI APIキー保存</button>
+      <span style="font-size:12px;color:#64748b">OpenAI APIキーはサーバー側で管理されています（設定不要）</span>
     </div>
     <div class="grid">
       <div class="card"><div class="label">Supabase</div><div id="sbStatus" class="value">未設定</div></div>

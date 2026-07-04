@@ -521,20 +521,38 @@ function ribreNormalizeOcrSchema(obj) {
   };
   return ribreApplyDocumentProfile(result);
 }
-async function uploadOpenAIFile(key, ev) {
+function ribreBlobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const result = String(r.result || '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    r.onerror = () => reject(new Error('ファイル読込に失敗しました'));
+    r.readAsDataURL(blob);
+  });
+}
+async function uploadOpenAIFile(ev) {
   const srcUrl = ev.dataUrl || ev.evidence_url || (ev.id && ocrEvidenceCache()[ev.id]) || '';
   if (!srcUrl) throw new Error('証憑データが見つかりません。再登録してください');
   const blob = await (await fetch(srcUrl)).blob();
-  const fd = new FormData();
-  fd.append('purpose', 'user_data');
-  fd.append('file', blob, ev.fileName);
-  const res = await fetch('https://api.openai.com/v1/files', {
+  const base64 = await ribreBlobToBase64(blob);
+  const res = await fetch('/api/openai/files', {
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + key },
-    body: fd
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sess().access_token || '') },
+    body: JSON.stringify({
+      purpose: 'user_data',
+      file_name: ev.fileName,
+      content_type: blob.type || ev.mime || 'application/octet-stream',
+      file_data: base64
+    })
   });
   const d = await res.json();
-  if (!res.ok) throw new Error((d.error && d.error.message) || JSON.stringify(d));
+  if (!res.ok) {
+    if (d && d.error === 'server_not_configured') throw new Error('OCR機能が利用できません（管理者に連絡してください）');
+    throw new Error((d.error && d.error.message) || d.error || JSON.stringify(d));
+  }
   return d.id;
 }
 function extractJson(text) {
@@ -548,12 +566,7 @@ function extractJson(text) {
   return null;
 }
 async function runOcr() {
-  const key = localStorage.getItem(LS.openai) || localStorage.getItem('ribre_openai_key180') || '';
   const ev = evidences()[0];
-  if (!key) {
-    alert('OpenAI APIキーを保存');
-    return;
-  }
   if (!ev) {
     alert('証憑登録してください');
     return;
@@ -617,7 +630,7 @@ async function runOcr() {
         temperature: 0
       };
     } else {
-      const fileId = await uploadOpenAIFile(key, ev);
+      const fileId = await uploadOpenAIFile(ev);
       body = {
         model: 'gpt-4.1-mini',
         input: [
@@ -632,13 +645,16 @@ async function runOcr() {
         temperature: 0
       };
     }
-    const res = await fetch('https://api.openai.com/v1/responses', {
+    const res = await fetch('/api/openai/responses', {
       method: 'POST',
-      headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sess().access_token || '') },
       body: JSON.stringify(body)
     });
     const d = await res.json();
-    if (!res.ok) throw new Error((d.error && d.error.message) || JSON.stringify(d));
+    if (!res.ok) {
+      if (d && d.error === 'server_not_configured') throw new Error('OCR機能が利用できません（管理者に連絡してください）');
+      throw new Error((d.error && d.error.message) || d.error || JSON.stringify(d));
+    }
     let text = d.output_text || '';
     if (!text && d.output)
       text = d.output
