@@ -21,9 +21,23 @@ const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'application/pdf'];
 const MF_STORAGE_BUCKET = 'mf-evidence';
 
 // pages/mf-evidence.js の mfRunOcr() と同一仕様のプロンプト・schema
-const OCR_PROMPT =
-  'あなたは日本の証憑OCRです。必ずJSONのみ返してください。説明文は禁止。推測は禁止。存在しない値は null。' +
-  '出力schemaは次のみ: {"date":"","amount":0,"storeName":""}';
+function buildOcrPrompt() {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  return (
+    'あなたは日本の証憑OCRです。必ずJSONのみ返してください。説明文は禁止。推測は禁止。存在しない値は null。' +
+    '出力schemaは次のみ: {"date":"","amount":0,"storeName":""}。' +
+    'dateは西暦YYYY-MM-DD形式。年が2桁表記(例: 26.7.3、26/07/03)の場合は「20」を付けて2026年のように解釈する（平成・昭和とみなさない）。' +
+    '「令和」「平成」の元号表記が明記されている場合のみ和暦として西暦に変換する。参考: 今日は' + todayStr + '。'
+  );
+}
+
+// あり得ない年（大昔・未来）は誤読とみなしてnullにする（2桁年の元号誤解釈など）
+function sanitizeOcrDate(date) {
+  if (!date) return null;
+  const y = Number(String(date).slice(0, 4));
+  const nowY = new Date().getFullYear();
+  return y >= nowY - 1 && y <= nowY + 1 ? date : null;
+}
 
 function supabaseHeaders() {
   return {
@@ -156,13 +170,13 @@ async function runOcr({ decodedBytes, contentType, fileName }) {
     if (contentType.startsWith('image/')) {
       const dataUrl = `data:${contentType};base64,${decodedBytes.toString('base64')}`;
       content = [
-        { type: 'input_text', text: OCR_PROMPT },
+        { type: 'input_text', text: buildOcrPrompt() },
         { type: 'input_image', image_url: dataUrl },
       ];
     } else {
       const fileId = await uploadOpenAiFile({ decodedBytes, fileName, contentType });
       content = [
-        { type: 'input_text', text: OCR_PROMPT },
+        { type: 'input_text', text: buildOcrPrompt() },
         { type: 'input_file', file_id: fileId },
       ];
     }
@@ -190,7 +204,7 @@ async function runOcr({ decodedBytes, contentType, fileName }) {
     }
     const parsed = extractOcrJson(text);
     return {
-      date: parsed.date || null,
+      date: sanitizeOcrDate(parsed.date),
       amount: parsed.amount || null,
       storeName: parsed.storeName || null,
     };

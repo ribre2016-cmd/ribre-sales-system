@@ -145,7 +145,9 @@ async function mfRunOcr() {
   try {
     const prompt =
       'あなたは日本の証憑OCRです。必ずJSONのみ返してください。説明文は禁止。推測は禁止。存在しない値は null。' +
-      '出力schemaは次のみ: {"date":"","amount":0,"storeName":""}';
+      '出力schemaは次のみ: {"date":"","amount":0,"storeName":""}。' +
+      'dateは西暦YYYY-MM-DD形式。年が2桁表記(例: 26.7.3、26/07/03)の場合は「20」を付けて2026年のように解釈する（平成・昭和とみなさない）。' +
+      '「令和」「平成」の元号表記が明記されている場合のみ和暦として西暦に変換する。参考: 今日は' + today() + '。';
     let content;
     if (mfCurrentFile.mime.startsWith('image/') && typeof window.ribreOptimizeOcrImage === 'function') {
       const optimized = await window.ribreOptimizeOcrImage(mfCurrentFile.dataUrl);
@@ -189,6 +191,12 @@ async function mfRunOcr() {
     const parsed = typeof window.ribreExtractOcrJson === 'function' ? window.ribreExtractOcrJson(text) : null;
     if (!parsed) throw new Error('OCR結果の解析に失敗しました');
     const norm = typeof window.ribreNormalizeOcrSchema === 'function' ? window.ribreNormalizeOcrSchema(parsed) : parsed;
+    // あり得ない年（大昔・未来）は誤読とみなして空欄にする（2桁年の元号誤解釈など）
+    if (norm.date) {
+      const y = Number(String(norm.date).slice(0, 4));
+      const nowY = new Date().getFullYear();
+      if (!(y >= nowY - 1 && y <= nowY + 1)) norm.date = '';
+    }
     // 日付が読めなかったときに今日の日付で埋めない（気づかず誤登録するのを防ぐ）
     document.getElementById('mfDate').value = norm.date || '';
     document.getElementById('mfAmount').value = norm.amount || '';
