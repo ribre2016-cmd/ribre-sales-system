@@ -452,10 +452,10 @@ async function mfToggleBoxMetaDone(id, checkboxEl) {
 async function mfResendEvidence(evidenceId, btnEl) {
   if (btnEl) btnEl.disabled = true;
   try {
-    const res = await fetch('/api/mf/resend', {
+    const res = await fetch('/api/mf/evidence-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sess().access_token || '') },
-      body: JSON.stringify({ evidence_id: evidenceId })
+      body: JSON.stringify({ action: 'resend', evidence_id: evidenceId })
     });
     const d = await res.json().catch(() => ({}));
     if (!res.ok || !d.ok) {
@@ -474,10 +474,10 @@ async function mfDeleteEvidence(evidenceId, fileName, btnEl) {
   if (!confirm('「' + (fileName || evidenceId) + '」を削除しますか？（MFには送信されません）')) return;
   if (btnEl) btnEl.disabled = true;
   try {
-    const res = await fetch('/api/mf/evidence-delete', {
+    const res = await fetch('/api/mf/evidence-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sess().access_token || '') },
-      body: JSON.stringify({ evidence_id: evidenceId })
+      body: JSON.stringify({ action: 'delete', evidence_id: evidenceId })
     });
     const d = await res.json().catch(() => ({}));
     if (!res.ok || !d.ok) {
