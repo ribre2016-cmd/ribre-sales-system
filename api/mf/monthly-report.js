@@ -32,6 +32,16 @@ async function countBoxSavedEvidence() {
   return Array.isArray(rows) ? rows.length : 0;
 }
 
+// mf_evidence のうち box_meta_done=false かつ status が box_saved/attached（電帳法3項目の未入力＝Box入力待ち）の件数を数える
+async function countBoxMetaPending() {
+  const url =
+    `${SUPABASE_URL}/rest/v1/mf_evidence?select=id&box_meta_done=is.false&status=in.(box_saved,attached)`;
+  const res = await fetch(url, { headers: { ...supabaseHeaders(), Prefer: 'count=exact' } });
+  if (!res.ok) throw new Error(`Supabase mf_evidence集計失敗: HTTP ${res.status}`);
+  const rows = await res.json().catch(() => []);
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
 function isValidCronRequest(req) {
   const auth = req.headers && (req.headers.authorization || req.headers.Authorization);
   if (!auth || !CRON_SECRET) return false;
@@ -42,7 +52,8 @@ function buildSlackMessage({ month, coverage }) {
   const text =
     `【MF証憑 月次レポート ${month}】` +
     `仕訳${coverage.total}件中 証憑あり${coverage.with_voucher}件（${coverage.coverage_pct}%）／` +
-    `未添付の証憑 ${coverage.box_saved_count}件。` +
+    `未添付の証憑 ${coverage.box_saved_count}件／` +
+    `Box入力待ち（電帳法3項目の未入力）${coverage.box_meta_pending}件。` +
     `詳細: ${MF_EVIDENCE_APP_URL}`;
   return { text };
 }
@@ -62,6 +73,7 @@ function buildChatworkMessage({ month, coverage }) {
     `[info][title]RIBRE 証憑登録 月次報告（${month}）[/title]` +
     `今月分の証憑はマネーフォワード クラウドBoxへ登録済みです。` +
     `仕訳${coverage.total}件中${coverage.with_voucher}件に証憑を添付済み（${coverage.coverage_pct}%）。` +
+    `Box入力待ち（電帳法3項目の未入力）${coverage.box_meta_pending}件。` +
     `ご確認のほどよろしくお願いいたします。[/info]`
   );
 }
@@ -110,7 +122,8 @@ module.exports = async (req, res) => {
     const month = currentYearMonth();
     const coverage = await computeCoverage({ accessToken, month });
     const boxSavedCount = await countBoxSavedEvidence();
-    const fullCoverage = { ...coverage, box_saved_count: boxSavedCount };
+    const boxMetaPending = await countBoxMetaPending();
+    const fullCoverage = { ...coverage, box_saved_count: boxSavedCount, box_meta_pending: boxMetaPending };
 
     const target = (req.query && req.query.target) || 'all';
     const wantSlack = target === 'slack' || target === 'all';
