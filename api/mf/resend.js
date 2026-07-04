@@ -69,7 +69,8 @@ module.exports = async (req, res) => {
     return;
   }
 
-  if (!evidence || evidence.status !== 'failed' || !evidence.storage_path) {
+  // failed=再送、pending=メール取込の承認送信（どちらもStorageの控えからMFへ送る）
+  if (!evidence || ['failed', 'pending'].indexOf(evidence.status) < 0 || !evidence.storage_path) {
     res.status(400).json({ ok: false, error: 'not_resendable' });
     return;
   }

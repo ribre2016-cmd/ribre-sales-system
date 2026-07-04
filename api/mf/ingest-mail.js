@@ -6,7 +6,6 @@
 'use strict';
 
 const crypto = require('crypto');
-const { getAccessToken, postVoucher, NotConnectedError } = require('./_lib/mf-client');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -286,67 +285,33 @@ module.exports = async (req, res) => {
     originalFileName: file_name,
   });
 
-  // Storageへの控え保存はMF送信より先に行う（マッチング添付・再送の原資）
+  // Storageへの控え保存（承認後のMF送信の原資）
   const storagePath = await saveToStorage({ fileName: finalFileName, decodedBytes, contentType: content_type });
-
-  let accessToken;
-  try {
-    accessToken = await getAccessToken();
-  } catch (e) {
-    if (e instanceof NotConnectedError) {
-      res.status(401).json({ ok: false, error: 'not_connected' });
-      return;
-    }
-    res.status(500).json({ ok: false, error: 'token_error' });
+  if (!storagePath) {
+    res.status(500).json({ ok: false, error: 'storage_save_failed' });
     return;
   }
 
+  // 承認制: メール取込はMFへ直接送らず「送信前(pending)」として台帳に載せる。
+  // ユーザーが台帳で内容を確認し「MFへ送信」を押したものだけがMFに送られる。
   try {
-    const mfResult = await postVoucher({
-      accessToken,
-      journalId: null,
-      fileName: finalFileName,
-      fileDataBase64: file_data,
-    });
-    const mfFileId =
-      (mfResult && Array.isArray(mfResult.voucher_file_ids) && mfResult.voucher_file_ids[0] && mfResult.voucher_file_ids[0].file_id) ||
-      null;
-
     const evidence = await insertEvidence({
       file_name: finalFileName,
       ocr_date: ocr.date || null,
       ocr_amount: ocr.amount || null,
       ocr_vendor: ocr.storeName || null,
       storage_path: storagePath,
-      mf_file_id: mfFileId,
+      mf_file_id: null,
       journal_id: null,
-      status: 'box_saved',
+      status: 'pending',
       content_hash: contentHash,
       source: 'mail',
       mail_from: from || null,
       mail_subject: subject || null,
     });
 
-    res.status(200).json({ ok: true, evidence_id: evidence && evidence.id, file_id: mfFileId });
+    res.status(200).json({ ok: true, pending: true, evidence_id: evidence && evidence.id });
   } catch (e) {
-    try {
-      await insertEvidence({
-        file_name: finalFileName,
-        ocr_date: ocr.date || null,
-        ocr_amount: ocr.amount || null,
-        ocr_vendor: ocr.storeName || null,
-        storage_path: storagePath,
-        journal_id: null,
-        status: 'failed',
-        error_message: e && e.message ? String(e.message).slice(0, 500) : 'unknown_error',
-        content_hash: contentHash,
-        source: 'mail',
-        mail_from: from || null,
-        mail_subject: subject || null,
-      });
-    } catch (insertErr) {
-      // 記録失敗はログのみ（本来のエラー応答を優先）
-    }
-    res.status(502).json({ ok: false, error: 'mf_send_failed' });
+    res.status(500).json({ ok: false, error: 'evidence_insert_failed' });
   }
 };

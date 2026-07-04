@@ -381,6 +381,19 @@ async function mfLoadLedger() {
         resendBtn.onclick = () => mfResendEvidence(r.id, resendBtn);
         statusSpan.appendChild(resendBtn);
       }
+      // メール取込の承認制: 送信前(pending)の行は「MFへ送信」(承認)と「削除」(却下)を出す
+      if (r.status === 'pending' && r.storage_path) {
+        const approveBtn = document.createElement('button');
+        approveBtn.className = 'green mf-resend-btn';
+        approveBtn.textContent = 'MFへ送信';
+        approveBtn.onclick = () => mfResendEvidence(r.id, approveBtn);
+        statusSpan.appendChild(approveBtn);
+        const delBtn = document.createElement('button');
+        delBtn.className = 'secondary mf-resend-btn';
+        delBtn.textContent = '削除';
+        delBtn.onclick = () => mfDeleteEvidence(r.id, r.file_name, delBtn);
+        statusSpan.appendChild(delBtn);
+      }
       const atSpan = document.createElement('span');
       atSpan.textContent = r.created_at ? new Date(r.created_at).toLocaleString('ja-JP') : '-';
       const boxSpan = document.createElement('span');
@@ -448,11 +461,33 @@ async function mfResendEvidence(evidenceId, btnEl) {
     if (!res.ok || !d.ok) {
       throw new Error((d && d.error) || 'HTTP ' + res.status);
     }
-    mfToast('再送しました', 'ok');
+    mfToast('MFへ送信しました', 'ok');
     mfLoadLedger();
   } catch (e) {
     if (btnEl) btnEl.disabled = false;
-    mfToast('再送失敗: ' + e.message, 'error');
+    mfToast('送信失敗: ' + e.message, 'error');
+  }
+}
+
+/* 送信前(pending)/失敗の証憑を削除する（メール取込の却下操作） */
+async function mfDeleteEvidence(evidenceId, fileName, btnEl) {
+  if (!confirm('「' + (fileName || evidenceId) + '」を削除しますか？（MFには送信されません）')) return;
+  if (btnEl) btnEl.disabled = true;
+  try {
+    const res = await fetch('/api/mf/evidence-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sess().access_token || '') },
+      body: JSON.stringify({ evidence_id: evidenceId })
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.ok) {
+      throw new Error((d && d.error) || 'HTTP ' + res.status);
+    }
+    mfToast('削除しました', 'ok');
+    mfLoadLedger();
+  } catch (e) {
+    if (btnEl) btnEl.disabled = false;
+    mfToast('削除失敗: ' + e.message, 'error');
   }
 }
 
