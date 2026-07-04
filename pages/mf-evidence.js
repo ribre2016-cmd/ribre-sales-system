@@ -365,7 +365,17 @@ async function mfLoadLedger() {
       const amountSpan = document.createElement('span');
       amountSpan.textContent = yen(r.ocr_amount);
       const nameSpan = document.createElement('span');
-      nameSpan.textContent = (r.source === 'mail' ? '📧 ' : '') + (r.file_name || '-');
+      if (r.storage_path) {
+        // 控えファイルがある行はファイル名クリックでプレビュー（別タブ表示）
+        const nameLink = document.createElement('a');
+        nameLink.href = 'javascript:void(0)';
+        nameLink.textContent = (r.source === 'mail' ? '📧 ' : '') + (r.file_name || '-');
+        nameLink.title = 'クリックでプレビュー';
+        nameLink.onclick = () => mfPreviewEvidence(r.id, nameLink);
+        nameSpan.appendChild(nameLink);
+      } else {
+        nameSpan.textContent = (r.source === 'mail' ? '📧 ' : '') + (r.file_name || '-');
+      }
       const statusSpan = document.createElement('span');
       const badge = document.createElement('span');
       badge.className = 'mf-status-badge mf-status-' + safeLevel(r.status || 'pending');
@@ -466,6 +476,33 @@ async function mfResendEvidence(evidenceId, btnEl) {
   } catch (e) {
     if (btnEl) btnEl.disabled = false;
     mfToast('送信失敗: ' + e.message, 'error');
+  }
+}
+
+/* 控えファイルをサーバー経由で取得し、別タブでプレビュー表示する */
+async function mfPreviewEvidence(evidenceId, linkEl) {
+  if (linkEl) linkEl.style.pointerEvents = 'none';
+  try {
+    const res = await fetch('/api/mf/evidence-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sess().access_token || '') },
+      body: JSON.stringify({ action: 'preview', evidence_id: evidenceId })
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.ok || !d.file_data) {
+      throw new Error((d && d.error) || 'HTTP ' + res.status);
+    }
+    const bin = atob(d.file_data);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: d.content_type || 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    mfToast('プレビュー失敗: ' + e.message, 'error');
+  } finally {
+    if (linkEl) linkEl.style.pointerEvents = '';
   }
 }
 

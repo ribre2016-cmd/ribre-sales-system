@@ -99,6 +99,30 @@ async function handleResend(res, evidence) {
   }
 }
 
+// Storageの控えファイルを返す（台帳からのプレビュー用）。バケットは非公開のためサーバー経由で取得する。
+async function handlePreview(res, evidence) {
+  if (!evidence.storage_path) {
+    res.status(400).json({ ok: false, error: 'no_storage_path' });
+    return;
+  }
+  try {
+    const fileRes = await fetch(`${SUPABASE_URL}/storage/v1/object/${MF_STORAGE_BUCKET}/${evidence.storage_path}`, {
+      headers: supabaseHeaders(),
+    });
+    if (!fileRes.ok) throw new Error(`HTTP ${fileRes.status}`);
+    const contentType = fileRes.headers.get('content-type') || 'application/octet-stream';
+    const arrayBuffer = await fileRes.arrayBuffer();
+    res.status(200).json({
+      ok: true,
+      content_type: contentType,
+      file_name: evidence.file_name || 'evidence',
+      file_data: Buffer.from(arrayBuffer).toString('base64'),
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'preview_failed' });
+  }
+}
+
 async function handleDelete(res, evidence) {
   if (['pending', 'failed'].indexOf(evidence.status) < 0) {
     res.status(400).json({ ok: false, error: 'not_deletable' });
@@ -148,7 +172,7 @@ module.exports = async (req, res) => {
 
   const action = body && body.action;
   const evidenceId = body && body.evidence_id;
-  if (!evidenceId || ['resend', 'delete'].indexOf(action) < 0) {
+  if (!evidenceId || ['resend', 'delete', 'preview'].indexOf(action) < 0) {
     res.status(400).json({ ok: false, error: 'invalid_request' });
     return;
   }
@@ -167,6 +191,8 @@ module.exports = async (req, res) => {
 
   if (action === 'resend') {
     await handleResend(res, evidence);
+  } else if (action === 'preview') {
+    await handlePreview(res, evidence);
   } else {
     await handleDelete(res, evidence);
   }

@@ -199,13 +199,15 @@ async function runOcr({ decodedBytes, contentType, fileName }) {
   }
 }
 
-// OCR成功時は "YYYYMMDD_取引先_金額"、失敗時は元file_nameを使う
+// OCR成功時は "YYYYMMDD_取引先_金額.拡張子"、失敗時は元file_nameを使う（拡張子は元ファイルから保持）
 function buildFileName({ date, amount, storeName, originalFileName }) {
   if (!date && !amount && !storeName) return originalFileName;
   const d = String(date || '').replace(/-/g, '') || 'unknown';
   const v = String(storeName || '取引先未設定').replace(/[\\/:*?"<>|]/g, '');
   const a = amount ? String(amount) : '0';
-  return `${d}_${v}_${a}`;
+  const extMatch = String(originalFileName || '').match(/\.(pdf|png|jpe?g)$/i);
+  const ext = extMatch ? extMatch[0].toLowerCase() : '';
+  return `${d}_${v}_${a}${ext}`;
 }
 
 module.exports = async (req, res) => {
