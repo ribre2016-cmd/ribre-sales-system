@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>電子古物台帳</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/mobile.css">
+<link rel="stylesheet" href="styles/kobutsu-ledger.css">
+</head>
+<body>
+<!-- auth-gate.js/signIn()が参照する共通ログインフォーム要素（非表示・値はゲートのフォームから転記） -->
+<input id="email" type="email" style="display:none">
+<input id="password" type="password" style="display:none">
+<select id="role" style="display:none"><option value="staff">スタッフ</option><option value="admin">管理者</option><option value="viewer">閲覧のみ</option></select>
+<div id="settingsList" style="display:none"></div>
+<header>
+  <h1>電子古物台帳</h1>
+  <a href="/" style="color:#fff;font-size:13px;font-weight:700;text-decoration:underline;white-space:nowrap">← 売上管理へ</a>
+</header>
+<main>
+  <div class="panel">
+    <div class="safe-hint ok">本表は売上管理システムのデータから自動生成した古物台帳の補助様式です。相手方の住所・職業・年齢・確認方法は法令に基づき別途記録・保管してください。</div>
+    <div class="controls kl-controls">
+      <label>対象月<br><input id="klMonth" type="month"></label>
+      <button class="green" onclick="klLoad()">表示</button>
+      <button class="secondary" onclick="klExportCsv()">CSV出力</button>
+      <button class="secondary" onclick="window.print()">印刷</button>
+    </div>
+    <div id="klSummary" class="list"></div>
+    <div class="kl-table-wrap">
+      <table class="kl-table" id="klTable">
+        <thead>
+          <tr>
+            <th>取引年月日</th>
+            <th>区分</th>
+            <th>品目</th>
+            <th>数量</th>
+            <th>代価</th>
+            <th>相手方の氏名・名称</th>
+            <th>相手方の住所</th>
+            <th>職業</th>
+            <th>年齢</th>
+            <th>確認方法</th>
+          </tr>
+        </thead>
+        <tbody id="klBody"></tbody>
+      </table>
+    </div>
+    <div class="kl-note">住所・職業・年齢・確認方法は印刷後に手書きで記入するか、別途台帳で管理してください。</div>
+  </div>
+</main>
+
+<script src="services/core.js"></script>
+<script src="services/supabase-rest.js"></script>
+<script src="services/supabase-auth.js"></script>
+<script src="services/auth-gate.js"></script>
+<script src="pages/kobutsu-ledger.js"></script>
+</body>
+</html>

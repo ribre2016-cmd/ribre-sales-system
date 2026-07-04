@@ -1,0 +1,55 @@
+/* 電子古物台帳 専用スタイル */
+.kl-table-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+table.kl-table {
+  width: 100%;
+  min-width: 960px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.kl-table th,
+table.kl-table td {
+  border: 1px solid #cbd5e1;
+  padding: 6px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+table.kl-table thead th {
+  background: #f1f5f9;
+  font-weight: 900;
+  color: #334155;
+}
+table.kl-table td.kl-blank {
+  color: #cbd5e1;
+}
+.kl-note {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 6px;
+}
+
+@media print {
+  header,
+  .kl-controls,
+  .kl-note,
+  #ribreLoginGate {
+    display: none !important;
+  }
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+  body {
+    background: #fff;
+  }
+  table.kl-table {
+    min-width: 0;
+    font-size: 11px;
+  }
+  table.kl-table th,
+  table.kl-table td {
+    border: 1px solid #000;
+  }
+}
