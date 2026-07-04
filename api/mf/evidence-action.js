@@ -124,7 +124,8 @@ async function handlePreview(res, evidence) {
 }
 
 async function handleDelete(res, evidence) {
-  if (['pending', 'failed'].indexOf(evidence.status) < 0) {
+  // attached(仕訳添付済み)のみ削除不可。box_savedはMF側で削除済みの後始末等のため削除可
+  if (['pending', 'failed', 'box_saved'].indexOf(evidence.status) < 0) {
     res.status(400).json({ ok: false, error: 'not_deletable' });
     return;
   }

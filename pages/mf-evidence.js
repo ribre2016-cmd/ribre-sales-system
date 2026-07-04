@@ -414,6 +414,9 @@ async function mfLoadLedger() {
         approveBtn.textContent = 'MFへ送信';
         approveBtn.onclick = () => mfResendEvidence(r.id, approveBtn);
         statusSpan.appendChild(approveBtn);
+      }
+      // 仕訳添付済み以外は台帳から削除可能（MF側で削除済みの後始末・誤取込の整理用）
+      if (r.status !== 'attached') {
         const delBtn = document.createElement('button');
         delBtn.className = 'secondary mf-resend-btn';
         delBtn.textContent = '削除';
@@ -576,7 +579,7 @@ function mfShowPreviewModal({ url, type, fileName }) {
 
 /* 送信前(pending)/失敗の証憑を削除する（メール取込の却下操作） */
 async function mfDeleteEvidence(evidenceId, fileName, btnEl) {
-  if (!confirm('「' + (fileName || evidenceId) + '」を削除しますか？（MFには送信されません）')) return;
+  if (!confirm('「' + (fileName || evidenceId) + '」を台帳から削除しますか？（MFのクラウドBox側のファイルは削除されません。Box側は必要ならMF画面で削除してください）')) return;
   if (btnEl) btnEl.disabled = true;
   try {
     const res = await fetch('/api/mf/evidence-action', {
