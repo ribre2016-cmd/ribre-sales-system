@@ -374,6 +374,13 @@ async function mfLoadLedger() {
       if (r.status === 'failed' && r.error_message) {
         statusSpan.title = r.error_message;
       }
+      if (r.status === 'failed' && r.storage_path) {
+        const resendBtn = document.createElement('button');
+        resendBtn.className = 'secondary mf-resend-btn';
+        resendBtn.textContent = '再送';
+        resendBtn.onclick = () => mfResendEvidence(r.id, resendBtn);
+        statusSpan.appendChild(resendBtn);
+      }
       const atSpan = document.createElement('span');
       atSpan.textContent = r.created_at ? new Date(r.created_at).toLocaleString('ja-JP') : '-';
       const boxSpan = document.createElement('span');
@@ -425,6 +432,27 @@ async function mfToggleBoxMetaDone(id, checkboxEl) {
     mfToast('Box入力状態の更新に失敗しました: ' + e.message, 'error');
   } finally {
     checkboxEl.disabled = false;
+  }
+}
+
+/* 失敗した証憑（storage_pathあり）をMFへ再送する */
+async function mfResendEvidence(evidenceId, btnEl) {
+  if (btnEl) btnEl.disabled = true;
+  try {
+    const res = await fetch('/api/mf/resend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sess().access_token || '') },
+      body: JSON.stringify({ evidence_id: evidenceId })
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.ok) {
+      throw new Error((d && d.error) || 'HTTP ' + res.status);
+    }
+    mfToast('再送しました', 'ok');
+    mfLoadLedger();
+  } catch (e) {
+    if (btnEl) btnEl.disabled = false;
+    mfToast('再送失敗: ' + e.message, 'error');
   }
 }
 

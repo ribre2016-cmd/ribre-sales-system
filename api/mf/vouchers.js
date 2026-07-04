@@ -151,6 +151,10 @@ module.exports = async (req, res) => {
     return;
   }
 
+  // Storageへの控え保存はマッチング添付・再送の原資。MF送信より先に行う。
+  // 失敗してもMF送信自体は継続する（保存できなければ以降 storagePath は null のまま）。
+  const storagePath = await saveToStorage({ fileName: file_name, decodedBytes, contentType: content_type });
+
   try {
     const mfResult = await postVoucher({
       accessToken,
@@ -164,9 +168,6 @@ module.exports = async (req, res) => {
     const mfFileId =
       (mfResult && Array.isArray(mfResult.voucher_file_ids) && mfResult.voucher_file_ids[0] && mfResult.voucher_file_ids[0].file_id) ||
       null;
-
-    // Storageへの控え保存はマッチング添付の原資。失敗してもMF送信結果には影響させない。
-    const storagePath = await saveToStorage({ fileName: file_name, decodedBytes, contentType: content_type });
 
     const evidence = await insertEvidence({
       file_name,
@@ -187,6 +188,7 @@ module.exports = async (req, res) => {
         ocr_date: ocr_date || null,
         ocr_amount: ocr_amount || null,
         ocr_vendor: ocr_vendor || null,
+        storage_path: storagePath,
         journal_id: journal_id || null,
         status: 'failed',
         error_message: e && e.message ? String(e.message).slice(0, 500) : 'unknown_error',
