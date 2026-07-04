@@ -365,7 +365,7 @@ async function mfLoadLedger() {
       const amountSpan = document.createElement('span');
       amountSpan.textContent = yen(r.ocr_amount);
       const nameSpan = document.createElement('span');
-      nameSpan.textContent = r.file_name || '-';
+      nameSpan.textContent = (r.source === 'mail' ? '📧 ' : '') + (r.file_name || '-');
       const statusSpan = document.createElement('span');
       const badge = document.createElement('span');
       badge.className = 'mf-status-badge mf-status-' + safeLevel(r.status || 'pending');
