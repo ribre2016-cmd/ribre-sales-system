@@ -174,7 +174,7 @@ async function runOcr({ decodedBytes, contentType, fileName }) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-mini',
+        model: 'gpt-4.1',
         input: [{ role: 'user', content }],
         temperature: 0,
       }),

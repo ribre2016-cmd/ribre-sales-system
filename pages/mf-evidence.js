@@ -172,7 +172,7 @@ async function mfRunOcr() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sess().access_token || '') },
       body: JSON.stringify({
-        model: 'gpt-4.1-mini',
+        model: 'gpt-4.1',
         input: [{ role: 'user', content }],
         temperature: 0
       })
@@ -189,11 +189,19 @@ async function mfRunOcr() {
     const parsed = typeof window.ribreExtractOcrJson === 'function' ? window.ribreExtractOcrJson(text) : null;
     if (!parsed) throw new Error('OCR結果の解析に失敗しました');
     const norm = typeof window.ribreNormalizeOcrSchema === 'function' ? window.ribreNormalizeOcrSchema(parsed) : parsed;
-    document.getElementById('mfDate').value = norm.date || today();
+    // 日付が読めなかったときに今日の日付で埋めない（気づかず誤登録するのを防ぐ）
+    document.getElementById('mfDate').value = norm.date || '';
     document.getElementById('mfAmount').value = norm.amount || '';
     document.getElementById('mfVendor').value = norm.storeName || '';
     document.getElementById('mfFileName').value = mfBuildFileName(norm.date, norm.storeName, norm.amount);
-    mfRenderOcrStatus([{ type: 'OCR', msg: '自動入力しました（内容を確認してください）' }]);
+    if (!norm.date) {
+      mfRenderOcrStatus([
+        { type: 'OCR', level: 'warn', msg: '取引日を読み取れませんでした。レシートを見て手入力してください' },
+        { type: 'OCR', msg: '金額・取引先は自動入力しました（内容を確認してください）' }
+      ]);
+    } else {
+      mfRenderOcrStatus([{ type: 'OCR', msg: '自動入力しました（内容を確認してください）' }]);
+    }
   } catch (e) {
     mfRenderOcrStatus([{ type: 'OCR', level: 'danger', msg: 'OCR失敗: ' + e.message + '（手入力してください）' }]);
   }

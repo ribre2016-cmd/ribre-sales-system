@@ -8,7 +8,7 @@ const { verifySupabaseToken } = require('./_lib/require-auth');
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const MAX_BODY_BYTES = 10 * 1024 * 1024; // 10MB
 // 悪用時の高額請求を防ぐため、利用可能モデルを限定する
-const ALLOWED_MODELS = ['gpt-4.1-mini'];
+const ALLOWED_MODELS = ['gpt-4.1-mini', 'gpt-4.1'];
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
