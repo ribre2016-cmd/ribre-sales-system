@@ -613,39 +613,326 @@ function appvRenderLedger() {
   }
 }
 
-/* ==================== 粗利タブ（月合計サマリー：旧UIと同一式） ==================== */
+/* ==================== 粗利タブ（年間グリッド：旧UI app-simple.js simpleRenderProfitTable/smpProfitData と同一式） ====================
+ * 旧: smpProfitData 2006-2035行目 / simpleRenderProfitTable 2036-2173行目 を新UI(取引→粗利タブ)へ移植。
+ * データ源はappvMonthTotalsと同じくローカル(LS.sales/LS.purchases、明細=source"明細"は除外)＋
+ * profit_meisai(明細ストア)＋profit_prov(当月の仮入力)。行の単位は「仕入=買取先(vendor)ごと」
+ * 「売上明細=1件ごとに個別行」「売上チャネル=ヤフオク1〜8・メルカリ・メルカリShops・ラクマ固定＋その他」。
+ * 年計列＝当該年度(3月〜翌2月)12ヶ月分の単純合計（旧UIのdataRow/salesRowのtと同一）。 */
+let appvProfitStartYear = null;
+function appvProfitDefaultStartYear() {
+  const cur = appvCurrentMonth();
+  const y = parseInt(cur.slice(0, 4), 10), m = parseInt(cur.slice(5, 7), 10);
+  return m >= 3 ? y : y - 1;
+}
+/* 旧: smpProfitData(app-simple.js 2006-2035行目)と同一の集計。月ごとのチャネル別売上実数(chanReal)・
+ * チャネル別手数料(chanFee)・買取先別仕入実数(venReal)・送料/手数料の月合計・明細(meisai)一覧を返す。 */
+async function appvProfitYearData(startYear) {
+  const months = appvFiscalMonths(startYear);
+  const keyset = {}; months.forEach((m) => { keyset[m.key] = 1; });
+  const salesAll = get(LS.sales, []);
+  const purchasesAll = get(LS.purchases, []);
+  const chanReal = {}, chanFee = {}, venReal = {}, shipByM = {}, feeByM = {};
+  months.forEach((m) => { shipByM[m.key] = 0; feeByM[m.key] = 0; });
+  (Array.isArray(salesAll) ? salesAll : []).forEach((r) => {
+    if (appvIsMeiRowLocal(r)) return;
+    const mk = appvMonthOfLocal(r); if (!keyset[mk]) return;
+    shipByM[mk] += num(r.ship != null ? r.ship : r.shipping);
+    feeByM[mk] += num(r.fee);
+    const c = String(r.shop || r.type || r.matchStatus || '').trim() || 'その他';
+    chanReal[c] = chanReal[c] || {}; chanReal[c][mk] = (chanReal[c][mk] || 0) + num(r.amount != null ? r.amount : r.price);
+    chanFee[c] = chanFee[c] || {}; chanFee[c][mk] = (chanFee[c][mk] || 0) + num(r.fee);
+  });
+  (Array.isArray(purchasesAll) ? purchasesAll : []).forEach((r) => {
+    if (appvIsMeiRowLocal(r)) return;
+    const mk = appvMonthOfLocal(r); if (!keyset[mk]) return;
+    const v = String(r.vendor || r.type || '').trim() || 'その他';
+    venReal[v] = venReal[v] || {}; venReal[v][mk] = (venReal[v][mk] || 0) + num(r.total != null ? r.total : (r.cost != null ? r.cost : r.amount));
+  });
+  const mei = await appvGetMeisai();
+  const meiOf = (e) => (e.month || String(e.date || '').slice(0, 7));
+  const meiSales = mei.sales.filter((e) => keyset[meiOf(e)]).map((e) => ({ id: e.id, date: e.date, name: e.name, amount: num(e.amount), mk: meiOf(e) }));
+  const meiPur = mei.purchases.filter((e) => keyset[meiOf(e)]).map((e) => ({ id: e.id, date: e.date, name: e.name, amount: num(e.amount), mk: meiOf(e) }));
+  meiSales.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  meiPur.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  return { months, chanReal, chanFee, venReal, shipByM, feeByM, meiSales, meiPur };
+}
+function appvProfitFmt(n) { return (Math.round(n) || 0).toLocaleString(); }
+/* <td>を組み立てる共通ヘルパー。全てtextContentで設定する（instructions準拠）。 */
+function appvProfitTd(text, opts) {
+  opts = opts || {};
+  const td = document.createElement('td');
+  if (opts.className) td.className = opts.className;
+  if (opts.cur) td.classList.add('pg-cur');
+  td.textContent = text;
+  return td;
+}
 async function appvRenderProfit() {
-  appvSetText('profitNote', '売上・仕入・経費は旧UI（かんたんモード）ホームと同じ集計（EC＋ヤフオク＋メルカリ＋明細の合算、経費＝送料合計＋手数料合計）です。');
-  const body = document.getElementById('profitBody');
-  if (!body) return;
+  appvSetText('profitNote', '売上・仕入・経費は旧UI（かんたんモード）「粗利」タブと同じ集計（EC＋ヤフオク＋メルカリ＋明細の合算）です。黄色＝当月。チャネル・送料・手数料の当月空欄は仮の数字を入力できます。');
+  const head = document.getElementById('profitGridHead');
+  const body = document.getElementById('profitGridBody');
+  if (!head || !body) return;
+
+  if (appvProfitStartYear == null) appvProfitStartYear = appvProfitDefaultStartYear();
+  const sel = document.getElementById('profitYearSel');
+  if (sel) {
+    const years = [];
+    for (let y = appvProfitDefaultStartYear() + 1; y >= appvProfitDefaultStartYear() - 6; y--) years.push(y);
+    if (years.indexOf(appvProfitStartYear) < 0) years.push(appvProfitStartYear);
+    years.sort((a, b) => b - a);
+    appvClear(sel);
+    years.forEach((y) => {
+      const opt = document.createElement('option');
+      opt.value = String(y);
+      opt.textContent = y + '年度（' + y + '/3〜' + (y + 1) + '/2）';
+      if (y === appvProfitStartYear) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  const startYear = appvProfitStartYear;
+  const d = await appvProfitYearData(startYear);
+  const prov = appvProvGet();
+  const curMonth = appvCurrentMonth();
+  const provShip = prov[curMonth] && prov[curMonth]['__ship__'];
+  if (provShip != null && provShip !== '' && d.shipByM[curMonth] != null) d.shipByM[curMonth] = num(provShip);
+  const provFee = prov[curMonth] && prov[curMonth]['__fee__'];
+  if (provFee != null && provFee !== '' && d.feeByM[curMonth] != null) d.feeByM[curMonth] = num(provFee);
+  const months = d.months;
+
+  // 売上チャネル：固定順(APPV_SMP_ACCS相当。旧UIはSMP_SALES_CHANNELSでその他を含まない)＋データにある他チャネルを金額降順で追加
+  const totC = (c) => months.reduce((s, m) => s + ((d.chanReal[c] && d.chanReal[c][m.key]) || 0), 0);
+  const others = Object.keys(d.chanReal).filter((c) => APPV_SALES_CHANNELS.indexOf(c) < 0).sort((a, b) => totC(b) - totC(a));
+  const chans = APPV_SALES_CHANNELS.concat(others);
+  const saleEff = (c, mk) => {
+    const real = (d.chanReal[c] && d.chanReal[c][mk]) || 0;
+    if (real > 0) return real;
+    if (mk === curMonth) return (prov[mk] && prov[mk][c]) || 0;
+    return 0;
+  };
+  const chanSaleByM = (mk) => chans.reduce((s, c) => s + saleEff(c, mk), 0);
+  const meiSaleByM = (mk) => d.meiSales.reduce((s, e) => s + (e.mk === mk ? e.amount : 0), 0);
+  const saleByM = (mk) => chanSaleByM(mk) + meiSaleByM(mk);
+  // 仕入：買取先(vendor)別
+  const totV = (v) => months.reduce((s, m) => s + ((d.venReal[v] && d.venReal[v][m.key]) || 0), 0);
+  const vendors = Object.keys(d.venReal).sort((a, b) => totV(b) - totV(a));
+  const venPurByM = (mk) => vendors.reduce((s, v) => s + ((d.venReal[v] && d.venReal[v][mk]) || 0), 0);
+  const meiPurByM = (mk) => d.meiPur.reduce((s, e) => s + (e.mk === mk ? e.amount : 0), 0);
+  const purByM = (mk) => venPurByM(mk) + meiPurByM(mk);
+
+  // ---- ヘッダー行 ----
+  appvClear(head);
+  const thLabel = document.createElement('th');
+  thLabel.className = 'pg-label';
+  thLabel.textContent = '区分';
+  head.appendChild(thLabel);
+  months.forEach((m) => {
+    const th = document.createElement('th');
+    th.className = 'pg-num' + (m.key === curMonth ? ' pg-cur' : '');
+    th.textContent = m.label;
+    head.appendChild(th);
+  });
+  const thYear = document.createElement('th');
+  thYear.className = 'pg-num';
+  thYear.textContent = '年計';
+  head.appendChild(thYear);
+
   appvClear(body);
-  const month = appvViewMonth || appvCurrentMonth();
-  const t = await appvMonthTotals(month);
-  const tr = document.createElement('tr');
-  const tdMonth = document.createElement('td');
-  tdMonth.textContent = month;
-  const tdSales = document.createElement('td');
-  tdSales.style.textAlign = 'right';
-  tdSales.className = 'num';
-  tdSales.textContent = yen(t.sale);
-  const tdPurchases = document.createElement('td');
-  tdPurchases.style.textAlign = 'right';
-  tdPurchases.className = 'num';
-  tdPurchases.textContent = yen(t.pur);
-  const tdExp = document.createElement('td');
-  tdExp.style.textAlign = 'right';
-  tdExp.className = 'num';
-  tdExp.textContent = yen(t.exp);
-  const tdProfit = document.createElement('td');
-  tdProfit.style.textAlign = 'right';
-  tdProfit.className = 'num ' + (t.profit >= 0 ? 'amt-plus' : 'amt-minus');
-  tdProfit.textContent = (t.profit >= 0 ? '+' : '-') + yen(Math.abs(t.profit)).replace('円', '');
-  tr.appendChild(tdMonth);
-  tr.appendChild(tdSales);
-  tr.appendChild(tdPurchases);
-  tr.appendChild(tdExp);
-  tr.appendChild(tdProfit);
-  body.appendChild(tr);
+  const ncols = months.length + 2;
+
+  function sectionRow(label) {
+    const tr = document.createElement('tr');
+    tr.className = 'pg-section';
+    const td = document.createElement('td');
+    td.colSpan = ncols;
+    td.textContent = label;
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+  function dataRow(name, getter, isTotal) {
+    const tr = document.createElement('tr');
+    if (isTotal) tr.className = 'pg-total';
+    const tdName = document.createElement('td');
+    tdName.className = 'pg-label';
+    tdName.textContent = name;
+    tr.appendChild(tdName);
+    let total = 0;
+    months.forEach((m) => {
+      const v = getter(m.key); total += v;
+      tr.appendChild(appvProfitTd(appvProfitFmt(v), { className: 'pg-num', cur: m.key === curMonth }));
+    });
+    tr.appendChild(appvProfitTd(appvProfitFmt(total), { className: 'pg-num pg-year' }));
+    body.appendChild(tr);
+    return total;
+  }
+  // 仮入力セル（チャネル・送料・手数料）：クリックでinputに切り替え、blurでappvProvSetOne経由で保存
+  function editableCell(mk, chanKey, displayVal, placeholder) {
+    const td = document.createElement('td');
+    td.className = 'pg-num pg-cur pg-editable';
+    const span = document.createElement('span');
+    if (displayVal) {
+      span.textContent = appvProfitFmt(displayVal);
+    } else {
+      span.className = 'pg-placeholder';
+      span.textContent = placeholder;
+    }
+    td.appendChild(span);
+    td.addEventListener('click', () => {
+      if (td.querySelector('input')) return;
+      appvClear(td);
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.inputMode = 'numeric';
+      const cur = appvProvGet();
+      const v = (cur[mk] && cur[mk][chanKey]);
+      input.value = (v != null ? v : '');
+      td.appendChild(input);
+      input.focus();
+      try { input.select(); } catch (e) {}
+      input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') input.blur(); });
+      input.addEventListener('blur', async () => {
+        const o = appvProvGet();
+        appvProvSetOne(o, mk, chanKey, input.value);
+        try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(o)); } catch (e) {}
+        appvProvTsSet(Date.now());
+        try { await appvProvPushCloud(); } catch (e) {}
+        await appvRenderProfit();
+        await appvRenderKpi();
+      });
+    });
+    return td;
+  }
+  function salesRow(c) {
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td');
+    tdName.className = 'pg-label';
+    tdName.textContent = c;
+    tr.appendChild(tdName);
+    let total = 0;
+    months.forEach((m) => {
+      const mk = m.key;
+      const eff = saleEff(c, mk); total += eff;
+      const real = (d.chanReal[c] && d.chanReal[c][mk]) || 0;
+      if (mk === curMonth && !(real > 0)) {
+        const pv = (prov[mk] && prov[mk][c]) || 0;
+        tr.appendChild(editableCell(mk, c, pv, '仮'));
+        return;
+      }
+      tr.appendChild(appvProfitTd(appvProfitFmt(eff), { className: 'pg-num', cur: mk === curMonth }));
+    });
+    tr.appendChild(appvProfitTd(appvProfitFmt(total), { className: 'pg-num pg-year' }));
+    body.appendChild(tr);
+    return total;
+  }
+  // 明細グリッド：月ごとのN件目を同じ行に並べる（旧: meiGridRows 2104-2127行目と同一方式）
+  function meiGridRows(entries) {
+    const byM = {};
+    entries.forEach((e) => { (byM[e.mk] = byM[e.mk] || []).push(e); });
+    let maxN = 0;
+    months.forEach((m) => { const n = (byM[m.key] || []).length; if (n > maxN) maxN = n; });
+    for (let i = 0; i < maxN; i++) {
+      const tr = document.createElement('tr');
+      const tdMark = document.createElement('td');
+      tdMark.className = 'pg-label';
+      tdMark.style.textAlign = 'center';
+      tdMark.textContent = '・';
+      tr.appendChild(tdMark);
+      let rowSum = 0;
+      months.forEach((m) => {
+        const e = (byM[m.key] || [])[i];
+        const td = document.createElement('td');
+        td.className = 'pg-num' + (m.key === curMonth ? ' pg-cur' : '');
+        if (e) {
+          rowSum += num(e.amount);
+          const dp = String(e.date || '').split('-');
+          const md = dp.length === 3 ? (Number(dp[1]) + '/' + Number(dp[2])) : (e.date || '');
+          td.title = (e.name || '') + (md ? ' ' + md : '');
+          td.textContent = appvProfitFmt(e.amount);
+        }
+        tr.appendChild(td);
+      });
+      tr.appendChild(appvProfitTd(rowSum ? appvProfitFmt(rowSum) : '', { className: 'pg-num pg-year' }));
+      body.appendChild(tr);
+    }
+  }
+  function emptyNote(text) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = ncols;
+    td.className = 'muted';
+    td.textContent = text;
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+
+  // 仕入（明細）
+  sectionRow('仕入（明細）');
+  meiGridRows(d.meiPur);
+  vendors.forEach((v) => dataRow(v, (mk) => (d.venReal[v] && d.venReal[v][mk]) || 0));
+  if (!d.meiPur.length && !vendors.length) emptyNote('仕入データがありません');
+  dataRow('仕入 合計', purByM, true);
+  // 売上明細（追加分）
+  sectionRow('売上明細（追加分）');
+  meiGridRows(d.meiSales);
+  if (!d.meiSales.length) emptyNote('明細はまだありません');
+  dataRow('売上明細 合計', meiSaleByM, true);
+  // 売上（チャネル別）
+  sectionRow('売上（チャネル別）');
+  chans.forEach((c) => salesRow(c));
+  dataRow('チャネル 合計', chanSaleByM, true);
+  dataRow('売上 合計（明細＋チャネル）', saleByM, true);
+  // 送料 合計（当月は仮入力可）
+  (function () {
+    const tr = document.createElement('tr');
+    tr.className = 'pg-total';
+    const tdName = document.createElement('td');
+    tdName.className = 'pg-label';
+    tdName.textContent = '送料 合計';
+    tr.appendChild(tdName);
+    let total = 0;
+    months.forEach((m) => {
+      const mk = m.key; const v = d.shipByM[mk] || 0; total += v;
+      if (mk === curMonth) { tr.appendChild(editableCell(mk, '__ship__', v, '送料')); return; }
+      tr.appendChild(appvProfitTd(appvProfitFmt(v), { className: 'pg-num' }));
+    });
+    tr.appendChild(appvProfitTd(appvProfitFmt(total), { className: 'pg-num pg-year' }));
+    body.appendChild(tr);
+  })();
+  // 手数料 合計（当月は仮入力可）
+  (function () {
+    const tr = document.createElement('tr');
+    tr.className = 'pg-total';
+    const tdName = document.createElement('td');
+    tdName.className = 'pg-label';
+    tdName.textContent = '手数料 合計';
+    tr.appendChild(tdName);
+    let total = 0;
+    months.forEach((m) => {
+      const mk = m.key; const v = d.feeByM[mk] || 0; total += v;
+      if (mk === curMonth) { tr.appendChild(editableCell(mk, '__fee__', v, '手数料')); return; }
+      tr.appendChild(appvProfitTd(appvProfitFmt(v), { className: 'pg-num' }));
+    });
+    tr.appendChild(appvProfitTd(appvProfitFmt(total), { className: 'pg-num pg-year' }));
+    body.appendChild(tr);
+  })();
+  // 粗利（マイナスは赤）
+  (function () {
+    const tr = document.createElement('tr');
+    tr.className = 'pg-total';
+    const tdName = document.createElement('td');
+    tdName.className = 'pg-label';
+    tdName.textContent = '粗利（売上−仕入−送料−手数料）';
+    tr.appendChild(tdName);
+    let gTotal = 0;
+    months.forEach((m) => {
+      const mk = m.key;
+      const v = saleByM(mk) - purByM(mk) - (d.shipByM[mk] || 0) - (d.feeByM[mk] || 0);
+      gTotal += v;
+      tr.appendChild(appvProfitTd(appvProfitFmt(v), { className: 'pg-num pg-profit ' + (v >= 0 ? 'pos' : 'neg') }));
+    });
+    tr.appendChild(appvProfitTd(appvProfitFmt(gTotal), { className: 'pg-num pg-year pg-profit ' + (gTotal >= 0 ? 'pos' : 'neg') }));
+    body.appendChild(tr);
+  })();
 }
 
 /* =====================================================================
@@ -2820,6 +3107,21 @@ document.addEventListener('DOMContentLoaded', () => {
       if (profitCard) profitCard.style.display = isProfit ? 'block' : 'none';
       if (isProfit) appvRenderProfit(); else appvRenderLedger();
     });
+  });
+  const profitYearSel = document.getElementById('profitYearSel');
+  if (profitYearSel) profitYearSel.addEventListener('change', () => {
+    appvProfitStartYear = parseInt(profitYearSel.value, 10) || appvProfitDefaultStartYear();
+    appvRenderProfit();
+  });
+  const profitYearPrev = document.getElementById('profitYearPrev');
+  if (profitYearPrev) profitYearPrev.addEventListener('click', () => {
+    appvProfitStartYear = (appvProfitStartYear == null ? appvProfitDefaultStartYear() : appvProfitStartYear) - 1;
+    appvRenderProfit();
+  });
+  const profitYearNext = document.getElementById('profitYearNext');
+  if (profitYearNext) profitYearNext.addEventListener('click', () => {
+    appvProfitStartYear = (appvProfitStartYear == null ? appvProfitDefaultStartYear() : appvProfitStartYear) + 1;
+    appvRenderProfit();
   });
   const searchFilter = document.getElementById('searchFilter');
   if (searchFilter) searchFilter.addEventListener('input', appvRenderLedger);

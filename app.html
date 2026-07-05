@@ -140,13 +140,18 @@
       </div>
 
       <div class="card" id="profitCard" style="display:none">
-        <div class="muted section-gap" id="profitNote"></div>
+        <div class="flex-between section-gap" style="flex-wrap:wrap; gap:10px">
+          <div class="muted" id="profitNote"></div>
+          <div style="display:flex; align-items:center; gap:6px">
+            <button class="btn sm" id="profitYearPrev" type="button">◀</button>
+            <select id="profitYearSel"></select>
+            <button class="btn sm" id="profitYearNext" type="button">▶</button>
+          </div>
+        </div>
         <div class="table-scroll">
-          <table>
-            <thead>
-              <tr><th>月</th><th style="text-align:right">売上計</th><th style="text-align:right">仕入計</th><th style="text-align:right">経費計</th><th style="text-align:right">粗利</th></tr>
-            </thead>
-            <tbody id="profitBody"></tbody>
+          <table class="profit-grid" id="profitGridTable">
+            <thead><tr id="profitGridHead"></tr></thead>
+            <tbody id="profitGridBody"></tbody>
           </table>
         </div>
       </div>
