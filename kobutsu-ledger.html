@@ -16,7 +16,15 @@
 <div id="settingsList" style="display:none"></div>
 <header>
   <h1>電子古物台帳</h1>
-  <a href="/" style="color:#fff;font-size:13px;font-weight:700;text-decoration:underline;white-space:nowrap">← 売上管理へ</a>
+  <a href="/" id="backToSalesLink" style="color:#fff;font-size:13px;font-weight:700;text-decoration:underline;white-space:nowrap">← 売上管理へ</a>
+  <script>
+  /* 新UI(/app)から来た場合は戻り先も/appにする */
+  (function(){ try {
+    var q = new URLSearchParams(location.search);
+    if (q.get('from') === 'app') sessionStorage.setItem('ribre_back_to', 'app');
+    if (sessionStorage.getItem('ribre_back_to') === 'app') document.getElementById('backToSalesLink').href = '/app';
+  } catch(e) {} })();
+  </script>
 </header>
 <main>
   <div class="panel">

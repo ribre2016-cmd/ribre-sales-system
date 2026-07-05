@@ -441,7 +441,7 @@ async function appvRenderTodos() {
     btn.className = 'btn sm primary';
     btn.textContent = '対応する';
     btn.addEventListener('click', () => {
-      if (t.page === 'import') { appvGotoPage('import'); } else { window.location.href = '/mf-evidence'; }
+      if (t.page === 'import') { appvGotoPage('import'); } else { window.location.href = '/mf-evidence?from=app'; }
     });
     row.appendChild(left);
     row.appendChild(btn);
@@ -1722,7 +1722,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('#bottomNav button[data-page]').forEach((b) => b.addEventListener('click', () => appvGotoPage(b.dataset.page)));
   document.querySelectorAll('[data-page-link]').forEach((b) => b.addEventListener('click', () => appvGotoPage(b.dataset.pageLink)));
   document.querySelectorAll('[data-action="phaseb-toast"]').forEach((b) => b.addEventListener('click', () => appvPhaseBToast(b.dataset.label || '')));
-  document.querySelectorAll('[data-action="goto-evidence"]').forEach((b) => b.addEventListener('click', () => { window.location.href = '/mf-evidence'; }));
+  document.querySelectorAll('[data-action="goto-evidence"]').forEach((b) => b.addEventListener('click', () => { window.location.href = '/mf-evidence?from=app'; }));
 
   /* クイックアクション／＋登録／FAB: 種別プリセット済みの登録モーダルを開く（既定は明細モード） */
   document.querySelectorAll('[data-action="open-tx-modal"]').forEach((b) => {
