@@ -113,6 +113,7 @@ function appvGotoPage(page) {
   document.querySelectorAll('#bottomNav button[data-page]').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   window.scrollTo({ top: 0, behavior: 'instant' });
   if (page === 'import' && typeof appvRenderMailImportStatus === 'function') appvRenderMailImportStatus();
+  if (page === 'import' && typeof appvRenderShipPersistentTable === 'function') appvRenderShipPersistentTable();
   if (page === 'analysis' && typeof appvRenderProvPanel === 'function') appvRenderProvPanel();
   if (page === 'analysis' && typeof appvRenderAnalysisPage === 'function') appvRenderAnalysisPage();
   if (page === 'settings') {
@@ -458,7 +459,11 @@ async function appvRenderTodos() {
     btn.className = 'btn sm primary';
     btn.textContent = '対応する';
     btn.addEventListener('click', () => {
-      if (t.page === 'import') { appvGotoPage('import'); } else { window.location.href = '/mf-evidence?from=app'; }
+      if (t.page === 'import') {
+        appvGotoPage('import');
+        const card = document.getElementById('impShipCard');
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else { window.location.href = '/mf-evidence?from=app'; }
     });
     row.appendChild(left);
     row.appendChild(btn);
@@ -3719,6 +3724,78 @@ function appvRenderShipUnmatchTable(list) {
     body.appendChild(tr);
   });
 }
+
+/* 配送照合の永続表示（旧: pages/app-shipping.js shipRenderEditable/sortUnmatchedFirst と同一体験。
+ * ページを開き直しても前回の照合結果(ribre_shipping_results230)がそのまま見え、
+ * 不一致行は送料を手入力してその場で解消できる。未一致を先頭に並べる。 */
+function appvShipResults() { try { return JSON.parse(localStorage.getItem('ribre_shipping_results230') || '[]') || []; } catch (e) { return []; } }
+function appvRenderShipPersistentTable() {
+  const wrap = document.getElementById('impShipUnmatchWrap');
+  const body = document.getElementById('impShipUnmatchBody');
+  const resultBox = document.getElementById('impShipResult');
+  if (!wrap || !body) return;
+  const results = appvShipResults();
+  appvClear(body);
+  if (!results.length) { wrap.style.display = 'none'; if (resultBox) resultBox.style.display = 'none'; return; }
+  if (resultBox) resultBox.style.display = 'block';
+  wrap.style.display = 'block';
+  const order = { '未一致': 0, '手入力': 1, '匿名配送': 2, '一致': 3 };
+  const sorted = results.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+  const matched = results.filter((r) => r.status === '一致' || r.status === '手入力').length;
+  const unmatched = results.filter((r) => r.status === '未一致').length;
+  appvSetText('impShipMatchCount', String(matched));
+  appvSetText('impShipUnmatchCount', String(unmatched));
+  sorted.forEach((r) => {
+    const tr = document.createElement('tr');
+    const level = r.status === '未一致' ? 'err' : (r.status === '一致' || r.status === '手入力') ? 'ok' : 'info';
+    const tdStatus = document.createElement('td'); const b = document.createElement('span'); b.className = 'badge ' + level; b.textContent = r.status || ''; tdStatus.appendChild(b);
+    const tdCompany = document.createElement('td'); tdCompany.textContent = r.company || '';
+    const tdItemId = document.createElement('td'); tdItemId.textContent = r.itemId || '';
+    const tdName = document.createElement('td'); tdName.textContent = r.name || '';
+    const tdSlip = document.createElement('td'); tdSlip.textContent = r.slip || '';
+    const tdShip = document.createElement('td'); tdShip.style.textAlign = 'right'; tdShip.className = 'num';
+    if (r.itemId) {
+      const input = document.createElement('input');
+      input.type = 'number'; input.min = '0'; input.value = String(r.shipping || 0);
+      input.style.width = '90px'; input.style.textAlign = 'right';
+      input.title = '送料を手入力（Enter/フォーカス外しで確定）';
+      input.addEventListener('change', () => appvManualShipping(r.itemId, input.value));
+      input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { appvManualShipping(r.itemId, input.value); input.blur(); } });
+      tdShip.appendChild(input);
+    } else {
+      tdShip.textContent = yen(r.shipping || 0);
+    }
+    tr.appendChild(tdStatus); tr.appendChild(tdCompany); tr.appendChild(tdItemId); tr.appendChild(tdName); tr.appendChild(tdSlip); tr.appendChild(tdShip);
+    body.appendChild(tr);
+  });
+}
+/* 送料の手入力（旧: pages/app-shipping.js manualShipping と同一ロジック・同一フィールド・同一保存経路。
+ * matchStatus='手入力'にして以後のCSV再取込での巻き戻りを防止する）。 */
+async function appvManualShipping(itemId, val) {
+  const v = Math.round(Number(val) || 0);
+  const s = sales();
+  const idx = s.findIndex((x) => String(x.itemId || x.id || '') === String(itemId));
+  if (idx < 0) return;
+  if (String(s[idx].memo || '').includes('[LOCK]')) { alert('ロック済みのため送料を変更できません。'); appvRenderShipPersistentTable(); return; }
+  s[idx].shipping = v;
+  s[idx].ship = v;
+  s[idx].profit = num(s[idx].amount || s[idx].price || 0) - num(s[idx].fee || 0) - v;
+  s[idx].matchStatus = '手入力';
+  setLS(LS.sales, s);
+  const results = appvShipResults();
+  const ri = results.findIndex((r) => String(r.itemId || '') === String(itemId));
+  if (ri >= 0) {
+    results[ri].status = '手入力';
+    results[ri].shipping = v;
+    results[ri].name = s[idx].name || results[ri].name;
+    appvSaveShipResults(results);
+  }
+  appvRenderShipPersistentTable();
+  await appvAfterWrite();
+  await appvRenderTodos();
+  const push = await appvPushCloudSafe();
+  if (push && push.ok) appvToast('☁ クラウドに同期しました');
+}
 async function appvHandleShipImport() {
   const fileEl = document.getElementById('impShipFile');
   const file = fileEl && fileEl.files && fileEl.files[0];
@@ -3734,10 +3811,7 @@ async function appvHandleShipImport() {
     appvImpSetStatus('impShipStatus', '取込OK（' + r.imported + '件・累計' + r.total + '件）。照合しています…');
     const m = appvMatchShipping();
     if (m.error) { appvImpSetStatus('impShipStatus', '⚠ ' + m.error); return; }
-    document.getElementById('impShipResult').style.display = 'block';
-    appvSetText('impShipMatchCount', String(m.matched));
-    appvSetText('impShipUnmatchCount', String(m.unmatched));
-    appvRenderShipUnmatchTable(m.unmatchedList);
+    appvRenderShipPersistentTable();
     appvImpSetStatus('impShipStatus', '✅ 照合完了：一致 ' + m.matched + '件・不一致 ' + m.unmatched + '件');
     await appvAfterWrite();
     await appvRenderTodos();

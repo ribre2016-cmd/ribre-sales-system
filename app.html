@@ -189,7 +189,7 @@
         <div class="muted" id="impYahooStatus" style="margin-top:10px; font-size:12.5px;"></div>
       </div>
 
-      <div class="card section-gap">
+      <div class="card section-gap" id="impShipCard">
         <h2>配送照合</h2>
         <div class="muted" style="margin-bottom:10px">配送業者のCSV（ヤマト送り状／ヤマト運賃／佐川急便）を取り込んで、当月の売上と照合します。</div>
         <div class="tx-field"><label>CSV種類</label>
@@ -210,10 +210,11 @@
           </div>
           <div class="table-scroll" id="impShipUnmatchWrap" style="display:none;">
             <table>
-              <thead><tr><th>会社</th><th>商品ID</th><th>伝票番号</th><th style="text-align:right">送料</th></tr></thead>
+              <thead><tr><th>状態</th><th>会社</th><th>商品ID</th><th>商品名</th><th>伝票番号</th><th style="text-align:right">送料（手入力で修正可）</th></tr></thead>
               <tbody id="impShipUnmatchBody"></tbody>
             </table>
           </div>
+          <div class="muted" style="margin-top:8px; font-size:12px;">送料を入力してEnter/フォーカスを外すと確定し、以後の配送CSV再取込でも上書きされません（旧UIの「手入力」保護と同じ）。</div>
         </div>
       </div>
 
