@@ -208,9 +208,39 @@
             <span>一致: <strong class="num" id="impShipMatchCount">0</strong>件</span>
             <span>不一致: <strong class="num" id="impShipUnmatchCount">0</strong>件</span>
           </div>
+          <label id="impShipFilterShipOnlyWrap" style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#92400e;margin-bottom:10px;cursor:pointer">
+            <input type="checkbox" id="impShipFilterShipOnly" onchange="appvRenderShipPersistentTable()">
+            ⚠ 送料未入力だけ表示（匿名配送は除く）
+          </label>
+          <div class="tx-field" id="impShipFilterAccWrap">
+            <label>アカウントで絞り込み・並び替え</label>
+            <select id="impShipFilterAcc" onchange="appvRenderShipPersistentTable()">
+              <option value="all">すべて（アカウント順にまとめて表示）</option>
+              <optgroup label="ヤフオク">
+                <option value="ヤフオク1">ヤフオク1</option>
+                <option value="ヤフオク2">ヤフオク2</option>
+                <option value="ヤフオク3">ヤフオク3</option>
+                <option value="ヤフオク4">ヤフオク4</option>
+                <option value="ヤフオク5">ヤフオク5</option>
+                <option value="ヤフオク6">ヤフオク6</option>
+                <option value="ヤフオク7">ヤフオク7</option>
+                <option value="ヤフオク8">ヤフオク8</option>
+              </optgroup>
+              <optgroup label="その他">
+                <option value="メルカリ">メルカリ</option>
+                <option value="メルカリShops">メルカリShops</option>
+                <option value="ラクマ">ラクマ</option>
+                <option value="その他">その他</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="tx-field" id="impShipFilterMonthWrap">
+            <label>年月で絞り込み</label>
+            <select id="impShipFilterMonth" onchange="appvRenderShipPersistentTable()"></select>
+          </div>
           <div class="table-scroll" id="impShipUnmatchWrap" style="display:none;">
             <table>
-              <thead><tr><th>状態</th><th>会社</th><th>商品ID</th><th>商品名</th><th>伝票番号</th><th style="text-align:right">送料（手入力で修正可）</th></tr></thead>
+              <thead><tr><th>状態</th><th>日付</th><th>商品名</th><th>アカウント</th><th style="text-align:right">金額</th><th style="text-align:right">送料（手入力で修正可）</th></tr></thead>
               <tbody id="impShipUnmatchBody"></tbody>
             </table>
           </div>

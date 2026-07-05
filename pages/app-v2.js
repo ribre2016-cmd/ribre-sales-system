@@ -3727,47 +3727,103 @@ function appvRenderShipUnmatchTable(list) {
 
 /* 配送照合の永続表示（旧: pages/app-shipping.js shipRenderEditable/sortUnmatchedFirst と同一体験。
  * ページを開き直しても前回の照合結果(ribre_shipping_results230)がそのまま見え、
- * 不一致行は送料を手入力してその場で解消できる。未一致を先頭に並べる。 */
+ * 不一致行は送料を手入力してその場で解消できる。未一致を先頭に並べる。
+ *
+ * 一覧は旧UI「一覧」タブ(index.html data-screen="list" / app-simple.js)と同じ絞り込み・並び順を
+ * sales行ベースで適用する（cb08530時点のribre_shipping_results230行ベースから変更）:
+ *   - アカウント絞り込み(#impShipFilterAcc)      = 旧 smpListAccFilter (#smpListAccFilter)
+ *   - 年月絞り込み(#impShipFilterMonth)          = 旧 smpListMonthFilter (#smpListMonth)
+ *   - 送料未入力だけ表示(#impShipFilterShipOnly) = 旧 smpNeedsShip (app-simple.js 2794-2800行目)
+ *   - 並び順                                     = 旧 smpSortByAccount (app-simple.js 3140-3149行目)
+ *     ＝ appvChannelOrderKey(チャネル順)→appvCsvOrder(CSV取込order)→配列添字 と同一ロジック。
+ * 各行の状態バッジは ribre_shipping_results230 をitemIdで引いて表示（見つからなければ「未一致」）。 */
 function appvShipResults() { try { return JSON.parse(localStorage.getItem('ribre_shipping_results230') || '[]') || []; } catch (e) { return []; } }
+/* 送料未入力判定（旧: app-simple.js smpNeedsShip 2794-2800行目と同一）。
+ * 送料>0なら不要。matchStatusが手入力/匿名配送/配送CSV一致/配送一致、またはmemoに「匿名」を含む行も除外。 */
+function appvNeedsShip(r) {
+  if (num(r.ship || r.shipping || 0) > 0) return false;
+  const ms = String(r.matchStatus || '');
+  if (ms === '手入力' || ms === '匿名配送' || ms === '配送CSV一致' || ms === '配送一致') return false;
+  if (String(r.memo || '').includes('匿名')) return false;
+  return true;
+}
+/* 年月セレクタを売上データの月で構築（旧: app-simple.js smpListBuildMonths 3216-3226行目と同一） */
+function appvShipFilterBuildMonths() {
+  const sel = document.getElementById('impShipFilterMonth');
+  if (!sel) return;
+  const prev = sel.value;
+  const set = {};
+  sales().forEach((r) => { const m = r.month || String(r.date || '').slice(0, 7); if (m) set[m] = 1; });
+  const months = Object.keys(set).sort().reverse();
+  sel.innerHTML = '<option value="all">すべての月</option>' +
+    months.map((m) => { const p = m.split('-'); return '<option value="' + m + '">' + p[0] + '年' + (+p[1]) + '月</option>'; }).join('');
+  if (prev && Array.prototype.some.call(sel.options, (o) => o.value === prev)) sel.value = prev; else sel.value = 'all';
+}
+/* フィルタ後・並び替え後のsales行（旧: app-simple.js smpVisibleSalesRows 3120-3129行目と同一ロジック） */
+function appvShipVisibleSalesRows() {
+  let arr = sales();
+  const so = document.getElementById('impShipFilterShipOnly');
+  if (so && so.checked) arr = arr.filter(appvNeedsShip);
+  const accEl = document.getElementById('impShipFilterAcc');
+  const accFilter = (accEl && accEl.value) || 'all';
+  if (accFilter !== 'all') arr = arr.filter((r) => appvNormAccount(r.shop) === accFilter);
+  const monthEl = document.getElementById('impShipFilterMonth');
+  const monFilter = (monthEl && monthEl.value) || 'all';
+  if (monFilter !== 'all') arr = arr.filter((r) => (r.month || String(r.date || '').slice(0, 7)) === monFilter);
+  return arr.map((row, idx) => ({ row: row, idx: idx })).sort((a, b) => {
+    const ra = appvChannelOrderKey(a.row.shop), rb = appvChannelOrderKey(b.row.shop);
+    if (ra !== rb) return ra - rb;
+    const oa = appvCsvOrder(a.row, a.idx + 1), ob = appvCsvOrder(b.row, b.idx + 1);
+    if (oa !== ob) return oa - ob;
+    return a.idx - b.idx;
+  }).map((x) => x.row);
+}
 function appvRenderShipPersistentTable() {
   const wrap = document.getElementById('impShipUnmatchWrap');
   const body = document.getElementById('impShipUnmatchBody');
   const resultBox = document.getElementById('impShipResult');
   if (!wrap || !body) return;
-  const results = appvShipResults();
-  appvClear(body);
-  if (!results.length) { wrap.style.display = 'none'; if (resultBox) resultBox.style.display = 'none'; return; }
+  const allResults = appvShipResults();
+  if (!allResults.length) { wrap.style.display = 'none'; if (resultBox) resultBox.style.display = 'none'; return; }
   if (resultBox) resultBox.style.display = 'block';
+  appvShipFilterBuildMonths();
+  const resultByItemId = {};
+  allResults.forEach((r) => { if (r.itemId) resultByItemId[String(r.itemId)] = r; });
+  const rows = appvShipVisibleSalesRows();
+  appvClear(body);
+  if (!rows.length) { wrap.style.display = 'none'; appvSetText('impShipMatchCount', '0'); appvSetText('impShipUnmatchCount', '0'); return; }
   wrap.style.display = 'block';
-  const order = { '未一致': 0, '手入力': 1, '匿名配送': 2, '一致': 3 };
-  const sorted = results.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
-  const matched = results.filter((r) => r.status === '一致' || r.status === '手入力').length;
-  const unmatched = results.filter((r) => r.status === '未一致').length;
-  appvSetText('impShipMatchCount', String(matched));
-  appvSetText('impShipUnmatchCount', String(unmatched));
-  sorted.forEach((r) => {
+  let matched = 0, unmatched = 0;
+  rows.forEach((r) => {
+    const itemId = r.itemId || r.id || '';
+    const res = itemId ? resultByItemId[String(itemId)] : null;
+    const status = res ? res.status : '未一致';
+    if (status === '一致' || status === '手入力') matched++;
+    else if (status === '未一致') unmatched++;
     const tr = document.createElement('tr');
-    const level = r.status === '未一致' ? 'err' : (r.status === '一致' || r.status === '手入力') ? 'ok' : 'info';
-    const tdStatus = document.createElement('td'); const b = document.createElement('span'); b.className = 'badge ' + level; b.textContent = r.status || ''; tdStatus.appendChild(b);
-    const tdCompany = document.createElement('td'); tdCompany.textContent = r.company || '';
-    const tdItemId = document.createElement('td'); tdItemId.textContent = r.itemId || '';
+    const level = status === '未一致' ? 'err' : (status === '一致' || status === '手入力') ? 'ok' : 'info';
+    const tdStatus = document.createElement('td'); const b = document.createElement('span'); b.className = 'badge ' + level; b.textContent = status; tdStatus.appendChild(b);
+    const tdDate = document.createElement('td'); tdDate.textContent = r.date || '';
     const tdName = document.createElement('td'); tdName.textContent = r.name || '';
-    const tdSlip = document.createElement('td'); tdSlip.textContent = r.slip || '';
+    const tdAcc = document.createElement('td'); tdAcc.textContent = r.shop || '';
+    const tdAmount = document.createElement('td'); tdAmount.style.textAlign = 'right'; tdAmount.className = 'num'; tdAmount.textContent = yen(num(r.amount || r.price || 0));
     const tdShip = document.createElement('td'); tdShip.style.textAlign = 'right'; tdShip.className = 'num';
-    if (r.itemId) {
+    if (itemId) {
       const input = document.createElement('input');
-      input.type = 'number'; input.min = '0'; input.value = String(r.shipping || 0);
+      input.type = 'number'; input.min = '0'; input.value = String(num(r.ship || r.shipping || 0));
       input.style.width = '90px'; input.style.textAlign = 'right';
       input.title = '送料を手入力（Enter/フォーカス外しで確定）';
-      input.addEventListener('change', () => appvManualShipping(r.itemId, input.value));
-      input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { appvManualShipping(r.itemId, input.value); input.blur(); } });
+      input.addEventListener('change', () => appvManualShipping(itemId, input.value));
+      input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { appvManualShipping(itemId, input.value); input.blur(); } });
       tdShip.appendChild(input);
     } else {
-      tdShip.textContent = yen(r.shipping || 0);
+      tdShip.textContent = yen(num(r.ship || r.shipping || 0));
     }
-    tr.appendChild(tdStatus); tr.appendChild(tdCompany); tr.appendChild(tdItemId); tr.appendChild(tdName); tr.appendChild(tdSlip); tr.appendChild(tdShip);
+    tr.appendChild(tdStatus); tr.appendChild(tdDate); tr.appendChild(tdName); tr.appendChild(tdAcc); tr.appendChild(tdAmount); tr.appendChild(tdShip);
     body.appendChild(tr);
   });
+  appvSetText('impShipMatchCount', String(matched));
+  appvSetText('impShipUnmatchCount', String(unmatched));
 }
 /* 送料の手入力（旧: pages/app-shipping.js manualShipping と同一ロジック・同一フィールド・同一保存経路。
  * matchStatus='手入力'にして以後のCSV再取込での巻き戻りを防止する）。 */
