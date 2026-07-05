@@ -643,14 +643,182 @@ function appvMonthLabel(month) {
   const p = String(month || '').split('-');
   return p.length === 2 ? p[0] + '年' + Number(p[1]) + '月' : '今月';
 }
-/* 旧: smpHtmlCell(app-simple.js 2749-2751行目)と同一のHTMLエスケープ。 */
-function appvHtmlCell(v) {
-  return String(v == null ? '' : v).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+/* ==================== xlsx生成エンジン（外部ライブラリ不使用） ====================
+ * 本物の.xlsx（ZIP+OOXML）をスクラッチ生成する。旧: HTMLテーブルを.xls拡張子で保存する
+ * 方式(smpExportReportExcel互換)だとExcelで「ファイルの形式と拡張子が一致しません」警告が
+ * 出るため、これを解消する。方式: ZIPはSTORED(無圧縮)、ファイル名はUTF-8フラグ(bit11)。
+ * rows(2次元配列: セルはstring|number)を渡すとUint8Array(.xlsxバイト列)を返す純関数。 */
+
+/* CRC32(テーブル方式)。ZIPの各エントリに必要。 */
+const APPV_XLSX_CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function appvXlsxCrc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = APPV_XLSX_CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function appvXlsxUtf8Bytes(str) {
+  return new TextEncoder().encode(str);
+}
+/* DOS日時は固定値（xlsxの実行時刻はレポート内容と無関係なため固定でよい）。 */
+const APPV_XLSX_DOS_TIME = 0;
+const APPV_XLSX_DOS_DATE = ((2026 - 1980) << 9) | (1 << 5) | 1;
+
+/* ZIPライター（STORED / UTF-8ファイル名フラグ bit11）。ローカルヘッダ+セントラルディレクトリ+EOCD。 */
+function appvXlsxMakeZip(files) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const f of files) {
+    const nameBytes = appvXlsxUtf8Bytes(f.name);
+    const data = f.data;
+    const crc = appvXlsxCrc32(data);
+    const size = data.length;
+
+    const lfh = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(lfh.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0x0800, true);
+    lv.setUint16(8, 0, true);
+    lv.setUint16(10, APPV_XLSX_DOS_TIME, true);
+    lv.setUint16(12, APPV_XLSX_DOS_DATE, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, size, true);
+    lv.setUint32(22, size, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    lfh.set(nameBytes, 30);
+    localParts.push(lfh, data);
+
+    const localHeaderOffset = offset;
+    offset += lfh.length + data.length;
+
+    const cdh = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(cdh.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, APPV_XLSX_DOS_TIME, true);
+    cv.setUint16(14, APPV_XLSX_DOS_DATE, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, size, true);
+    cv.setUint32(24, size, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, 0, true);
+    cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true);
+    cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, localHeaderOffset, true);
+    cdh.set(nameBytes, 46);
+    centralParts.push(cdh);
+  }
+
+  const centralStart = offset;
+  let centralSize = 0;
+  for (const p of centralParts) centralSize += p.length;
+
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(4, 0, true);
+  ev.setUint16(6, 0, true);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, centralStart, true);
+  ev.setUint16(20, 0, true);
+
+  const totalLen = offset + centralSize + eocd.length;
+  const out = new Uint8Array(totalLen);
+  let p = 0;
+  for (const part of localParts) { out.set(part, p); p += part.length; }
+  for (const part of centralParts) { out.set(part, p); p += part.length; }
+  out.set(eocd, p);
+  return out;
 }
 
-/* 旧: smpExportReportExcel(app-simple.js 2752-2791行目)と同一の生成ロジック（バイト単位で同一の
- * HTML/スタイル/BOM付きBlob/MIME/ファイル名規則）。対象期間のみ、旧の#smpSummaryMonth(月選択select)
- * の代わりに新UIの#monthFilter(空なら全期間)を使う。 */
+function appvXlsxEscape(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[m]));
+}
+function appvXlsxColLetter(idx) {
+  let n = idx + 1, s = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+/* rows(2次元配列) -> xl/worksheets/sheet1.xml。文字列はinlineStr、数値は数値セル。空行は<row/>のみ。 */
+function appvXlsxBuildSheetXml(rows) {
+  const rowXmls = rows.map((row, rIdx) => {
+    if (!row || row.length === 0) return '<row r="' + (rIdx + 1) + '"/>';
+    const cells = row.map((cell, cIdx) => {
+      const ref = appvXlsxColLetter(cIdx) + (rIdx + 1);
+      if (cell == null || cell === '') return '';
+      if (typeof cell === 'number' && isFinite(cell)) {
+        return '<c r="' + ref + '"><v>' + cell + '</v></c>';
+      }
+      return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + appvXlsxEscape(cell) + '</t></is></c>';
+    }).join('');
+    return '<row r="' + (rIdx + 1) + '">' + cells + '</row>';
+  }).join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetData>' + rowXmls + '</sheetData>' +
+    '</worksheet>';
+}
+const APPV_XLSX_CONTENT_TYPES_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+  '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+  '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+  '<Default Extension="xml" ContentType="application/xml"/>' +
+  '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+  '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+  '</Types>';
+const APPV_XLSX_RELS_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+  '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+  '</Relationships>';
+const APPV_XLSX_WORKBOOK_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+  '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+  'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+  '<sheets><sheet name="レポート" sheetId="1" r:id="rId1"/></sheets>' +
+  '</workbook>';
+const APPV_XLSX_WORKBOOK_RELS_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+  '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+  '</Relationships>';
+/* rows(2次元配列) -> Uint8Array(.xlsxバイト列)。ブラウザ非依存の純関数（Node動作検証済み）。 */
+function appvBuildXlsx(rows) {
+  const sheetXml = appvXlsxBuildSheetXml(rows);
+  const files = [
+    { name: '[Content_Types].xml', data: appvXlsxUtf8Bytes(APPV_XLSX_CONTENT_TYPES_XML) },
+    { name: '_rels/.rels', data: appvXlsxUtf8Bytes(APPV_XLSX_RELS_XML) },
+    { name: 'xl/workbook.xml', data: appvXlsxUtf8Bytes(APPV_XLSX_WORKBOOK_XML) },
+    { name: 'xl/_rels/workbook.xml.rels', data: appvXlsxUtf8Bytes(APPV_XLSX_WORKBOOK_RELS_XML) },
+    { name: 'xl/worksheets/sheet1.xml', data: appvXlsxUtf8Bytes(sheetXml) }
+  ];
+  return appvXlsxMakeZip(files);
+}
+
+/* 旧: smpExportReportExcel(app-simple.js 2752-2791行目)相当の集計ロジックはそのまま踏襲しつつ、
+ * 出力自体は上記xlsx生成エンジンで本物の.xlsxファイルとして書き出す（HTML-as-.xls方式は廃止）。
+ * 対象期間のみ、旧の#smpSummaryMonth(月選択select)の代わりに新UIの#monthFilter(空なら全期間)を使う。 */
 function appvExportReportExcel() {
   const monthEl = document.getElementById('monthFilter');
   const month = (monthEl && monthEl.value) || 'all';
@@ -667,7 +835,6 @@ function appvExportReportExcel() {
   const totalPur = pRows.reduce((a, r) => a + num(r.total || r.amount), 0);
   const profit = totalSale - totalFee - totalShip - totalPur;
   const tax = st ? st.tax : Math.floor(totalSale / 11);
-  const sheetStyle = '<style>body{font-family:Yu Gothic,Meiryo,sans-serif}table{border-collapse:collapse;margin:12px 0}th{background:#eaf1fb}th,td{border:1px solid #cbd5e1;padding:6px 8px;white-space:nowrap}.num{text-align:right}.title{font-size:18px;font-weight:900}</style>';
   const summary = [
     ['対象月', all ? '全期間' : appvMonthLabel(month)],
     ['売上', totalSale],
@@ -680,16 +847,24 @@ function appvExportReportExcel() {
     ['商品数', sRows.length],
     ['平均単価', sRows.length ? Math.round(totalSale / sRows.length) : 0]
   ];
-  const table = (rows) => '<table>' + rows.map((r, i) => '<tr>' + r.map((c, j) => (i === 0 ? '<th' : '<td') + (typeof c === 'number' ? ' class="num"' : '') + '>' + appvHtmlCell(c) + (i === 0 ? '</th>' : '</td>')).join('') + '</tr>').join('') + '</table>';
   const salesRows = [['No', '日付', '販売先', '商品ID', '内容', '種別', '手数料', '送料', '消費税', '利益', '金額']]
     .concat(sRows.map((r, i) => [i + 1, r.date || '', r.shop || '', r.itemId || r.id || '', r.name || '', r.type || '', num(r.fee), num(r.ship || r.shipping), appvSaleTax(r), appvSaleProfit(r), num(r.amount || r.price)]));
   const purRows = [['No', '日付', '仕入れ先', '金額', '消費税', '手数料', '種別', 'メモ']]
     .concat(pRows.map((r, i) => [i + 1, r.date || '', r.vendor || '', num(r.total || r.amount), appvPurchaseTax(r), num(r.fee), r.type || '', r.memo || '']));
-  const html = '<html><head><meta charset="utf-8">' + sheetStyle + '</head><body><div class="title">RIBRE 月次レポート</div>' + table(summary) + '<h2>売上明細</h2>' + table(salesRows) + '<h2>仕入明細</h2>' + table(purRows) + '</body></html>';
-  const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  // シート内容: サマリ表 → 空行 → 「売上明細」見出し+ヘッダ+行 → 空行 → 「仕入明細」…（旧HTML版と同一の並び）
+  const sheetRows = []
+    .concat(summary)
+    .concat([[]])
+    .concat([['売上明細']])
+    .concat(salesRows)
+    .concat([[]])
+    .concat([['仕入明細']])
+    .concat(purRows);
+  const xlsxBytes = appvBuildXlsx(sheetRows);
+  const blob = new Blob([xlsxBytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'RIBRE_売上仕入レポート_' + (all ? '全期間' : month) + '.xls';
+  a.download = 'RIBRE_売上仕入レポート_' + (all ? '全期間' : month) + '.xlsx';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
