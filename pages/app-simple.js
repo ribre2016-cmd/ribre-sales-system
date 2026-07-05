@@ -686,47 +686,19 @@ async function smpEmailSignup() {
   try { await signUp(); } catch (err) {}
   smpAuthStatus('登録しました。続けて「ログイン」を押してください', 'ok');
 }
-/* ローカルの売上/仕入をクラウドへ（移行用・正準スキーマ・upsert） */
-/* クラウド送信用の payload（売上/仕入）を現在のローカルデータから作る */
-/* 内容から決まる安定id（Date.now()を使わないため、同じ行なら同じ結果になり
-   移行の再試行で重複を作らない）。仕入行にはローカルidが無いことがあるため。 */
-function smpMigStableId(prefix, raw) {
-  var h = 5381, i = raw.length; while (i) { h = (h * 33) ^ raw.charCodeAt(--i); }
-  return prefix + '_' + (h >>> 0).toString(36);
-}
-function smpMigPurchaseClientId(r) {
-  if (r && (r.id || r.client)) return String(r.client || r.id).slice(0, 120);
-  return smpMigStableId('mig_p', (r && (r.date || '')) + '|' + (r && (r.vendor || '')) + '|' + (r && (r.name || '')) + '|' + num(r && (r.total != null ? r.total : r.amount)));
-}
-function smpBuildCloudBodies(em) {
-  const sBody = sales().map(r => {
-    const amt = num(r.amount || r.price), fee = num(r.fee), ship = num(r.ship || r.shipping);
-    const profit = (r.profit !== undefined && r.profit !== '') ? num(r.profit) : (amt - fee - ship);
-    const itemId = String(r.itemId || r.id || ('mig_' + (r.date || '') + '_' + (r.name || '') + '_' + amt)).slice(0, 120);
-    return { user_email: em, sale_date: r.date || null, month: r.month || String(r.date || '').slice(0, 7), market: smpMarketOf(r.shop), account: r.shop || '', item_id: itemId, item_name: r.name || '', amount: amt, fee: fee, shipping_fee: ship, profit: profit, slip_number: r.slip || '', status: r.matchStatus || '手入力', memo: r.memo || '', source: 'かんたん' };
-  });
-  const pBody = purchases().map(r => {
-    const total = num(r.total || r.amount);
-    return { user_email: em, client_id: smpMigPurchaseClientId(r), purchase_date: r.date || null, month: r.month || String(r.date || '').slice(0, 7), vendor: r.vendor || '', item_name: r.name || '', cost: total, total: total, invoice_number: '', status: r.matchStatus || '手入力', memo: r.memo || '', source: 'かんたん' };
-  });
-  return { sBody: sBody, pBody: pBody };
-}
-
-/* 初回移行：ローカル→クラウド（upsert/merge。既存クラウドは消さない）
-   sales/purchases とも on_conflict で重複防止。移行が部分失敗して次回
-   再試行になっても、同じ内容の行は同じキーになるため重複登録されない。 */
+/* 初回移行：ローカル→クラウド。data-store.js の seedFromThisPC に委譲する。
+   旧実装は client_id 無し(on_conflict=user_email,item_id)で直接upsertしており、
+   data-store.js(on_conflict=user_email,client_id)が同じ内容を別行として再登録して
+   全行が倍化する事故を起こした(2026-07-01発生・07-05クリーンアップ済み)。
+   seedFromThisPC は data-store.js と同一の clientIdOf 規則で client_id を付けるため
+   以後のpushSafe/reconcileと同じ行に収束し、重複を作らない。 */
 async function smpUploadAllToCloud(em) {
-  const c = sb();
-  if (!c.url || !c.key) return { err: 'no config' };
-  const s = sess();
-  const token = s.access_token || c.key;
-  const headers = { apikey: c.key, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' };
-  const base = c.url.replace(/\/$/, '') + '/rest/v1/';
-  const { sBody, pBody } = smpBuildCloudBodies(em);
-  let okS = 0, okP = 0, err = null;
-  try { if (sBody.length) { const res = await fetch(base + 'sales?on_conflict=user_email,item_id', { method: 'POST', headers: headers, body: JSON.stringify(sBody) }); if (res.ok) okS = sBody.length; else err = await res.text(); } } catch (e) { err = e.message; }
-  try { if (pBody.length) { const res = await fetch(base + 'purchases?on_conflict=user_email,client_id', { method: 'POST', headers: headers, body: JSON.stringify(pBody) }); if (res.ok) okP = pBody.length; else err = err || await res.text(); } } catch (e) { err = err || e.message; }
-  return { okS: okS, okP: okP, err: err };
+  if (!window.ribreStore || typeof window.ribreStore.seedFromThisPC !== 'function') {
+    return { err: 'data-store.js未読込のため移行を中止しました（client_id無しの直接アップロードは重複の原因になるため行いません）' };
+  }
+  const r = await window.ribreStore.seedFromThisPC();
+  if (!r || !r.ok) return { err: (r && r.error) || '移行に失敗しました（画面上部のステータスを確認してください）' };
+  return { okS: (r.sent && r.sent.sales) || 0, okP: (r.sent && r.sent.purchases) || 0, err: null };
 }
 
 let _smpAutosaveTimer = null;
