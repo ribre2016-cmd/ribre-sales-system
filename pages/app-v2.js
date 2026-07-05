@@ -837,8 +837,22 @@ async function appvDeleteRow(target) {
   if (r && r.ok) appvToast('☁ クラウドに同期しました');
 }
 
-/* 保存・更新・削除後の再描画（KPI・最近の取引・一覧を作り直す） */
+/* 保存・更新・削除後の再描画（KPI・最近の取引・一覧を作り直す）
+ * ＋クラウド同期の結果確認。pushSafeが失敗/不可の場合は明示的に警告する
+ * （ローカルだけの保存は、旧UI起動時のhydrate(クラウド→ローカル置換)で消えるため危険） */
 async function appvAfterWrite() {
+  try {
+    if (window.ribreStore && typeof window.ribreStore.pushSafe === 'function') {
+      const r = await window.ribreStore.pushSafe();
+      if (!r || r.ok === false) {
+        appvToast('⚠ クラウド未同期です。通信状態を確認して、もう一度保存し直してください');
+      }
+    } else {
+      appvToast('⚠ 同期エンジン未読込のためクラウド保存できません（この状態で保存した行は消える可能性があります）');
+    }
+  } catch (e) {
+    appvToast('⚠ クラウド同期エラー: ' + e.message);
+  }
   const month = appvViewMonth || appvCurrentMonth();
   await appvLoadMonth(month);
   await appvRenderKpi();

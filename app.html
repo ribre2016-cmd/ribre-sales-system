@@ -253,6 +253,9 @@
 <script src="services/core.js"></script>
 <script src="services/supabase-rest.js"></script>
 <script src="services/supabase-auth.js"></script>
+<!-- data-store.js: クラウド同期エンジン。これが無いと書き込みがローカル止まりになり、
+     旧UI起動時のhydrate(クラウド→ローカル置換)で消える。書き込むページでは必須 -->
+<script src="services/data-store.js"></script>
 <script src="services/auth-gate.js"></script>
 <script src="pages/app-v2.js"></script>
 </body>
