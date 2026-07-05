@@ -338,8 +338,9 @@ function mfBuildLedgerQuery() {
   }
 
   if (boxTodoEl && boxTodoEl.checked) {
+    // 仕訳添付済みは電帳法の検索要件を仕訳への紐付けで満たすため、Box入力待ちはbox_savedのみ
     params.push('box_meta_done=is.false');
-    params.push('status=neq.failed');
+    params.push('status=eq.box_saved');
   }
 
   params.push('order=created_at.desc');

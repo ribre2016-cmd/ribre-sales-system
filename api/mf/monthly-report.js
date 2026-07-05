@@ -35,7 +35,7 @@ async function countBoxSavedEvidence() {
 // mf_evidence のうち box_meta_done=false かつ status が box_saved/attached（電帳法3項目の未入力＝Box入力待ち）の件数を数える
 async function countBoxMetaPending() {
   const url =
-    `${SUPABASE_URL}/rest/v1/mf_evidence?select=id&box_meta_done=is.false&status=in.(box_saved,attached)`;
+    `${SUPABASE_URL}/rest/v1/mf_evidence?select=id&box_meta_done=is.false&status=eq.box_saved`;
   const res = await fetch(url, { headers: { ...supabaseHeaders(), Prefer: 'count=exact' } });
   if (!res.ok) throw new Error(`Supabase mf_evidence集計失敗: HTTP ${res.status}`);
   const rows = await res.json().catch(() => []);

@@ -431,7 +431,7 @@ async function appvRenderTodos() {
   const wrap = document.getElementById('todoList');
   if (!wrap) return;
   const pendingCount = await appvFetchEvidenceCount('?select=id&status=eq.pending');
-  const boxTodoCount = await appvFetchEvidenceCount('?select=id&box_meta_done=is.false&status=in.(box_saved,attached)');
+  const boxTodoCount = await appvFetchEvidenceCount('?select=id&box_meta_done=is.false&status=eq.box_saved');
   const shipUnmatched = appvShipUnmatchCount();
 
   const todos = [];
@@ -3321,7 +3321,7 @@ async function appvRenderCloseChecklist() {
   const coveragePct = await appvFetchCoveragePct(month);
   const coverageOk = coveragePct == null ? null : coveragePct >= 100;
   const matchingPending = await appvFetchEvidenceCountInMonth('?select=id&status=eq.box_saved', month);
-  const boxTodo = await appvFetchEvidenceCountInMonth('?select=id&box_meta_done=is.false&status=in.(box_saved,attached)', month);
+  const boxTodo = await appvFetchEvidenceCountInMonth('?select=id&box_meta_done=is.false&status=eq.box_saved', month);
   const shipUnmatch = appvShipUnmatchCountForMonth(month);
   const closed = appvIsMonthClosed(month);
 
