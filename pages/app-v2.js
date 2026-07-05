@@ -3105,6 +3105,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (filterRow) filterRow.style.display = isProfit ? 'none' : 'flex';
       if (tableCard) tableCard.style.display = isProfit ? 'none' : 'block';
       if (profitCard) profitCard.style.display = isProfit ? 'block' : 'none';
+      // 粗利タブ中はコンテンツ幅の上限を解除（12ヶ月+年計を横スクロール無しで収める）
+      const mainEl = document.querySelector('.main');
+      if (mainEl) mainEl.classList.toggle('profit-wide', isProfit);
       if (isProfit) appvRenderProfit(); else appvRenderLedger();
     });
   });

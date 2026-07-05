@@ -301,3 +301,16 @@ table.profit-grid td.pg-editable input{
   padding:1px 3px; font-size:11px;
 }
 table.profit-grid .pg-placeholder{color:#B7BDB6;}
+
+/* ===== 粗利グリッドの全幅・圧縮表示（横スクロール無しで12ヶ月+年計を収める） ===== */
+/* 粗利タブ表示中はコンテンツ幅の上限を解除して画面いっぱい使う */
+.main.profit-wide{max-width:none;}
+/* セルを圧縮し、テーブルを親幅に収める（900px以上）。モバイルは従来通り横スクロール */
+@media (min-width:900px){
+  #profitCard table.profit-grid{width:100%; table-layout:fixed; font-size:10.5px;}
+  #profitCard table.profit-grid th, #profitCard table.profit-grid td{padding:3px 4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #profitCard table.profit-grid td.pg-label, #profitCard table.profit-grid th.pg-label{width:110px; min-width:0; max-width:none; font-size:10.5px;}
+  #profitCard table.profit-grid td.pg-num{min-width:0;}
+  #profitCard table.profit-grid input{font-size:10.5px; width:100%; box-sizing:border-box; padding:1px 2px;}
+  #profitCard .table-scroll{overflow-x:visible;}
+}
