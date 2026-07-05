@@ -150,26 +150,19 @@ async function appvFetchAppSetting(skey) {
     return null;
   }
 }
-async function appvGetMeisai() {
-  const cloud = await appvFetchAppSetting('profit_meisai');
-  if (cloud && typeof cloud === 'object') {
-    return { sales: Array.isArray(cloud.sales) ? cloud.sales : [], purchases: Array.isArray(cloud.purchases) ? cloud.purchases : [] };
-  }
-  try {
-    const o = JSON.parse(localStorage.getItem('ribre_smp_profit_meisai_v1') || '{}') || {};
-    return { sales: Array.isArray(o.sales) ? o.sales : [], purchases: Array.isArray(o.purchases) ? o.purchases : [] };
-  } catch (e) {
-    return { sales: [], purchases: [] };
-  }
+/* 旧UI(app-simple.js)と同じく「常にローカルを読む」に統一（B2-1）。
+ * 以前はここで毎回クラウド生値を取得して返していたが、その生値には行単位マージ(appvMeiMerge)や
+ * マス単位マージ(appvProvMerge)が一切適用されておらず、旧UIの smpProfitMeiGet/smpProfitProvGet
+ * （常にローカルのみを返す）と挙動が異なっていた。
+ * ページ初期ロード時に一度だけ appvMeiPullCloud/appvProvPullCloud
+ * （旧: smpProfitMeiPullCloud/smpProfitProvPullCloud 1841-1955行目 と同一の
+ * 「クラウド取得→マス/行単位マージ→ローカル保存」）を appvBoot から呼び、
+ * 以後の集計はこの同期的なローカル読み取りだけで完結させる。 */
+function appvGetMeisai() {
+  return appvMeiGet();
 }
-async function appvGetProv() {
-  const cloud = await appvFetchAppSetting('profit_prov');
-  if (cloud && typeof cloud === 'object' && cloud.data) return cloud.data;
-  try {
-    return JSON.parse(localStorage.getItem('ribre_smp_profit_prov_v1') || '{}') || {};
-  } catch (e) {
-    return {};
-  }
+function appvGetProv() {
+  return appvProvGet();
 }
 
 /* ==================== データ取得（Supabase優先・localStorageフォールバック） ====================
@@ -279,7 +272,7 @@ async function appvLoadMonth(month) {
   appvSales = (data.sales || []).map((x) => Object.assign(appvNormalizeSale(x), { srcTag: appvSrcTag(x, 'sale') }));
   appvPurchases = (data.purchases || []).map((x) => Object.assign(appvNormalizePurchase(x), { srcTag: appvSrcTag(x, 'purchase') }));
 
-  const mei = await appvGetMeisai();
+  const mei = appvGetMeisai();
   const meiOf = (e) => (e.month || String(e.date || '').slice(0, 7));
   appvSales = appvSales.concat(mei.sales.filter((e) => meiOf(e) === month).map((e) => appvNormalizeMeisai(e, 'sale')));
   appvPurchases = appvPurchases.concat(mei.purchases.filter((e) => meiOf(e) === month).map((e) => appvNormalizeMeisai(e, 'purchase')));
@@ -331,7 +324,7 @@ async function appvMonthTotals(month) {
   const cur = appvCurrentMonth();
   if (month === cur) {
     // 当月のみ：CSV未取込チャネルの「仮」入力(profit_prov)を、実数0のチャネルに加算
-    const prov = await appvGetProv();
+    const prov = appvGetProv();
     const provMonth = (prov && prov[month]) || {};
     APPV_SALES_CHANNELS.forEach((c) => {
       const real = chanReal[c] || 0;
@@ -349,7 +342,7 @@ async function appvMonthTotals(month) {
   const purSum = purchaseRows.reduce((s, r) => s + num(r.total != null ? r.total : r.cost != null ? r.cost : r.amount), 0);
 
   // 明細（profit_meisai）の当月分
-  const mei = await appvGetMeisai();
+  const mei = appvGetMeisai();
   const meiOf = (e) => (e.month || String(e.date || '').slice(0, 7));
   const meiSaleSum = mei.sales.filter((e) => meiOf(e) === month).reduce((s, e) => s + num(e.amount), 0);
   const meiPurSum = mei.purchases.filter((e) => meiOf(e) === month).reduce((s, e) => s + num(e.amount), 0);
@@ -362,6 +355,7 @@ async function appvMonthTotals(month) {
 
 /* ==================== KPI（選択月・前月比） ==================== */
 async function appvRenderKpi() {
+  try { appvMigrateFromSales(); } catch (e) {}
   const month = appvViewMonth || appvCurrentMonth();
   const prevMonth = appvPrevMonth(month);
 
@@ -1043,7 +1037,7 @@ async function appvProfitYearData(startYear) {
     /* 旧: smpProfitData（app-simple.js 2027行目）と同一に修正（B3）。costへの余計なフォールバックを除去。 */
     venReal[v] = venReal[v] || {}; venReal[v][mk] = (venReal[v][mk] || 0) + num(r.total != null ? r.total : r.amount);
   });
-  const mei = await appvGetMeisai();
+  const mei = appvGetMeisai();
   const meiOf = (e) => (e.month || String(e.date || '').slice(0, 7));
   const meiSales = mei.sales.filter((e) => keyset[meiOf(e)]).map((e) => ({ id: e.id, date: e.date, name: e.name, amount: num(e.amount), mk: meiOf(e) }));
   const meiPur = mei.purchases.filter((e) => keyset[meiOf(e)]).map((e) => ({ id: e.id, date: e.date, name: e.name, amount: num(e.amount), mk: meiOf(e) }));
@@ -1062,6 +1056,7 @@ function appvProfitTd(text, opts) {
   return td;
 }
 async function appvRenderProfit() {
+  try { appvMigrateFromSales(); } catch (e) {}
   appvSetText('profitNote', '売上・仕入・経費は旧UI（かんたんモード）「粗利」タブと同じ集計（EC＋ヤフオク＋メルカリ＋明細の合算）です。黄色＝当月。チャネル・送料・手数料の当月空欄は仮の数字を入力できます。');
   const head = document.getElementById('profitGridHead');
   const body = document.getElementById('profitGridBody');
@@ -1547,7 +1542,7 @@ async function appvGoalCount(m) {
   let c = 0;
   try {
     c = sales().filter((r) => (r.month || String(r.date || '').slice(0, 7)) === m).length;
-    const mei = await appvGetMeisai();
+    const mei = appvGetMeisai();
     c += mei.sales.filter((e) => (e.month || String(e.date || '').slice(0, 7)) === m).length;
   } catch (e) {}
   return c;
@@ -1638,10 +1633,19 @@ async function appvRenderGoals() {
     const t = await appvMonthTotals(m);
     curSale = t.sale; curProf = t.profit;
     sT = num((g.mSale || {})[m]); pT = num((g.mProf || {})[m]);
-    const av = await appvGoalYearAvgUnit();
-    sU = (g.curSaleUnit != null && g.curSaleUnit !== '') ? num(g.curSaleUnit) : av.su;
-    pU = (g.curProfUnit != null && g.curProfUnit !== '') ? num(g.curProfUnit) : av.pu;
-    src = '先月までの平均（手入力で調整可）';
+    // 旧: smpRenderGoals（app-simple.js 471,474行目）と同一。当月は手入力（先月までの平均）、
+    // 過去月選択時はその月の件数から単価を自動算出する（CSV売上行数＋明細行数）。
+    if (m === cur) {
+      const av = await appvGoalYearAvgUnit();
+      sU = (g.curSaleUnit != null && g.curSaleUnit !== '') ? num(g.curSaleUnit) : av.su;
+      pU = (g.curProfUnit != null && g.curProfUnit !== '') ? num(g.curProfUnit) : av.pu;
+      src = '当月：手入力';
+    } else {
+      const cnt = await appvGoalCount(m);
+      sU = cnt ? Math.round(t.sale / cnt) : 0;
+      pU = cnt ? Math.round(t.profit / cnt) : 0;
+      src = '件数から自動（' + cnt + '件）';
+    }
   }
   const saleInput = document.getElementById('goalSaleInput');
   if (saleInput && document.activeElement !== saleInput) saleInput.value = sT || '';
@@ -1671,7 +1675,7 @@ async function appvChannelSaleMap(month) {
   Object.keys(chanReal).forEach((c) => { if (map[c] == null) map[c] = chanReal[c]; });
   const cur = appvCurrentMonth();
   if (month === cur) {
-    const prov = await appvGetProv();
+    const prov = appvGetProv();
     const provMonth = (prov && prov[month]) || {};
     Object.keys(map).forEach((c) => {
       if (map[c] > 0) return;
@@ -1680,7 +1684,7 @@ async function appvChannelSaleMap(month) {
     });
   }
   // 明細(profit_meisai)の売上はチャネル別ではないため「明細」として別枠追加
-  const mei = await appvGetMeisai();
+  const mei = appvGetMeisai();
   const meiSum = mei.sales.filter((e) => (e.month || String(e.date || '').slice(0, 7)) === month).reduce((s, e) => s + num(e.amount), 0);
   if (meiSum) map['明細'] = (map['明細'] || 0) + meiSum;
   return map;
@@ -1892,7 +1896,7 @@ async function appvRenderPriceDist() {
  * 着地予測 = 経過日数までの合計 ÷ 経過日数 × 当月日数（当月選択時のみ。過去月は実績のみ表示）。 */
 async function appvDailySalesData(month) {
   const rows = appvSalesCsvRowsInMonth(month);
-  const mei = await appvGetMeisai();
+  const mei = appvGetMeisai();
   const meiOf = (e) => (e.month || String(e.date || '').slice(0, 7));
   const meiRows = mei.sales.filter((e) => meiOf(e) === month);
   const parts = String(month).split('-');
@@ -2214,7 +2218,7 @@ async function appvRenderYearForecast() {
 async function appvPartnerRankData(startYear) {
   const months = appvFiscalMonths(startYear);
   const keyset = {}; months.forEach((m) => { keyset[m.key] = 1; });
-  const mei = await appvGetMeisai();
+  const mei = appvGetMeisai();
   const meiOf = (e) => (e.month || String(e.date || '').slice(0, 7));
   const byPartner = {};
   mei.sales.filter((e) => keyset[meiOf(e)]).forEach((e) => {
@@ -2356,6 +2360,20 @@ async function appvProvPushCloud() {
     });
     return { ok: r.ok, status: r.status };
   } catch (e) { return { ok: false, reason: e.message }; }
+}
+/* 旧: smpProfitProvPullCloud（app-simple.js 1841-1853行目）と同一。クラウド取得→マス単位マージ→ローカル保存。
+ * この端末にしか無い入力があればクラウドへ押し戻す（旧UIと同一挙動）。 */
+async function appvProvPullCloud() {
+  const cr = appvCreds(); if (!cr) return false;
+  const cloud = await appvProvFetchCloud(cr);
+  if (!cloud) return false;
+  const local = appvProvGet();
+  const merged = appvProvMerge(local, appvProvTsGet(), cloud.data, cloud.ts || 0);
+  const changed = JSON.stringify(merged) !== JSON.stringify(local);
+  try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(merged)); } catch (e) {}
+  appvProvTsSet(Math.max(appvProvTsGet(), Number(cloud.ts || 0)));
+  if (JSON.stringify(merged) !== JSON.stringify(cloud.data)) { try { await appvProvPushCloud(); } catch (e) {} }
+  return changed;
 }
 /* 旧: smpProfitSetProv（1854-1862行目）と同一のマス単位更新（1回のフィールド更新につき1回呼ぶ）。 */
 function appvProvSetOne(o, month, chan, val) {
@@ -2954,6 +2972,30 @@ function appvMeiGet() {
 }
 function appvMeiSet(o) { o.ts = Date.now(); try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(o)); } catch (e) {} }
 
+/* 旧仕様で売上/仕入に混ざった source='明細' を専用ストアへ移動する（旧: smpProfitMigrateFromSales
+ * app-simple.js 1988-2005行目と同一。ダッシュボードから除外するため）。
+ * 旧UIは smpRenderHome/simpleRenderProfitTable の描画直前に毎回呼んでいるため、
+ * appv側も KPI計算(appvRenderKpi)・粗利タブ描画(appvRenderProfit)の直前に同じ条件で呼ぶ。 */
+function appvMigrateFromSales() {
+  const isMei = (r) => String(r.source || '') === '明細';
+  const mei = appvMeiGet(); let changed = false;
+  const s = sales(); const meiS = s.filter(isMei);
+  if (meiS.length) {
+    meiS.forEach((r) => { mei.sales.push({ id: String(r.id || r.client || ('s_' + Date.now() + Math.floor(Math.random() * 1e6))), date: r.date || '', month: r.month || String(r.date || '').slice(0, 7), name: String(r.shop || r.name || ''), amount: num(r.amount != null ? r.amount : r.price) }); });
+    setLS(LS.sales, s.filter((r) => !isMei(r)));
+    try { setLS('ribre_yahoo_sales240', (get('ribre_yahoo_sales240', [])).filter((r) => !isMei(r))); } catch (e) {}
+    changed = true;
+  }
+  const p = purchases(); const meiP = p.filter(isMei);
+  if (meiP.length) {
+    meiP.forEach((r) => { mei.purchases.push({ id: String(r.id || r.client || ('p_' + Date.now() + Math.floor(Math.random() * 1e6))), date: r.date || '', month: r.month || String(r.date || '').slice(0, 7), name: String(r.vendor || r.name || ''), amount: num(r.total != null ? r.total : r.amount) }); });
+    setLS(LS.purchases, p.filter((r) => !isMei(r)));
+    changed = true;
+  }
+  if (changed) appvMeiSet(mei);
+  return changed;
+}
+
 /* ---- クラウドへの明細プッシュ（旧: smpProfitMeiPushCloud と同一の行単位マージ同期） ---- */
 async function appvMeiFetchCloud(cr) {
   try {
@@ -3015,6 +3057,21 @@ async function appvMeiPushCloud() {
     });
     return { ok: r.ok, status: r.status };
   } catch (e) { return { ok: false, reason: e.message }; }
+}
+/* 旧: smpProfitMeiPullCloud（app-simple.js 1942-1955行目）と同一。クラウド取得→行単位マージ→ローカル保存。
+ * クラウド側に無い行をこの端末が持っていた場合は押し戻して復元する（旧UIと同一挙動）。 */
+async function appvMeiPullCloud() {
+  const cr = appvCreds(); if (!cr) return false;
+  const cloud = await appvMeiFetchCloud(cr);
+  if (!cloud) return false;
+  const local = appvMeiGet();
+  const merged = appvMeiMerge(local, cloud);
+  const mergedKey = JSON.stringify({ s: merged.sales, p: merged.purchases });
+  const changed = mergedKey !== JSON.stringify({ s: local.sales, p: local.purchases });
+  try { localStorage.setItem('ribre_smp_profit_meisai_v1', JSON.stringify(merged)); } catch (e) {}
+  const cloudNorm = appvMeiMerge(cloud, cloud);
+  if (mergedKey !== JSON.stringify({ s: cloudNorm.sales, p: cloudNorm.purchases })) { try { await appvMeiPushCloud(); } catch (e) {} }
+  return changed;
 }
 
 /* ---- 販売先／買取先の一覧（旧: smpPartnersGet/Add/smpPartnerOptions と同一キー ribre_smp_partners_v1） ---- */
@@ -4322,6 +4379,17 @@ async function appvOnHomeMonthChange(value) {
 }
 
 /* ==================== 起動 ==================== */
+/* ページ初期ロード時に一度だけ、明細(profit_meisai)・仮入力(profit_prov)をクラウドから取得して
+ * ローカルへマージする（旧: smpProfitMeiPullCloud/smpProfitProvPullCloud と同一処理をappvGetMeisai/appvGetProv
+ * の同期化に合わせて起動時1回だけ実行する形に変更。B2-1）。appvBootはrefreshAll経由で複数回呼ばれ得るため、
+ * フラグで1回だけに制限する。 */
+let appvMeiProvPulledOnce = false;
+async function appvPullMeiProvOnce() {
+  if (appvMeiProvPulledOnce) return;
+  appvMeiProvPulledOnce = true;
+  try { await appvMeiPullCloud(); } catch (e) {}
+  try { await appvProvPullCloud(); } catch (e) {}
+}
 async function appvBoot() {
   const now = new Date();
   const wd = ['日', '月', '火', '水', '木', '金', '土'][now.getDay()];
@@ -4335,6 +4403,7 @@ async function appvBoot() {
   const monthFilter = document.getElementById('monthFilter');
   if (monthFilter && !monthFilter.value) monthFilter.value = appvViewMonth;
 
+  await appvPullMeiProvOnce();
   await appvLoadMonth(appvViewMonth);
   await appvRenderKpi();
   appvRenderRecent();
