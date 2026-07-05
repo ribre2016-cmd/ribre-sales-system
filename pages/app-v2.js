@@ -547,12 +547,15 @@ function appvCsvOrder(row, fallback) {
  * （旧UIの初期状態＝smpListAccFilter='all'・smpListMonth='all'・smpListShipOnly=false と同じ範囲）。 */
 const APPV_SHIP_COPY_ACCS = ['ヤフオク1', 'ヤフオク2', 'ヤフオク3', 'ヤフオク4', 'ヤフオク5', 'ヤフオク6', 'ヤフオク7', 'ヤフオク8', 'メルカリShops'];
 
-/* 旧: smpVisibleSalesRows(app-simple.js 3120-3129行目)のうち、絞り込みUIが無い新UIでは
- * 「送料未入力のみ」off・アカウント'all'・年月'all'に相当する全件を、smpSortByAccount
- * (3140-3149行目)と同じ規則（チャネル順→CSV取込順→添字）で並べ替えて返す。 */
+/* 旧: smpVisibleSalesRows(app-simple.js 3120-3129行目)相当。旧UIは一覧の絞り込み状態で
+ * CSV/送料コピーしていたため、新UIでも取引ページの月フィルタを尊重する
+ * （月フィルタが空のときのみ全期間）。並びは smpSortByAccount(3140-3149行目)と同一。 */
 function appvLedgerSalesRows() {
   const salesAll = get(LS.sales, []);
-  const arr = Array.isArray(salesAll) ? salesAll.slice() : [];
+  let arr = Array.isArray(salesAll) ? salesAll.slice() : [];
+  const monthEl = document.getElementById('monthFilter');
+  const m = monthEl && monthEl.value;
+  if (m) arr = arr.filter((r) => (r.month || String(r.date || '').slice(0, 7)) === m);
   return arr.map((row, idx) => ({ row: row, idx: idx })).sort((a, b) => {
     const ra = appvChannelOrderKey(a.row.shop), rb = appvChannelOrderKey(b.row.shop);
     if (ra !== rb) return ra - rb;
@@ -574,7 +577,9 @@ function appvDownloadSalesCsv() {
     rows.push([r.date || '', r.month || String(r.date || '').slice(0, 7), r.shop || '', r.name || '', amt, fee, ship, profit, r.itemId || r.id || '', r.memo || '']);
   });
   if (rows.length <= 1) { appvToast('該当する売上データがありません'); return; }
-  csvDownload(rows, '売上_全アカウント_全期間.csv');
+  const monthEl = document.getElementById('monthFilter');
+  const mSel = (monthEl && monthEl.value) || '全期間';
+  csvDownload(rows, '売上_全アカウント_' + mSel + '.csv');
 }
 
 /* 旧: smpCopyShippingOnly(app-simple.js 3194-3213行目)と同一。全件表示相当(acc='all')なので
