@@ -41,31 +41,35 @@
 
     <!-- ============ 1. ホーム ============ -->
     <section class="page active" id="page-home">
-      <h1 id="greeting">ホーム</h1>
+      <div class="flex-between">
+        <h1 id="greeting">ホーム</h1>
+        <input type="month" id="homeMonthFilter" title="表示する月を切り替え">
+      </div>
       <div class="muted section-gap" id="todayDate"></div>
 
       <div class="grid4 section-gap">
         <div class="card">
-          <div class="kpi-label">今月の売上</div>
+          <div class="kpi-label">売上</div>
           <div class="kpi-value num" id="kpiSales">¥0</div>
           <div class="kpi-foot" id="kpiSalesFoot"></div>
         </div>
         <div class="card">
-          <div class="kpi-label">今月の仕入</div>
+          <div class="kpi-label">仕入</div>
           <div class="kpi-value num" id="kpiPurchases">¥0</div>
           <div class="kpi-foot" id="kpiPurchasesFoot"></div>
         </div>
         <div class="card">
-          <div class="kpi-label">今月の経費</div>
+          <div class="kpi-label">経費</div>
           <div class="kpi-value num" id="kpiExpenses">¥0</div>
           <div class="kpi-foot" id="kpiExpensesFoot"></div>
         </div>
         <div class="card" style="border-color:var(--accent)">
-          <div class="kpi-label">今月の粗利</div>
+          <div class="kpi-label">粗利</div>
           <div class="kpi-value big num" id="kpiProfit">¥0</div>
           <div class="kpi-foot" id="kpiProfitFoot"></div>
         </div>
       </div>
+      <div class="muted" id="kpiScopeNote" style="font-size:11px;margin-top:-6px;margin-bottom:8px">対象: EC＋ヤフオク＋メルカリ＋明細</div>
 
       <div class="card section-gap">
         <h2>やること</h2>
@@ -118,7 +122,7 @@
         <div class="table-scroll">
           <table>
             <thead>
-              <tr><th>日付</th><th>種別</th><th>品目・内容</th><th>相手先</th><th style="text-align:right">金額</th></tr>
+              <tr><th>日付</th><th>種別</th><th>源</th><th>品目・内容</th><th>相手先</th><th style="text-align:right">金額</th></tr>
             </thead>
             <tbody id="ledgerBody"></tbody>
           </table>
@@ -134,7 +138,7 @@
         <div class="table-scroll">
           <table>
             <thead>
-              <tr><th>月</th><th style="text-align:right">売上計</th><th style="text-align:right">仕入計</th><th style="text-align:right">粗利</th></tr>
+              <tr><th>月</th><th style="text-align:right">売上計</th><th style="text-align:right">仕入計</th><th style="text-align:right">経費計</th><th style="text-align:right">粗利</th></tr>
             </thead>
             <tbody id="profitBody"></tbody>
           </table>

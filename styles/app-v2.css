@@ -198,3 +198,4 @@ tr.rowclick:hover td{background:#FAFBFA;}
 .section-gap{margin-bottom:18px;}
 .flex-between{display:flex; justify-content:space-between; align-items:center;}
 .muted{color:var(--sub);}
+#homeMonthFilter{padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--text);}
