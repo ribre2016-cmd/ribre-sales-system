@@ -647,7 +647,8 @@ async function appvProfitYearData(startYear) {
     if (appvIsMeiRowLocal(r)) return;
     const mk = appvMonthOfLocal(r); if (!keyset[mk]) return;
     const v = String(r.vendor || r.type || '').trim() || 'その他';
-    venReal[v] = venReal[v] || {}; venReal[v][mk] = (venReal[v][mk] || 0) + num(r.total != null ? r.total : (r.cost != null ? r.cost : r.amount));
+    /* 旧: smpProfitData（app-simple.js 2027行目）と同一に修正（B3）。costへの余計なフォールバックを除去。 */
+    venReal[v] = venReal[v] || {}; venReal[v][mk] = (venReal[v][mk] || 0) + num(r.total != null ? r.total : r.amount);
   });
   const mei = await appvGetMeisai();
   const meiOf = (e) => (e.month || String(e.date || '').slice(0, 7));
@@ -1066,7 +1067,10 @@ function appvGoalsGet() {
 function appvGoalsTsGet() { return Number(localStorage.getItem('ribre_smp_goals_ts') || 0) || 0; }
 function appvGoalsTsSet(t) { try { localStorage.setItem('ribre_smp_goals_ts', String(t || Date.now())); } catch (e) {} }
 function appvGoalsSet(o) { try { localStorage.setItem('ribre_smp_goals_v1', JSON.stringify(o)); } catch (e) {} appvGoalsTsSet(Date.now()); appvGoalsPushDebounced(); }
-/* 旧: smpFlatMerge（app-simple.js 326-348行目）と同一のマス単位マージ規則を移植 */
+/* 旧: smpFlatMerge（app-simple.js 326-348行目）と完全同一のマス単位マージ規則に修正（B4）。
+   修正前は `ta = am[k] != null ? am[k] : aTs` のようにキー有無を見ずブロブ全体tsへ
+   フォールバックしており、片方の端末にしか無い月別目標が消える不具合があった。
+   旧実装同様、hasA/hasBでキー存在を判定してからtsフォールバックする。 */
 function appvFlatMerge(a, aTs, b, bTs) {
   a = a || {}; b = b || {};
   const am = (a._m && typeof a._m === 'object') ? a._m : {};
@@ -1078,8 +1082,9 @@ function appvFlatMerge(a, aTs, b, bTs) {
   Object.keys(bm).forEach((k) => { keys[k] = 1; });
   const out = { _m: {} };
   Object.keys(keys).forEach((k) => {
-    const ta = am[k] != null ? am[k] : aTs, tb = bm[k] != null ? bm[k] : bTs;
     const hasA = a[k] != null, hasB = b[k] != null;
+    const ta = Number(am[k] || (hasA ? (aTs || 0) : 0)) || 0;
+    const tb = Number(bm[k] || (hasB ? (bTs || 0) : 0)) || 0;
     const useA = ta >= tb;
     const val = useA ? (hasA ? a[k] : undefined) : (hasB ? b[k] : undefined);
     out._m[k] = Math.max(ta, tb);
@@ -2450,6 +2455,59 @@ async function appvAfterWrite() {
 /* ---- 月ロック（旧: app-simple.js smpIsMonthLocked と同一。ストアも同一） ---- */
 function appvLockedMonthsGet() { try { return JSON.parse(localStorage.getItem('ribre_smp_locked_months') || '[]') || []; } catch (e) { return []; } }
 function appvIsMonthLocked(m) { return appvLockedMonthsGet().indexOf(m) >= 0; }
+/* 旧: smpLockedTsGet/Set・smpLockedMetaGet/Set（app-simple.js 120-124行目）と同一キー・同一形（B6で追加）。
+   クラウド反映(appvLockedPushCloud)のために必要な、月ごとの最終操作時刻。 */
+function appvLockedTsGet() { return Number(localStorage.getItem('ribre_smp_locked_ts') || 0) || 0; }
+function appvLockedTsSet(t) { try { localStorage.setItem('ribre_smp_locked_ts', String(t || Date.now())); } catch (e) {} }
+function appvLockedMetaGet() { try { return JSON.parse(localStorage.getItem('ribre_smp_locked_meta_v1') || '{}') || {}; } catch (e) { return {}; } }
+function appvLockedMetaSet(o) { try { localStorage.setItem('ribre_smp_locked_meta_v1', JSON.stringify(o || {})); } catch (e) {} }
+/* 旧: smpLockedMerge（app-simple.js 141-158行目）と同一（B6で追加）。 */
+function appvLockedMerge(aArr, aMeta, aTs, bArr, bMeta, bTs) {
+  const aSet = {}; (aArr || []).forEach((m) => { aSet[m] = 1; });
+  const bSet = {}; (bArr || []).forEach((m) => { bSet[m] = 1; });
+  const months = {};
+  Object.keys(aSet).forEach((m) => { months[m] = 1; });
+  Object.keys(bSet).forEach((m) => { months[m] = 1; });
+  Object.keys(aMeta || {}).forEach((m) => { months[m] = 1; });
+  Object.keys(bMeta || {}).forEach((m) => { months[m] = 1; });
+  const outMeta = {}; const outArr = [];
+  Object.keys(months).forEach((m) => {
+    const ta = Number((aMeta && aMeta[m]) || (aSet[m] ? aTs : 0)) || 0;
+    const tb = Number((bMeta && bMeta[m]) || (bSet[m] ? bTs : 0)) || 0;
+    const useA = ta >= tb;
+    const locked = useA ? !!aSet[m] : !!bSet[m];
+    outMeta[m] = Math.max(ta, tb);
+    if (locked) outArr.push(m);
+  });
+  return { arr: outArr.sort(), meta: outMeta };
+}
+/* 旧: smpLockedFetchCloud（app-simple.js 162-169行目）と同一（B6で追加）。 */
+async function appvLockedFetchCloud(cr) {
+  try {
+    const r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.locked_months&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return null;
+    const d = await r.json(); const c = d && d[0] && d[0].value;
+    return (c && c.data) ? c : null;
+  } catch (e) { return null; }
+}
+/* 旧: smpLockedPushCloud（app-simple.js 170-186行目）と同一（B6で追加。バックアップ復元後の反映漏れ対策）。 */
+async function appvLockedPushCloud() {
+  if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' };
+  const cr = appvCreds(); if (!cr) return { ok: false, reason: 'no-login' };
+  try {
+    let body = { data: appvLockedMonthsGet(), _m: appvLockedMetaGet(), ts: appvLockedTsGet() };
+    const cloud = await appvLockedFetchCloud(cr);
+    if (cloud) {
+      const merged = appvLockedMerge(appvLockedMonthsGet(), appvLockedMetaGet(), appvLockedTsGet(), cloud.data, cloud._m, cloud.ts || 0);
+      appvLockedMetaSet(merged.meta);
+      try { localStorage.setItem('ribre_smp_locked_months', JSON.stringify(merged.arr)); } catch (e) {}
+      body = { data: merged.arr, _m: merged.meta, ts: Date.now() };
+    }
+    appvLockedTsSet(body.ts);
+    const r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', { method: 'POST', headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([{ user_email: cr.em, skey: 'locked_months', value: body }]) });
+    return { ok: r.ok, status: r.status };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
 
 /* ---- 明細ストア（旧: smpProfitMeiGet/Set と同一キー・同一形） ---- */
 function appvMeiGet() {
@@ -3540,9 +3598,20 @@ function appvBackupImport(file) {
       const li = (typeof email === 'function' && email());
       if (li && window.ribreStore && window.ribreStore.replaceCloudWithLocal) {
         if (statusEl) statusEl.textContent = '復元中…クラウドを置き換えています';
-        window.ribreStore.replaceCloudWithLocal().then(() => {
-          if (statusEl) statusEl.textContent = '✅ 全データ復元＆クラウド反映完了。他端末は「クラウドから最新を取得」を押してください';
-          appvToast('✅ 復元し、クラウドにも反映しました');
+        window.ribreStore.replaceCloudWithLocal().then(async () => {
+          /* 旧: smpFullRestore（app-simple.js 279-281行目）と同様に、sales/purchases以外の
+             ストア（明細・仮入力・月ロック）もクラウドへ反映する（B6）。各pushの失敗はトーストで警告。 */
+          const warnings = [];
+          try { const r = await appvMeiPushCloud(); if (!r || !r.ok) warnings.push('売上・仕入明細'); } catch (e) { warnings.push('売上・仕入明細'); }
+          try { const r = await appvProvPushCloud(); if (!r || !r.ok) warnings.push('仮入力'); } catch (e) { warnings.push('仮入力'); }
+          try { const r = await appvLockedPushCloud(); if (!r || !r.ok) warnings.push('月ロック'); } catch (e) { warnings.push('月ロック'); }
+          if (warnings.length) {
+            if (statusEl) statusEl.textContent = '⚠️ 一部クラウド反映に失敗: ' + warnings.join('・');
+            appvToast('⚠️ クラウド反映に失敗した項目があります: ' + warnings.join('・'));
+          } else {
+            if (statusEl) statusEl.textContent = '✅ 全データ復元＆クラウド反映完了。他端末は「クラウドから最新を取得」を押してください';
+            appvToast('✅ 復元し、クラウドにも反映しました');
+          }
         });
       } else {
         if (statusEl) statusEl.textContent = '✅ 復元しました（未ログイン：この端末のみ）';
