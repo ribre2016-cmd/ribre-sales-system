@@ -2751,6 +2751,24 @@ async function appvInsertRow(kind, date, name, partner, amount, memoRaw) {
   if (r && r.ok) appvToast('☁ クラウドに同期しました');
 }
 
+/* ribre_yahoo_sales240側の同期（旧: app-simple.js smpSyncYahoo 2941-2953行目と同一。
+ * id/itemId一致で同一行を特定し、編集時はshopのみ反映、削除時は同一行を削除する。
+ * これが無いと data-store.js の canonical() が旧ストアに残った行を拾い、
+ * 削除済み・変更前の内容がクラウド同期で復活する）。 */
+function appvSyncYahoo(rec, shop, mode) {
+  try {
+    const key = 'ribre_yahoo_sales240';
+    const arr = JSON.parse(localStorage.getItem(key) || '[]');
+    const match = (r) => (rec.id && r.id === rec.id) || (rec.itemId && r.itemId === rec.itemId);
+    if (mode === 'delete') {
+      localStorage.setItem(key, JSON.stringify(arr.filter((r) => !match(r))));
+    } else {
+      arr.forEach((r) => { if (match(r)) r.shop = shop; });
+      localStorage.setItem(key, JSON.stringify(arr));
+    }
+  } catch (e) {}
+}
+
 /* ---- 更新（編集）----
  * 対象行をappvFindLocalRowIndexで一意特定してから、その要素だけを書き換える。
  * 配列の置換・spliceミスでの全消しを避けるため、対象indexの要素のみ更新する。 */
@@ -2775,6 +2793,7 @@ async function appvUpdateRow(target, kind, date, name, partner, amount, memoRaw)
     row.memo = target.expense ? ('[経費] ' + memoRaw).trim() : memoRaw;
   }
   setLS(arrKey, a);
+  if (isSale) appvSyncYahoo(row, row.shop, 'edit');
   appvCloseModal();
   appvCloseDrawer();
   appvToast('✅ 更新しました');
@@ -2800,8 +2819,10 @@ async function appvDeleteRow(target) {
   const arrKey = isSale ? LS.sales : LS.purchases;
   const a = get(arrKey, []);
   if (!Array.isArray(a) || idx >= a.length) { alert('削除対象の行が見つかりませんでした'); return; }
+  const row = a[idx];
   a.splice(idx, 1);
   setLS(arrKey, a);
+  if (isSale) appvSyncYahoo(row, null, 'delete');
   appvCloseDrawer();
   appvToast('🗑 削除しました');
   await appvAfterWrite();
@@ -2848,6 +2869,30 @@ async function appvAfterWrite() {
 /* ---- 月ロック（旧: app-simple.js smpIsMonthLocked と同一。ストアも同一） ---- */
 function appvLockedMonthsGet() { try { return JSON.parse(localStorage.getItem('ribre_smp_locked_months') || '[]') || []; } catch (e) { return []; } }
 function appvIsMonthLocked(m) { return appvLockedMonthsGet().indexOf(m) >= 0; }
+/* ---- CSV取込のロック月保護（旧: app-simple.js smpLockSnapshotSales/smpLockProtectAfterImport 200-220行目と同一）
+ * 「取込前にロック月の行をスナップショット→取込後、ロック月に属する行を丸ごと取込前状態へ差し戻す」方式。
+ * 新規行だけを弾く従来方式（既存のロック月内の補完更新まで素通りしてしまう）を廃止し、
+ * sales(ribre_full_sales221)/yahoo(ribre_yahoo_sales240)の両ストアを対象に、旧UIと同じ範囲・同じ規則で保護する。 */
+function appvLockSnapshotSales() {
+  if (!appvLockedMonthsGet().length) return null;
+  try { return { s: (sales() || []).slice(), y: JSON.parse(localStorage.getItem('ribre_yahoo_sales240') || '[]') }; } catch (e) { return null; }
+}
+function appvLockProtectAfterImport(snap) {
+  const locked = appvLockedMonthsGet(); if (!locked.length || !snap) return 0;
+  const lset = {}; locked.forEach((m) => { lset[m] = 1; });
+  const mof = (r) => r.month || String(r.date || r.sale_date || '').slice(0, 7);
+  let reverted = 0;
+  [['ribre_full_sales221', snap.s], ['ribre_yahoo_sales240', snap.y]].forEach((pair, i) => {
+    const key = pair[0], pre = pair[1] || [];
+    let cur = []; try { cur = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch (e) {}
+    const kept = cur.filter((r) => !lset[mof(r)]);        // 取込後・ロック外
+    const preLocked = pre.filter((r) => lset[mof(r)]);    // 取込前・ロック月
+    // 実際に取込で"増えた"ロック月の件数だけカウント（既存のロック月データは誤カウントしない）
+    if (i === 0) reverted += Math.max(0, (cur.length - kept.length) - preLocked.length);
+    try { setLS(key, kept.concat(preLocked)); } catch (e) {}
+  });
+  return reverted;
+}
 /* 旧: smpLockedTsGet/Set・smpLockedMetaGet/Set（app-simple.js 120-124行目）と同一キー・同一形（B6で追加）。
    クラウド反映(appvLockedPushCloud)のために必要な、月ごとの最終操作時刻。 */
 function appvLockedTsGet() { return Number(localStorage.getItem('ribre_smp_locked_ts') || 0) || 0; }
@@ -3417,6 +3462,10 @@ function appvImportYahooCsv(file, csvText, account, forceMonth) {
   const idxStatus = appvYFindIndex(h, ['状態', 'ステータス'], 6);
   const idxPay = appvYFindIndex(h, ['支払方法', '決済方法'], 7);
 
+  // 月ロック保護（旧: smpLockSnapshotSales と同一。既存行の補完更新も含めて丸ごと保護するため、
+  // 変更を加える前の状態をスナップショットしておく）
+  const lockSnap = appvLockSnapshotSales();
+
   const old = appvYRows();
   const seen = new Set(old.map((x) => x.itemId));
   let imported = 0, skipped = 0, patched = 0;
@@ -3538,18 +3587,14 @@ function appvImportYahooCsv(file, csvText, account, forceMonth) {
     return { error: '締め済み月のため取込を中止しました' };
   }
 
-  // 月ロック保護（旧: smpLockProtectAfterImport と同じ規則。ロック月の既存行は取込前の状態へ戻す）
-  const lockedMonths = appvLockedMonthsGet();
-  let revertedCount = 0;
-  let finalAdded = added, finalOld = old;
-  if (lockedMonths.length) {
-    const lset = {}; lockedMonths.forEach((m) => { lset[m] = 1; });
-    finalAdded = added.filter((r) => !lset[r.month]);
-    revertedCount = added.length - finalAdded.length;
-  }
-  const merged = appvYSortImportedSalesRows(finalOld.concat(finalAdded));
+  const merged = appvYSortImportedSalesRows(old.concat(added));
   appvYSave(merged);
-  return { added: finalAdded.length, patched: patched, skipped: skipped, total: merged.length, reverted: revertedCount };
+  // 月ロック保護（旧: smpLockProtectAfterImport と同一規則。取込後、ロック月の行は
+  // sales/yahoo両ストアとも丸ごと取込前状態へ差し戻す。新規行だけを弾く方式ではなく、
+  // 既存行への補完更新もロック月なら巻き戻す）
+  const revertedCount = appvLockProtectAfterImport(lockSnap);
+  const finalTotal = appvYRows().length;
+  return { added: added.length, patched: patched, skipped: skipped, total: finalTotal, reverted: revertedCount };
 }
 
 /* ---- 配送CSVパース・照合（旧: pages/app-shipping.js parseCsv/detectShipType/importShippingCsv/matchShipping と同一ロジック） ---- */
@@ -3842,6 +3887,17 @@ function appvRenderShipPersistentTable() {
   appvSetText('impShipMatchCount', String(matched));
   appvSetText('impShipUnmatchCount', String(unmatched));
 }
+/* ribre_yahoo_sales240側の同期（旧: pages/app-shipping.js manualShipping 1219-1225行目 smpSyncYahooShip相当と同一。
+ * id/itemId一致で同一行を更新し、data-store.js canonical() が旧ストアの値を拾って送料が巻き戻るのを防ぐ）。 */
+function appvSyncYahooShip(rec, ship, profit) {
+  try {
+    const key = 'ribre_yahoo_sales240';
+    const arr = JSON.parse(localStorage.getItem(key) || '[]');
+    const match = (r) => (rec.id && r.id === rec.id) || (rec.itemId && r.itemId === rec.itemId);
+    arr.forEach((r) => { if (match(r)) { r.shipping = ship; r.ship = ship; r.profit = profit; if (ship > 0) r.matchStatus = '手入力'; } });
+    localStorage.setItem(key, JSON.stringify(arr));
+  } catch (e) {}
+}
 /* 送料の手入力（旧: pages/app-shipping.js manualShipping と同一ロジック・同一フィールド・同一保存経路。
  * matchStatus='手入力'にして以後のCSV再取込での巻き戻りを防止する）。 */
 async function appvManualShipping(itemId, val) {
@@ -3855,6 +3911,7 @@ async function appvManualShipping(itemId, val) {
   s[idx].profit = num(s[idx].amount || s[idx].price || 0) - num(s[idx].fee || 0) - v;
   s[idx].matchStatus = '手入力';
   setLS(LS.sales, s);
+  appvSyncYahooShip(s[idx], v, s[idx].profit);
   const results = appvShipResults();
   const ri = results.findIndex((r) => String(r.itemId || '') === String(itemId));
   if (ri >= 0) {
