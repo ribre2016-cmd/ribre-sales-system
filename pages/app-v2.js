@@ -1,13 +1,19 @@
 /* RIBRE 新UI Phase A — /app（並行稼働・読み取り専用）
  * 依存: core.js(get/yen/today/LS/sb/sess/email/num), supabase-rest.js(restUrl/restHeaders), auth-gate.js
- * データ（旧UI/app-simple.js の smpProfitMonthTotals と同一のデータ源・同一の集計式に合わせている）:
- *  - 売上（チャネル）/仕入/送料/手数料: Supabase `sales`/`purchases`（フォールバックで
- *    localStorage ribre_full_sales221 / ribre_full_purchases221）。source==='明細' の行は除外
- *    （旧UIでも smpProfitMigrateFromSales で専用ストアへ移され、こちら側の集計には出てこない）。
+ * KPI（売上/仕入/経費/粗利）のデータ源は旧UI(app-simple.js の smpProfitData/smpProfitMonthTotals)と
+ * 完全に同一にしてある（appvMonthTotals参照）。旧UIはSupabaseのsales/purchasesテーブルを
+ * 一切読まず、常にローカル(core.jsのsales()/purchases() = localStorage
+ * ribre_full_sales221 / ribre_full_purchases221)だけを見ているため、KPIも同じくローカルのみを見る:
+ *  - 売上（チャネル）/仕入/送料/手数料: localStorage ribre_full_sales221 / ribre_full_purchases221。
+ *    source==='明細' の行は除外（旧UIでも smpProfitMigrateFromSales で専用ストアへ移され、
+ *    こちら側の集計には出てこない）。
+ *    ※Supabase `sales`/`purchases` テーブルは旧UIからの一方向アップロード先（移行/バックアップ用）
+ *    であり、重複/古い行が残っている場合があるためKPIの参照元にはしない
+ *    （取引一覧の表示（appvLoadMonth）は従来通りSupabase優先のまま）。
  *  - 売上明細・仕入明細（メイン画面の「明細入力」分）: Supabase `app_settings`
  *    (user_email, skey='profit_meisai') の value.sales / value.purchases。ローカルは
  *    localStorage ribre_smp_profit_meisai_v1。
- *  - 経費（送料合計＋手数料合計）: sales行の fee / shipping_fee を月で合計したもの。
+ *  - 経費（送料合計＋手数料合計）: ローカルsales行の fee / ship(送料) を月で合計したもの。
  *    当月のみ、Supabase `app_settings`(skey='profit_prov') の月ごと __ship__/__fee__ 手入力値が
  *    あればそれを優先（CSV取込前の「仮」入力を上書きしないため）。
  *  - 粗利 = 売上合計（明細＋チャネル） − 仕入合計（明細＋買取先） − 送料合計 − 手数料合計
@@ -220,29 +226,33 @@ function appvSrcTag(x, kind) {
 }
 
 /* ==================== 月次集計（KPI）====================
-   旧UI smpProfitMonthTotals と同じ式:
+   旧UI smpProfitData/smpProfitMonthTotals と完全に同じデータ源・同じ式にする。
+   旧UIはSupabaseのsales/purchasesテーブルを一切参照せず、常にローカル
+   (core.jsのsales()/purchases() = localStorage `ribre_full_sales221` /
+   `ribre_full_purchases221`)だけを見ている。新UIが以前Supabaseを優先して
+   読んでいたため、移行用に一方向アップロードされた古い/重複行までKPIに
+   混入し、売上・経費が旧UIより毎月多く出ていた。KPIはローカルのみを見るように統一する。
    売上 = チャネル別sales(明細行除く)の当月合計 + 明細(meisai)売上の当月合計
    仕入 = purchases(明細行除く)の当月合計(vendor別) + 明細(meisai)仕入の当月合計
-   経費 = sales(明細行除く)の fee 当月合計 + shipping_fee 当月合計
+   経費 = sales(明細行除く)の fee 当月合計 + ship(送料) 当月合計
           （当月のみ、profit_prov の __fee__/__ship__ 手入力があれば優先）
    粗利 = 売上 − 仕入 − 経費 */
+function appvIsMeiRowLocal(r) { return String(r && r.source || '') === '明細'; }
+function appvMonthOfLocal(r) { return r.month || String(r.date || r.sale_date || r.purchase_date || '').slice(0, 7); }
 async function appvMonthTotals(month) {
-  const data = await (async () => {
-    const sup = await appvFetchFromSupabase(month);
-    if (sup && (sup.sales.length || sup.purchases.length)) return sup;
-    return appvFetchFromLocal(month);
-  })();
-  const salesRows = (data.sales || []).filter((r) => !appvIsMeiRow(r));
-  const purchaseRows = (data.purchases || []).filter((r) => !appvIsMeiRow(r));
+  const salesAll = get(LS.sales, []);
+  const purchasesAll = get(LS.purchases, []);
+  const salesRows = (Array.isArray(salesAll) ? salesAll : []).filter((r) => appvMonthOfLocal(r) === month && !appvIsMeiRowLocal(r));
+  const purchaseRows = (Array.isArray(purchasesAll) ? purchasesAll : []).filter((r) => appvMonthOfLocal(r) === month && !appvIsMeiRowLocal(r));
 
-  // チャネル別売上の実数（仮入力の対象月チャネルは実数0のときのみ後で埋める）
+  // チャネル別売上の実数（旧UIのchanKeyと同じ: shop→type→matchStatus）。仮入力の対象月チャネルは実数0のときのみ後で埋める
   const chanReal = {};
   let shipSum = 0, feeSum = 0;
   salesRows.forEach((r) => {
-    const c = String(r.account || r.shop || r.market || '').trim() || 'その他';
+    const c = String(r.shop || r.type || r.matchStatus || '').trim() || 'その他';
     const amt = num(r.amount != null ? r.amount : r.price);
     chanReal[c] = (chanReal[c] || 0) + amt;
-    shipSum += num(r.shipping_fee != null ? r.shipping_fee : r.shipping != null ? r.shipping : r.ship);
+    shipSum += num(r.ship != null ? r.ship : r.shipping);
     feeSum += num(r.fee);
   });
   let chanSale = Object.keys(chanReal).reduce((s, c) => s + chanReal[c], 0);
