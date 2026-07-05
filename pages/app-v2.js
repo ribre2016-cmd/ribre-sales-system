@@ -2798,7 +2798,16 @@ function appvSyncYahoo(rec, shop, mode) {
     if (mode === 'delete') {
       localStorage.setItem(key, JSON.stringify(arr.filter((r) => !match(r))));
     } else {
-      arr.forEach((r) => { if (match(r)) r.shop = shop; });
+      // 旧smpSyncYahooはshopのみ更新だったが、新UIの編集は金額・日付・商品名・メモも変更できるため
+      // 編集済みフィールドを全て反映する（両ストアの内容一致を維持。旧UIの配送照合等が古い値を見ないように）
+      arr.forEach((r) => {
+        if (!match(r)) return;
+        r.shop = shop != null ? shop : rec.shop;
+        if (rec.date != null) { r.date = rec.date; r.month = rec.month || String(rec.date || '').slice(0, 7); }
+        if (rec.name != null) r.name = rec.name;
+        if (rec.amount != null) r.amount = rec.amount;
+        if (rec.memo != null) r.memo = rec.memo;
+      });
       localStorage.setItem(key, JSON.stringify(arr));
     }
   } catch (e) {}
