@@ -323,10 +323,13 @@ async function appvMonthTotals(month) {
 
   const cur = appvCurrentMonth();
   if (month === cur) {
-    // 当月のみ：CSV未取込チャネルの「仮」入力(profit_prov)を、実数0のチャネルに加算
+    // 当月のみ：CSV未取込チャネルの「仮」入力(profit_prov)を、実数0のチャネルに加算。
+    // 旧: smpProfitMonthTotals（app-simple.js 2224-2226行目）と同一に、対象チャネルを固定リスト
+    // (APPV_SALES_CHANNELS)だけでなく実データに登場した動的チャネルにも拡張する（B3-2）。
     const prov = appvGetProv();
     const provMonth = (prov && prov[month]) || {};
-    APPV_SALES_CHANNELS.forEach((c) => {
+    const chans = APPV_SALES_CHANNELS.concat(Object.keys(chanReal).filter((c) => APPV_SALES_CHANNELS.indexOf(c) < 0));
+    chans.forEach((c) => {
       const real = chanReal[c] || 0;
       if (real > 0) return;
       const pv = num(provMonth[c]);
@@ -339,7 +342,8 @@ async function appvMonthTotals(month) {
   }
 
   // 仕入（vendor別合計。venKey優先: vendor→type、旧UIと同じ）
-  const purSum = purchaseRows.reduce((s, r) => s + num(r.total != null ? r.total : r.cost != null ? r.cost : r.amount), 0);
+  // 旧: smpProfitData（app-simple.js 2027行目）と同一に修正（B3-1）。costへの余計なフォールバックを除去（total→amountの2段）。
+  const purSum = purchaseRows.reduce((s, r) => s + num(r.total != null ? r.total : r.amount), 0);
 
   // 明細（profit_meisai）の当月分
   const mei = appvGetMeisai();
@@ -1007,9 +1011,21 @@ function appvRenderLedger() {
  * 「売上明細=1件ごとに個別行」「売上チャネル=ヤフオク1〜8・メルカリ・メルカリShops・ラクマ固定＋その他」。
  * 年計列＝当該年度(3月〜翌2月)12ヶ月分の単純合計（旧UIのdataRow/salesRowのtと同一）。 */
 let appvProfitStartYear = null;
+/* 旧: smpProfitMonthsPresent（app-simple.js 1759-1764行目）と同一。sales/purchasesに実際に
+ * 登場する月(YYYY-MM)の一覧を昇順で返す。 */
+function appvProfitMonthsPresent() {
+  const set = {};
+  sales().forEach((r) => { const m = r.month || String(r.date || r.sale_date || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(m)) set[m] = 1; });
+  purchases().forEach((r) => { const m = r.month || String(r.date || r.purchase_date || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(m)) set[m] = 1; });
+  return Object.keys(set).sort();
+}
+/* 旧: smpProfitDefaultStartYear（app-simple.js 1765-1771行目）と同一に修正（B3-3）。
+ * 単純に「今月」基準ではなく、実データの最新月を基準に年度開始年を決める。 */
 function appvProfitDefaultStartYear() {
-  const cur = appvCurrentMonth();
-  const y = parseInt(cur.slice(0, 4), 10), m = parseInt(cur.slice(5, 7), 10);
+  const ms = appvProfitMonthsPresent();
+  const latest = ms.length ? ms[ms.length - 1] : today().slice(0, 7);
+  const y = parseInt(latest.slice(0, 4), 10) || (new Date()).getFullYear();
+  const m = parseInt(latest.slice(5, 7), 10) || 1;
   return m >= 3 ? y : y - 1;
 }
 /* 旧: smpProfitData(app-simple.js 2006-2035行目)と同一の集計。月ごとのチャネル別売上実数(chanReal)・
@@ -2502,11 +2518,12 @@ function appvOpenDrawer(t) {
   const delBtn = document.getElementById('drawerDeleteBtn');
   const warnEl = document.getElementById('drawerEditWarn');
   if (t._meiId) {
-    // 明細方式の行：編集は明細フォームを開き直し、削除はappvDeleteMeisaiRow（tomb記録・月ロック尊重）
-    const locked = t._locked;
-    if (editBtn) editBtn.disabled = locked;
-    if (delBtn) delBtn.disabled = locked;
-    if (warnEl) { warnEl.style.display = locked ? 'block' : 'none'; warnEl.textContent = '🔒 この月はロックされています。編集・削除はできません。'; }
+    // 明細方式の行：編集は明細フォームを開き直し、削除はappvDeleteMeisaiRow。
+    // 月ロックはCSV取込保護専用であり手入力（明細）はブロックしない（B3-4）ため、
+    // ここでもロックを理由に編集・削除ボタンを無効化しない。
+    if (editBtn) editBtn.disabled = false;
+    if (delBtn) delBtn.disabled = false;
+    if (warnEl) warnEl.style.display = 'none';
   } else {
     // ローカル配列上で一意に同定できない行（同一内容の重複行など）は編集・削除を無効化する
     // （appvFindLocalRowIndexはcid＋order＋一覧添字(_oi)の複合キーで、一覧のその行から
@@ -3124,16 +3141,15 @@ function appvSetMeisaiKind(kind) {
   appvRenderMeisaiPartnerSelect();
   appvUpdateMeisaiLockWarn();
 }
+/* 月ロックは「CSV取込保護専用」（appvLockSnapshotSales/appvLockProtectAfterImport）であり、
+ * 旧UIと同じく手入力（明細）はブロックしない（B3-4方針）。ここでは参考情報として
+ * ロック中である旨を表示するだけで、保存ボタンは無効化しない。 */
 function appvUpdateMeisaiLockWarn() {
   const dateEl = document.getElementById('txMeisaiDate');
   const month = (dateEl && dateEl.value) ? dateEl.value.slice(0, 7) : appvCurrentMonth();
   const locked = appvIsMonthLocked(month);
   const warn = document.getElementById('txMeisaiLockWarn');
   if (warn) warn.style.display = locked ? 'block' : 'none';
-  const saveBtn = document.getElementById('txSaveBtn');
-  if (saveBtn && document.getElementById('txModeChoice').querySelector('.choice-btn.active').dataset.mode === 'meisai') {
-    saveBtn.disabled = locked;
-  }
   return locked;
 }
 function appvOpenMeisaiForm(kind) {
@@ -3153,7 +3169,10 @@ function appvOpenMeisaiForm(kind) {
   appvUpdateMeisaiLockWarn();
 }
 
-/* ---- 明細の保存（旧: smpProfitAddSale/smpProfitAddPurchase と同一のオブジェクト形・同一の保存先・同期） ---- */
+/* ---- 明細の保存（旧: smpProfitAddSale/smpProfitAddPurchase と同一のオブジェクト形・同一の保存先・同期）
+ * 月ロックによる拒否はしない（B3-4）。旧UIは月ロックをCSV取込保護専用としており、
+ * 手入力（明細）はロック中の月でも常に登録できる。CSV保護そのものは
+ * appvLockSnapshotSales/appvLockProtectAfterImport（1-3）で強化済み。 ---- */
 async function appvSaveMeisai() {
   const kind = appvMeiKind;
   const sel = document.getElementById('txMeisaiPartnerSel');
@@ -3164,7 +3183,6 @@ async function appvSaveMeisai() {
   if (!partner) { alert((kind === 'sale' ? '販売先' : '買取先') + 'を選択または入力してください'); return; }
   if (!amt) { alert('金額を入力してください'); return; }
   const month = date.slice(0, 7);
-  if (appvIsMonthLocked(month)) { alert('この月（' + month + '）はロックされています。登録できません。'); return; }
 
   appvPartnersAdd(kind, partner);
   const mei = appvMeiGet();
@@ -3184,8 +3202,7 @@ async function appvSaveMeisai() {
 /* ---- 明細行の編集（旧UIには編集機能自体が無い＝削除＋再登録のみだが、
  * 新UIでは行を直接書き換える。id/upを保持しつつ内容を更新し、行単位マージ
  * (appvMeiMerge)の対象になれるよう up(更新時刻)を現在時刻に更新する。
- * 保存前後どちらの月もロックされていれば拒否する（月をまたぐ編集で
- * ロック月へ移動する／ロック月から動かす、をどちらも防止）。 ---- */
+ * 月ロックによる拒否はしない（B3-4。旧UIと同じくロックはCSV取込保護専用のため）。 ---- */
 async function appvUpdateMeisaiRow(target) {
   const kind = target._meiKind;
   const key = kind === 'sale' ? 'sales' : 'purchases';
@@ -3197,7 +3214,6 @@ async function appvUpdateMeisaiRow(target) {
   if (!partner) { alert((kind === 'sale' ? '販売先' : '買取先') + 'を選択または入力してください'); return; }
   if (!amt) { alert('金額を入力してください'); return; }
   const newMonth = date.slice(0, 7);
-  if (target._locked || appvIsMonthLocked(newMonth)) { alert('ロックされている月のため編集できません。'); return; }
 
   appvPartnersAdd(kind, partner);
   const mei = appvMeiGet();
@@ -3215,14 +3231,13 @@ async function appvUpdateMeisaiRow(target) {
   await appvAfterWrite();
 }
 
-/* ---- 明細行の削除（旧: smpProfitDeleteRow と同一。tombで他端末の復活を防止。月ロック中は不可） ---- */
+/* ---- 明細行の削除（旧: smpProfitDeleteRow と同一。tombで他端末の復活を防止。
+ * 月ロックによる拒否はしない（B3-4。旧UIと同じくロックはCSV取込保護専用のため）。 ---- */
 async function appvDeleteMeisaiRow(kind, id) {
   if (!id) return;
   const key = kind === 'sale' ? 'sales' : 'purchases';
   const mei = appvMeiGet();
   const row = (mei[key] || []).find((e) => String(e.id) === String(id));
-  const month = row ? (row.month || String(row.date || '').slice(0, 7)) : '';
-  if (month && appvIsMonthLocked(month)) { alert('この月（' + month + '）はロックされています。削除できません。'); return; }
   if (!confirm('この明細を削除します。よろしいですか？')) return;
   const before = (mei[key] || []).length;
   mei[key] = (mei[key] || []).filter((e) => String(e.id) !== String(id));
