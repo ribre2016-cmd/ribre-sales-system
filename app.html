@@ -79,8 +79,8 @@
       <div class="card section-gap">
         <h2>クイックアクション</h2>
         <div class="quick-actions">
-          <button class="btn primary" data-action="phaseb-toast" data-label="売上を登録">＋ 売上を登録</button>
-          <button class="btn primary" data-action="phaseb-toast" data-label="仕入を登録">＋ 仕入を登録</button>
+          <button class="btn primary" data-action="open-tx-modal" data-kind="sale">＋ 売上を登録</button>
+          <button class="btn primary" data-action="open-tx-modal" data-kind="purchase">＋ 仕入を登録</button>
           <button class="btn" data-action="goto-evidence">📎 証憑を貼る</button>
         </div>
       </div>
@@ -115,7 +115,7 @@
         <input type="month" id="monthFilter">
         <input type="text" id="searchFilter" placeholder="相手先・品目で検索">
         <div class="spacer"></div>
-        <button class="btn primary" data-action="phaseb-toast" data-label="取引の登録">＋ 登録</button>
+        <button class="btn primary" data-action="open-tx-modal" data-kind="sale">＋ 登録</button>
       </div>
 
       <div class="card" id="ledgerTableCard">
@@ -197,7 +197,7 @@
 <nav class="bottom-nav" id="bottomNav">
   <button class="active" data-page="home"><span class="ic">🏠</span>ホーム</button>
   <button data-page="ledger"><span class="ic">💴</span>取引</button>
-  <div class="fab-wrap"><button class="fab" data-action="phaseb-toast" data-label="取引を登録">＋</button></div>
+  <div class="fab-wrap"><button class="fab" data-action="open-tx-modal" data-kind="sale">＋</button></div>
   <button data-page="evidence"><span class="ic">📎</span>証憑</button>
   <button data-page="analysis"><span class="ic">📊</span>分析</button>
 </nav>
@@ -210,9 +210,42 @@
       <button class="drawer-close" id="drawerCloseBtn">✕</button>
     </div>
     <div id="drawerBody"></div>
+    <div class="muted" id="drawerEditWarn" style="display:none; font-size:12px; margin-top:10px; color:var(--err)">
+      同一内容の行が複数あるため、この行は一意に特定できず編集・削除できません。
+    </div>
     <div class="modal-actions">
-      <button class="btn danger" data-action="phaseb-toast" data-label="削除">削除</button>
-      <button class="btn primary" data-action="phaseb-toast" data-label="編集">編集を保存</button>
+      <button class="btn danger" id="drawerDeleteBtn">削除</button>
+      <button class="btn primary" id="drawerEditBtn">編集</button>
+    </div>
+  </div>
+</div>
+
+<!-- 取引 登録・編集モーダル（Phase B） -->
+<div class="overlay" id="txModalOverlay">
+  <div class="drawer" style="right:auto; left:50%; top:50%; transform:translate(-50%,-50%); width:420px; max-width:92vw; max-height:88vh;">
+    <div class="drawer-head">
+      <h2 id="txModalTitle" style="margin:0">＋ 登録</h2>
+      <button class="drawer-close" id="txModalCloseBtn">✕</button>
+    </div>
+    <div id="txModalForm" data-kind="sale">
+      <div class="tx-kind-choice" id="txModalKind">
+        <button type="button" class="choice-btn active" data-kind="sale">📈 売上</button>
+        <button type="button" class="choice-btn" data-kind="purchase">📦 仕入</button>
+        <button type="button" class="choice-btn" data-kind="expense">🧾 経費</button>
+      </div>
+
+      <div class="tpl-chip-row" id="txTemplateChips"></div>
+      <button type="button" class="btn ghost sm" id="txSaveTplBtn" style="margin-bottom:12px">現在の入力をテンプレートとして保存</button>
+
+      <div class="tx-field"><label>日付</label><input type="date" id="txDate"></div>
+      <div class="tx-field"><label>商品名・内容</label><input type="text" id="txName" placeholder="例：革ジャケット"></div>
+      <div class="tx-field"><label id="txPartnerLabel">相手先</label><input type="text" id="txPartner" placeholder="例：ヤフオク1／ハードオフ"></div>
+      <div class="tx-field"><label>金額（円）</label><input type="number" id="txAmount" inputmode="numeric" placeholder="0"></div>
+      <div class="tx-field"><label>メモ</label><textarea id="txMemo" rows="2" placeholder="任意"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="txModalCancelBtn">キャンセル</button>
+      <button class="btn primary" id="txSaveBtn">登録する</button>
     </div>
   </div>
 </div>

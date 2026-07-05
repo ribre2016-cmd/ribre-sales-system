@@ -199,3 +199,25 @@ tr.rowclick:hover td{background:#FAFBFA;}
 .flex-between{display:flex; justify-content:space-between; align-items:center;}
 .muted{color:var(--sub);}
 #homeMonthFilter{padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--text);}
+
+/* ---------- Phase B: 登録・編集モーダル ---------- */
+.tx-kind-choice{display:flex; gap:8px; margin-bottom:14px;}
+.choice-btn{
+  flex:1; padding:9px 8px; border:1px solid var(--border); border-radius:10px; background:#fff;
+  color:var(--sub); font-size:13px; font-weight:600;
+}
+.choice-btn.active{background:var(--accent-light); border-color:var(--accent); color:var(--accent);}
+.tx-field{margin-bottom:12px;}
+.tx-field label{display:block; font-size:12.5px; color:var(--sub); margin-bottom:4px; font-weight:600;}
+.tx-field input, .tx-field textarea{
+  width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
+  background:#fff; color:var(--text); resize:vertical;
+}
+.tpl-chip-row{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; min-height:24px;}
+.tpl-chip{
+  display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px;
+  border:1px solid var(--border); background:#FAFBFA; color:var(--text); font-size:12px;
+}
+.tpl-chip:hover{background:var(--accent-light); border-color:var(--accent);}
+.tpl-chip-x{color:var(--sub); font-weight:700; padding:0 2px;}
+.tpl-chip-x:hover{color:var(--err);}

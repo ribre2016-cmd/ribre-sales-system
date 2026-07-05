@@ -34,6 +34,27 @@ let appvViewMonth = '';  // ヘッダーの月切替で選択中の月（YYYY-MM
 /* 旧UIと同じチャネル一覧（app-simple.js の SMP_SALES_CHANNELS と同一） */
 const APPV_SALES_CHANNELS = ['ヤフオク1', 'ヤフオク2', 'ヤフオク3', 'ヤフオク4', 'ヤフオク5', 'ヤフオク6', 'ヤフオク7', 'ヤフオク8', 'メルカリ', 'メルカリShops', 'ラクマ'];
 
+/* ==================== 行の同定（services/data-store.js の clientIdOf/stableJson/hashStr と同一規則） ====================
+ * 目的: 取引一覧の行(Supabase由来/ローカル由来どちらもありえる)から、
+ * localStorage(ribre_full_sales221 / ribre_full_purchases221)側の実配列の行を
+ * 一意に特定するため。id/clientがあればそれを使う。無ければ内容のハッシュ(h_...)。
+ * 同一内容の行が複数ある場合はハッシュが重複し「一意に特定できない」状態になるため、
+ * 編集・削除側でその場合は候補数を数えて中断する（誤削除防止）。 */
+function appvStableJson(o) {
+  if (o === null || typeof o !== 'object') return JSON.stringify(o);
+  if (Array.isArray(o)) return '[' + o.map(appvStableJson).join(',') + ']';
+  return '{' + Object.keys(o).sort().map((k) => JSON.stringify(k) + ':' + appvStableJson(o[k])).join(',') + '}';
+}
+function appvHashStr(s) {
+  let h = 5381, i = s.length;
+  while (i) { h = (h * 33) ^ s.charCodeAt(--i); }
+  return (h >>> 0).toString(36);
+}
+function appvClientIdOf(x, prefix) {
+  if (x && (x.id || x.client)) return String(x.client || x.id);
+  return 'h_' + (prefix || '') + appvHashStr(appvStableJson(x || {}));
+}
+
 /* ==================== ユーティリティ ==================== */
 function appvMonthLastDay(monthStr) {
   const parts = String(monthStr).split('-');
@@ -182,7 +203,9 @@ function appvFetchFromLocal(month) {
     purchases: (Array.isArray(purchasesAll) ? purchasesAll : []).filter(inMonth)
   };
 }
-/* Supabase形式・ローカル形式どちらも受けて共通の内部形式へ正規化（取引一覧・最近の取引の表示用） */
+/* Supabase形式・ローカル形式どちらも受けて共通の内部形式へ正規化（取引一覧・最近の取引の表示用）
+ * _cid: 編集・削除で行を同定するための識別子（clientIdOf相当。services/data-store.jsのclientIdOfと同じ規則）。
+ * _shop/_vendor: 編集モーダルへ値を戻すための元フィールド（正規化前の値）。 */
 function appvNormalizeSale(x) {
   return {
     date: x.sale_date || x.date || '',
@@ -190,17 +213,23 @@ function appvNormalizeSale(x) {
     partner: x.account || x.shop || '',
     amount: num(x.amount != null ? x.amount : x.price),
     memo: x.memo || '',
-    source: '明細'  // 上書きされる（呼び出し側で実ソースを設定）
+    source: '明細',  // 上書きされる（呼び出し側で実ソースを設定）
+    _cid: appvClientIdOf(x, 's'),
+    _shop: x.account || x.shop || ''
   };
 }
 function appvNormalizePurchase(x) {
+  const memo = x.memo || '';
   return {
     date: x.purchase_date || x.date || '',
     name: x.item_name || x.name || '',
     partner: x.vendor || '',
     amount: num(x.total != null ? x.total : x.cost != null ? x.cost : x.amount),
-    memo: x.memo || '',
-    source: '明細'
+    memo: memo,
+    source: '明細',
+    _cid: appvClientIdOf(x, 'p'),
+    _vendor: x.vendor || '',
+    expense: /^\[経費\]/.test(String(memo).trim())
   };
 }
 /* 対象月のsales/purchasesを読み込み、appvSales/appvPurchasesへ格納する（表示用：明細=source行含む） */
@@ -538,14 +567,16 @@ async function appvRenderProfit() {
   body.appendChild(tr);
 }
 
-/* ==================== 詳細ドロワー（表示のみ） ==================== */
+/* ==================== 詳細ドロワー（表示＋編集・削除） ==================== */
+let appvDrawerRow = null; // 現在ドロワーに表示中の行（appvSales/appvPurchasesの正規化済み1件）
 function appvOpenDrawer(t) {
+  appvDrawerRow = t;
   const body = document.getElementById('drawerBody');
   if (!body) return;
   appvClear(body);
   const sign = t.type === 'sale' ? 1 : -1;
   const rows = [
-    ['種別', t.type === 'sale' ? '売上' : '仕入'],
+    ['種別', t.type === 'sale' ? '売上' : (t.expense ? '経費' : '仕入')],
     ['源', t.srcTag || ''],
     ['日付', t.date || ''],
     ['品目・内容', t.name || ''],
@@ -566,12 +597,323 @@ function appvOpenDrawer(t) {
     row.appendChild(vEl);
     body.appendChild(row);
   });
+  // ローカル配列上で一意に同定できない行（同一内容の重複行など）は編集・削除を無効化する
+  const canEdit = appvFindLocalRowIndex(t) >= 0;
+  const editBtn = document.getElementById('drawerEditBtn');
+  const delBtn = document.getElementById('drawerDeleteBtn');
+  if (editBtn) editBtn.disabled = !canEdit;
+  if (delBtn) delBtn.disabled = !canEdit;
+  const warnEl = document.getElementById('drawerEditWarn');
+  if (warnEl) warnEl.style.display = canEdit ? 'none' : 'block';
   const overlay = document.getElementById('drawerOverlay');
   if (overlay) overlay.classList.add('show');
 }
 function appvCloseDrawer() {
   const overlay = document.getElementById('drawerOverlay');
   if (overlay) overlay.classList.remove('show');
+}
+
+/* =====================================================================
+ * Phase B — 取引の登録・編集・削除＋テンプレート
+ * 大原則: 新UIは独自の保存経路を作らない。旧UIの addSale()/addPurchase()
+ * (services/app-main-v2.js) と「同じ形・同じ書き込み先」でlocalStorageへ
+ * 書く。クラウド同期は services/data-store.js が window.localStorage.setItem
+ * を差し替えて自動検知しているため(schedule→reconcile)、setLS()経由で
+ * 書けば旧UIと全く同じ経路でSupabaseにも反映される。
+ *
+ * 経費の扱い: 旧UI（かんたんモード手入力タブ）には「経費」という独立した
+ * 登録種別・保存先は存在しない。手入力は 売上(sale)/仕入(purchase) の
+ * 2種類のみで、旧UIダッシュボードの「経費」は sales行のfee(手数料)と
+ * ship(送料)を月合計しただけの“計算値”であり、個別入力の対象ではない。
+ * そのため新UIの経費登録も独自ストアは作らず、既存の purchases 配列に
+ * 旧UIと全く同じ形(addPurchaseと同形)で保存する。他の仕入と区別できるよう
+ * メモ先頭に "[経費]" タグを付与するのみ(キー構成・保存先・同期は仕入と同一)。
+ * ===================================================================== */
+
+/* ---- クラウド同期: 旧UIと同じ即時プッシュ（window.ribreStore.pushSafe） ----
+ * setLS()による書込みは data-store.js の setItemフックで自動的に
+ * debounce(900ms)同期されるが、モーダル保存直後に結果をトーストへ
+ * 出したいため、旧UIのsmpCloudSave()と同様に明示的にもpushSafe()を呼ぶ。 */
+async function appvPushCloudSafe() {
+  try {
+    if (window.ribreStore && typeof window.ribreStore.pushSafe === 'function') {
+      return await window.ribreStore.pushSafe();
+    }
+  } catch (e) {}
+  return { ok: false, reason: 'unavailable' };
+}
+
+/* ---- ローカル配列上での行の同定 ----
+ * appvClientIdOf(旧: services/data-store.js clientIdOf)と同じ規則で
+ * 対象行のIDを求め、ribre_full_sales221 / ribre_full_purchases221 の
+ * 実配列から一致するindexを探す。同一内容の行が複数あり一意に決まらない
+ * 場合は -1 を返し、編集・削除側で安全に中断させる（誤操作防止）。 */
+function appvFindLocalRowIndex(t) {
+  if (!t) return -1;
+  const isSale = t.type === 'sale';
+  const arrKey = isSale ? LS.sales : LS.purchases;
+  const list = get(arrKey, []);
+  if (!Array.isArray(list)) return -1;
+  const targetCid = t._cid || appvClientIdOf(t, isSale ? 's' : 'p');
+  let foundIdx = -1, count = 0;
+  for (let i = 0; i < list.length; i++) {
+    const cid = appvClientIdOf(list[i], isSale ? 's' : 'p');
+    if (cid === targetCid) { count++; foundIdx = i; }
+  }
+  return count === 1 ? foundIdx : -1;
+}
+
+/* ---- 登録モーダル ---- */
+let appvModalMode = 'add'; // 'add' | 'edit'
+let appvModalEditTarget = null; // 編集対象（appvOpenDrawerで開いた行）
+
+function appvModalKindLabel(kind) { return kind === 'sale' ? '売上' : (kind === 'expense' ? '経費' : '仕入'); }
+
+function appvOpenModal(kind, opt) {
+  opt = opt || {};
+  appvModalMode = opt.mode || 'add';
+  appvModalEditTarget = opt.editTarget || null;
+  const modal = document.getElementById('txModalOverlay');
+  if (!modal) return;
+  document.querySelectorAll('#txModalKind .choice-btn').forEach((b) => b.classList.toggle('active', b.dataset.kind === kind));
+  appvSetModalKind(kind);
+  document.getElementById('txModalTitle').textContent = (appvModalMode === 'edit' ? '編集: ' : '＋ 登録: ') + appvModalKindLabel(kind);
+  const dateEl = document.getElementById('txDate');
+  const nameEl = document.getElementById('txName');
+  const partnerEl = document.getElementById('txPartner');
+  const amountEl = document.getElementById('txAmount');
+  const memoEl = document.getElementById('txMemo');
+  if (opt.mode === 'edit' && opt.editTarget) {
+    const t = opt.editTarget;
+    dateEl.value = t.date || today();
+    nameEl.value = t.name || '';
+    partnerEl.value = t.partner || '';
+    amountEl.value = t.amount || '';
+    memoEl.value = (t.memo || '').replace(/^\[経費\]\s*/, '');
+  } else {
+    dateEl.value = today();
+    nameEl.value = '';
+    partnerEl.value = '';
+    amountEl.value = '';
+    memoEl.value = '';
+  }
+  document.getElementById('txSaveBtn').textContent = appvModalMode === 'edit' ? '更新する' : '登録する';
+  appvRenderTemplateChips(kind);
+  modal.classList.add('show');
+}
+function appvCloseModal() {
+  const modal = document.getElementById('txModalOverlay');
+  if (modal) modal.classList.remove('show');
+}
+function appvSetModalKind(kind) {
+  document.querySelectorAll('#txModalKind .choice-btn').forEach((b) => b.classList.toggle('active', b.dataset.kind === kind));
+  document.getElementById('txModalForm').dataset.kind = kind;
+  const partnerLabel = document.getElementById('txPartnerLabel');
+  if (partnerLabel) partnerLabel.textContent = kind === 'sale' ? '販売先' : (kind === 'expense' ? '支払先' : '仕入先');
+  appvRenderTemplateChips(kind);
+}
+
+/* ---- 保存（新規登録）----
+ * 旧UI addSale() / addPurchase() (services/app-main-v2.js) と同形・同じ
+ * localStorageキーへ書く。keyの並び・値の作り方を完全に揃えている。 */
+function appvValidateModal() {
+  const amount = num(document.getElementById('txAmount').value || 0);
+  const dateVal = document.getElementById('txDate').value;
+  if (!dateVal) { alert('日付を入力してください'); return null; }
+  if (!amount) { alert('金額を入力してください（数値・0円不可）'); return null; }
+  return { date: dateVal, amount: amount };
+}
+function appvSaveModal() {
+  const kind = document.getElementById('txModalForm').dataset.kind || 'sale';
+  const v = appvValidateModal();
+  if (!v) return;
+  const name = document.getElementById('txName').value.trim();
+  const partner = document.getElementById('txPartner').value.trim();
+  const memoRaw = document.getElementById('txMemo').value.trim();
+
+  if (appvModalMode === 'edit' && appvModalEditTarget) {
+    appvUpdateRow(appvModalEditTarget, kind, v.date, name, partner, v.amount, memoRaw);
+  } else {
+    appvInsertRow(kind, v.date, name, partner, v.amount, memoRaw);
+  }
+}
+
+/* 旧UI addSale() と同形（id/date/month/shop/name/amount/memo/source）で
+ * sales配列の先頭へ追加する。addPurchase()も同様(vendor/total)。 */
+async function appvInsertRow(kind, date, name, partner, amount, memoRaw) {
+  if (kind === 'sale') {
+    const row = {
+      id: 's_' + Date.now(),
+      date: date,
+      month: date.slice(0, 7),
+      shop: partner || 'その他',
+      name: name,
+      amount: amount,
+      memo: memoRaw,
+      source: 'manual'
+    };
+    const a = sales();
+    a.unshift(row);
+    setLS(LS.sales, a);
+  } else {
+    // 仕入・経費は同形（addPurchaseと同一）。経費のみメモ先頭に[経費]タグを付与して区別する。
+    const memo = kind === 'expense' ? ('[経費] ' + memoRaw).trim() : memoRaw;
+    const row = {
+      id: 'p_' + Date.now(),
+      date: date,
+      month: date.slice(0, 7),
+      vendor: partner || 'その他',
+      name: name,
+      total: amount,
+      memo: memo,
+      source: 'manual'
+    };
+    const a = purchases();
+    a.unshift(row);
+    setLS(LS.purchases, a);
+  }
+  appvCloseModal();
+  appvToast('✅ ' + appvModalKindLabel(kind) + 'を登録しました');
+  await appvAfterWrite();
+  const r = await appvPushCloudSafe();
+  if (r && r.ok) appvToast('☁ クラウドに同期しました');
+}
+
+/* ---- 更新（編集）----
+ * 対象行をappvFindLocalRowIndexで一意特定してから、その要素だけを書き換える。
+ * 配列の置換・spliceミスでの全消しを避けるため、対象indexの要素のみ更新する。 */
+async function appvUpdateRow(target, kind, date, name, partner, amount, memoRaw) {
+  const idx = appvFindLocalRowIndex(target);
+  if (idx < 0) { alert('この行は一意に特定できないため編集できません（同一内容の行が複数存在する可能性があります）'); return; }
+  const isSale = target.type === 'sale';
+  const arrKey = isSale ? LS.sales : LS.purchases;
+  const a = get(arrKey, []);
+  if (!Array.isArray(a) || idx >= a.length) { alert('編集対象の行が見つかりませんでした'); return; }
+  const row = a[idx];
+  row.date = date;
+  row.month = date.slice(0, 7);
+  row.name = name;
+  if (isSale) {
+    row.shop = partner || 'その他';
+    row.amount = amount;
+    row.memo = memoRaw;
+  } else {
+    row.vendor = partner || 'その他';
+    row.total = amount;
+    row.memo = target.expense ? ('[経費] ' + memoRaw).trim() : memoRaw;
+  }
+  setLS(arrKey, a);
+  appvCloseModal();
+  appvCloseDrawer();
+  appvToast('✅ 更新しました');
+  await appvAfterWrite();
+  const r = await appvPushCloudSafe();
+  if (r && r.ok) appvToast('☁ クラウドに同期しました');
+}
+
+/* ---- 削除 ----
+ * confirm必須。対象行をappvFindLocalRowIndexで一意特定し、その1件だけを
+ * splice()で除去する（配列丸ごとの置換は行わない＝誤って全消しにならない）。
+ * 削除前にcreateLocalSnapshot()でスナップショットを取る
+ * （services/data-store.js seedFromThisPC/storage-sync.js の「危険操作の前に
+ * スナップショット」という既存パターンに合わせる。旧UIのaddSale/addPurchase
+ * 自体はスナップショットを取らないが、削除は取消不能なため個別に追加）。 */
+async function appvDeleteRow(target) {
+  const idx = appvFindLocalRowIndex(target);
+  if (idx < 0) { alert('この行は一意に特定できないため削除できません（同一内容の行が複数存在する可能性があります）'); return; }
+  const label = (target.type === 'sale' ? '売上' : (target.expense ? '経費' : '仕入')) + '「' + (target.name || '') + '」（' + yen(target.amount) + '）';
+  if (!confirm(label + ' を削除します。よろしいですか？\nこの操作は取り消せません。')) return;
+  try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv delete'); } catch (e) {}
+  const isSale = target.type === 'sale';
+  const arrKey = isSale ? LS.sales : LS.purchases;
+  const a = get(arrKey, []);
+  if (!Array.isArray(a) || idx >= a.length) { alert('削除対象の行が見つかりませんでした'); return; }
+  a.splice(idx, 1);
+  setLS(arrKey, a);
+  appvCloseDrawer();
+  appvToast('🗑 削除しました');
+  await appvAfterWrite();
+  const r = await appvPushCloudSafe();
+  if (r && r.ok) appvToast('☁ クラウドに同期しました');
+}
+
+/* 保存・更新・削除後の再描画（KPI・最近の取引・一覧を作り直す） */
+async function appvAfterWrite() {
+  const month = appvViewMonth || appvCurrentMonth();
+  await appvLoadMonth(month);
+  await appvRenderKpi();
+  appvRenderRecent();
+  appvRenderLedger();
+  const ledgerActive = document.querySelector('#ledgerTabs .tab.active');
+  if (ledgerActive && ledgerActive.dataset.type === 'profit') await appvRenderProfit();
+}
+
+/* ==================== テンプレート（新UI専用機能。localStorageの新規キー ribre_appv2_templates_v1 のみ使用。旧UIデータには一切触れない） ==================== */
+const APPV_TEMPLATES_KEY = 'ribre_appv2_templates_v1';
+function appvGetTemplates() {
+  try { return JSON.parse(localStorage.getItem(APPV_TEMPLATES_KEY) || '[]') || []; } catch (e) { return []; }
+}
+function appvSetTemplates(list) {
+  try { localStorage.setItem(APPV_TEMPLATES_KEY, JSON.stringify(list.slice(0, 30))); } catch (e) {}
+}
+function appvSaveCurrentAsTemplate() {
+  const kind = document.getElementById('txModalForm').dataset.kind || 'sale';
+  const name = document.getElementById('txName').value.trim();
+  const partner = document.getElementById('txPartner').value.trim();
+  const amount = document.getElementById('txAmount').value;
+  const memo = document.getElementById('txMemo').value.trim();
+  if (!name && !partner && !amount) { alert('テンプレートにする内容がありません'); return; }
+  const list = appvGetTemplates();
+  list.unshift({ id: 't_' + Date.now(), kind: kind, name: name, partner: partner, amount: amount, memo: memo });
+  appvSetTemplates(list);
+  appvRenderTemplateChips(kind);
+  appvToast('📌 テンプレートに保存しました');
+}
+function appvApplyTemplate(tpl) {
+  document.getElementById('txName').value = tpl.name || '';
+  document.getElementById('txPartner').value = tpl.partner || '';
+  document.getElementById('txAmount').value = tpl.amount || '';
+  document.getElementById('txMemo').value = tpl.memo || '';
+}
+function appvDeleteTemplate(id) {
+  if (!confirm('このテンプレートを削除しますか？')) return;
+  appvSetTemplates(appvGetTemplates().filter((t) => t.id !== id));
+  const kind = document.getElementById('txModalForm').dataset.kind || 'sale';
+  appvRenderTemplateChips(kind);
+}
+let appvChipPressTimer = null;
+function appvRenderTemplateChips(kind) {
+  const wrap = document.getElementById('txTemplateChips');
+  if (!wrap) return;
+  appvClear(wrap);
+  const list = appvGetTemplates().filter((t) => t.kind === kind);
+  if (!list.length) {
+    const empty = document.createElement('span');
+    empty.className = 'muted';
+    empty.style.fontSize = '12px';
+    empty.textContent = 'テンプレートはまだありません';
+    wrap.appendChild(empty);
+    return;
+  }
+  list.forEach((tpl) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'tpl-chip';
+    chip.textContent = (tpl.name || tpl.partner || '無題') + (tpl.amount ? '（' + yen(num(tpl.amount)) + '）' : '');
+    chip.title = '長押しまたは×ボタンで削除';
+    chip.addEventListener('click', () => appvApplyTemplate(tpl));
+    // 長押しで削除（モバイル対応）
+    chip.addEventListener('pointerdown', () => {
+      appvChipPressTimer = setTimeout(() => appvDeleteTemplate(tpl.id), 600);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => chip.addEventListener(ev, () => { if (appvChipPressTimer) clearTimeout(appvChipPressTimer); }));
+    const delBtn = document.createElement('span');
+    delBtn.className = 'tpl-chip-x';
+    delBtn.textContent = '×';
+    delBtn.addEventListener('click', (e) => { e.stopPropagation(); appvDeleteTemplate(tpl.id); });
+    chip.appendChild(delBtn);
+    wrap.appendChild(chip);
+  });
 }
 
 /* ==================== ヘッダー月切替 ==================== */
@@ -615,6 +957,37 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('[data-page-link]').forEach((b) => b.addEventListener('click', () => appvGotoPage(b.dataset.pageLink)));
   document.querySelectorAll('[data-action="phaseb-toast"]').forEach((b) => b.addEventListener('click', () => appvPhaseBToast(b.dataset.label || '')));
   document.querySelectorAll('[data-action="goto-evidence"]').forEach((b) => b.addEventListener('click', () => { window.location.href = '/mf-evidence'; }));
+
+  /* クイックアクション／＋登録／FAB: 種別プリセット済みの登録モーダルを開く */
+  document.querySelectorAll('[data-action="open-tx-modal"]').forEach((b) => {
+    b.addEventListener('click', () => appvOpenModal(b.dataset.kind || 'sale', { mode: 'add' }));
+  });
+  document.querySelectorAll('#txModalKind .choice-btn').forEach((b) => {
+    b.addEventListener('click', () => appvSetModalKind(b.dataset.kind));
+  });
+  const txModalOverlay = document.getElementById('txModalOverlay');
+  if (txModalOverlay) txModalOverlay.addEventListener('click', (e) => { if (e.target === txModalOverlay) appvCloseModal(); });
+  const txModalCloseBtn = document.getElementById('txModalCloseBtn');
+  if (txModalCloseBtn) txModalCloseBtn.addEventListener('click', appvCloseModal);
+  const txModalCancelBtn = document.getElementById('txModalCancelBtn');
+  if (txModalCancelBtn) txModalCancelBtn.addEventListener('click', appvCloseModal);
+  const txSaveBtn = document.getElementById('txSaveBtn');
+  if (txSaveBtn) txSaveBtn.addEventListener('click', appvSaveModal);
+  const txSaveTplBtn = document.getElementById('txSaveTplBtn');
+  if (txSaveTplBtn) txSaveTplBtn.addEventListener('click', appvSaveCurrentAsTemplate);
+
+  /* ドロワーの編集・削除 */
+  const drawerEditBtn = document.getElementById('drawerEditBtn');
+  if (drawerEditBtn) drawerEditBtn.addEventListener('click', () => {
+    if (!appvDrawerRow) return;
+    const kind = appvDrawerRow.type === 'sale' ? 'sale' : (appvDrawerRow.expense ? 'expense' : 'purchase');
+    appvOpenModal(kind, { mode: 'edit', editTarget: appvDrawerRow });
+  });
+  const drawerDeleteBtn = document.getElementById('drawerDeleteBtn');
+  if (drawerDeleteBtn) drawerDeleteBtn.addEventListener('click', () => {
+    if (!appvDrawerRow) return;
+    appvDeleteRow(appvDrawerRow);
+  });
 
   document.querySelectorAll('#ledgerTabs .tab').forEach((tab) => {
     tab.addEventListener('click', () => {
