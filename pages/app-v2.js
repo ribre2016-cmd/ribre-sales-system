@@ -503,6 +503,14 @@ function appvRenderRecent() {
 }
 
 /* ==================== 取引一覧（台帳・読み取り専用） ==================== */
+/* チャネルの表示順キー: ヤフオク1→2→…→8 を数値順で先頭に、その他チャネル・明細相手は後ろ（名前順） */
+function appvChannelOrderKey(partner) {
+  const m = String(partner || '').match(/^ヤフオク\s*(\d+)/);
+  if (m) return Number(m[1]);
+  if (/^メルカリ/.test(String(partner || ''))) return 100;
+  if (/^ラクマ/.test(String(partner || ''))) return 110;
+  return 500;
+}
 function appvRenderLedger() {
   const body = document.getElementById('ledgerBody');
   if (!body) return;
@@ -510,7 +518,17 @@ function appvRenderLedger() {
   const search = searchEl ? searchEl.value.trim() : '';
   appvClear(body);
 
-  let list = appvMergeRecent(appvSales, appvPurchases, 100000);
+  // 並び順: ヤフオク1→8の順、各チャネル内は元データ(CSV取込)の並び順を維持
+  let list = []
+    .concat(appvSales.map((x, i) => Object.assign({ type: 'sale', _oi: i }, x)))
+    .concat(appvPurchases.map((x, i) => Object.assign({ type: 'purchase', _oi: 100000 + i }, x)));
+  list.sort((a, b) => {
+    const ka = appvChannelOrderKey(a.partner), kb = appvChannelOrderKey(b.partner);
+    if (ka !== kb) return ka - kb;
+    const pa = String(a.partner || ''), pb = String(b.partner || '');
+    if (ka === 500 && pa !== pb) return pa.localeCompare(pb, 'ja');
+    return a._oi - b._oi;
+  });
   if (appvLedgerTab !== 'all') list = list.filter((t) => t.type === appvLedgerTab);
   if (search) list = list.filter((t) => (t.name || '').includes(search) || (t.partner || '').includes(search));
 
