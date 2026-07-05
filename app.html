@@ -146,13 +146,73 @@
       </div>
     </section>
 
-    <!-- ============ 3. 取込（プレースホルダー） ============ -->
+    <!-- ============ 3. 取込（Phase C） ============ -->
     <section class="page" id="page-import">
       <h1>取込</h1>
+      <div class="muted section-gap">ヤフオク・メルカリ等の売上CSV取込、配送CSV照合、メール取込状況の確認ができます（旧UIと同じパーサ・保存先・同期）。</div>
+
+      <div class="card section-gap">
+        <h2>売上CSV取込</h2>
+        <div class="muted" style="margin-bottom:10px">ヤフオク・メルカリ・ラクマ等の売上CSVを取り込みます。重複する商品IDは自動で最新の内容にまとめます。</div>
+        <div class="tx-field"><label>取込元</label>
+          <select id="impYahooAccount">
+            <option value="ヤフオク1">ヤフオク1</option>
+            <option value="ヤフオク2">ヤフオク2</option>
+            <option value="ヤフオク3">ヤフオク3</option>
+            <option value="ヤフオク4">ヤフオク4</option>
+            <option value="ヤフオク5">ヤフオク5</option>
+            <option value="ヤフオク6">ヤフオク6</option>
+            <option value="ヤフオク7">ヤフオク7</option>
+            <option value="ヤフオク8">ヤフオク8</option>
+            <option value="メルカリ">メルカリ</option>
+            <option value="メルカリShops">メルカリShops</option>
+            <option value="ラクマ">ラクマ</option>
+          </select>
+        </div>
+        <div class="tx-field"><label>取込対象月（任意・CSVの日付によらずこの月に反映）</label><input type="month" id="impYahooMonth"></div>
+        <div class="tx-field"><label>売上CSVファイル</label><input type="file" id="impYahooFile" accept=".csv"></div>
+        <button class="btn primary" id="impYahooBtn">取込する</button>
+        <div class="muted" id="impYahooStatus" style="margin-top:10px; font-size:12.5px;"></div>
+      </div>
+
+      <div class="card section-gap">
+        <h2>配送照合</h2>
+        <div class="muted" style="margin-bottom:10px">配送業者のCSV（ヤマト送り状／ヤマト運賃／佐川急便）を取り込んで、当月の売上と照合します。</div>
+        <div class="tx-field"><label>CSV種類</label>
+          <select id="impShipType">
+            <option value="auto">自動判別</option>
+            <option value="yamato1">ヤマト（送り状）</option>
+            <option value="yamato2">ヤマト（運賃明細）</option>
+            <option value="sagawa">佐川急便</option>
+          </select>
+        </div>
+        <div class="tx-field"><label>配送CSVファイル</label><input type="file" id="impShipFile" accept=".csv"></div>
+        <button class="btn primary" id="impShipBtn">取込＋照合する</button>
+        <div class="muted" id="impShipStatus" style="margin-top:10px; font-size:12.5px;"></div>
+        <div id="impShipResult" style="margin-top:12px; display:none;">
+          <div class="flex-between" style="margin-bottom:8px;">
+            <span>一致: <strong class="num" id="impShipMatchCount">0</strong>件</span>
+            <span>不一致: <strong class="num" id="impShipUnmatchCount">0</strong>件</span>
+          </div>
+          <div class="table-scroll" id="impShipUnmatchWrap" style="display:none;">
+            <table>
+              <thead><tr><th>会社</th><th>商品ID</th><th>伝票番号</th><th style="text-align:right">送料</th></tr></thead>
+              <tbody id="impShipUnmatchBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card section-gap">
+        <h2>メール取込状況</h2>
+        <div class="muted" style="margin-bottom:10px" id="impMailNote">読込中...</div>
+        <button class="btn" data-action="goto-evidence">証憑ページを開く →</button>
+      </div>
+
       <div class="card">
-        <h2>Phase Dで実装予定</h2>
-        <div class="muted">CSV取込・OCR取込・メール自動取込などの機能は、今後のフェーズで新UIに統合予定です。現在は従来の画面をご利用ください。</div>
-        <div style="margin-top:14px"><a href="/" class="btn">従来の画面を開く</a></div>
+        <h2>OCR取込</h2>
+        <div class="muted" style="margin-bottom:10px">レシート・請求書のOCR取込は証憑ページで行います。</div>
+        <button class="btn" data-action="goto-evidence">証憑ページで貼り付ける →</button>
       </div>
     </section>
 

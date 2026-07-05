@@ -112,6 +112,7 @@ function appvGotoPage(page) {
   document.querySelectorAll('#sideNav .nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   document.querySelectorAll('#bottomNav button[data-page]').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   window.scrollTo({ top: 0, behavior: 'instant' });
+  if (page === 'import' && typeof appvRenderMailImportStatus === 'function') appvRenderMailImportStatus();
 }
 
 /* ==================== 明細(profit_meisai)・経費仮入力(profit_prov) の取得 ====================
@@ -392,15 +393,24 @@ async function appvFetchEvidenceCount(query) {
     return null;
   }
 }
+/* 配送照合の不一致件数（旧: pages/app-shipping.js shipResults() と同一ストア ribre_shipping_results230 を読むだけ） */
+function appvShipUnmatchCount() {
+  try {
+    const rows = JSON.parse(localStorage.getItem('ribre_shipping_results230') || '[]') || [];
+    return Array.isArray(rows) ? rows.filter((r) => r.status === '未一致').length : 0;
+  } catch (e) { return 0; }
+}
 async function appvRenderTodos() {
   const wrap = document.getElementById('todoList');
   if (!wrap) return;
   const pendingCount = await appvFetchEvidenceCount('?select=id&status=eq.pending');
   const boxTodoCount = await appvFetchEvidenceCount('?select=id&box_meta_done=is.false&status=in.(box_saved,attached)');
+  const shipUnmatched = appvShipUnmatchCount();
 
   const todos = [];
   if (pendingCount) todos.push({ icon: '📧', text: '承認待ちの証憑', count: pendingCount });
   if (boxTodoCount) todos.push({ icon: '📋', text: 'Box入力待ち', count: boxTodoCount });
+  if (shipUnmatched) todos.push({ icon: '🚚', text: '配送照合の不一致', count: shipUnmatched, page: 'import' });
 
   appvClear(wrap);
   if (!todos.length) {
@@ -430,7 +440,9 @@ async function appvRenderTodos() {
     const btn = document.createElement('button');
     btn.className = 'btn sm primary';
     btn.textContent = '対応する';
-    btn.addEventListener('click', () => { window.location.href = '/mf-evidence'; });
+    btn.addEventListener('click', () => {
+      if (t.page === 'import') { appvGotoPage('import'); } else { window.location.href = '/mf-evidence'; }
+    });
     row.appendChild(left);
     row.appendChild(btn);
     wrap.appendChild(row);
@@ -1203,6 +1215,405 @@ async function appvDeleteMeisaiRow(kind, id) {
   appvCloseDrawer();
 }
 
+/* =====================================================================
+ * Phase C — 取込画面（ヤフオクCSV・配送照合・メール取込状況）
+ * 旧UI(pages/app-shipping.js)のパーサ・保存先・照合ロジックを移植する。
+ * 旧関数(importYahooSalesCsv/importShippingCsv/matchShipping)はDOM
+ * (index.htmlの旧「取り込み」タブの実要素・ySet/yRenderのステータス表示等)
+ * に依存しており直接は呼べないため、パーサ・マージ・照合部分のみを
+ * こちらのDOM(imp系)向けに移植している。保存先(localStorageキー)・
+ * マージ規則は完全に同一なので、旧UIから見ても取り込んだデータは同じ形。
+ * ===================================================================== */
+
+/* ---- CSV文字列パース（旧: pages/app-shipping.js yCsvLine/yParseCsv と同一） ---- */
+function appvYCsvLine(line) {
+  const out = [];
+  let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; continue; }
+    if (ch === '"') { q = !q; continue; }
+    if (ch === ',' && !q) { out.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+function appvYParseCsv(text) {
+  text = String(text || '').replace(/^﻿/, '');
+  return text.split(/\r?\n/).filter((x) => x.trim()).map(appvYCsvLine);
+}
+function appvYFindIndex(headers, patterns, fallback) {
+  for (const p of patterns) {
+    const idx = headers.findIndex((h) => String(h || '').includes(p));
+    if (idx >= 0) return idx;
+  }
+  return fallback;
+}
+function appvYItemId(v) {
+  const m = String(v || '').match(/[a-z]?\d{9,12}/i);
+  return m ? m[0] : '';
+}
+function appvYNum(v) {
+  const n = Number(String(v == null ? '' : v).replace(/[¥,円,\s]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+function appvYDate(v) {
+  const s = String(v || '').trim();
+  const m = s.match(/(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/);
+  if (m) return m[1] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[3]).padStart(2, '0');
+  return s || today();
+}
+/* 保存先(旧: yRows/ySave と同一キー ribre_yahoo_sales240。ySaveと同様にribre_full_sales221(LS.sales)にも反映) */
+function appvYRows() { try { return JSON.parse(localStorage.getItem('ribre_yahoo_sales240') || '[]') || []; } catch (e) { return []; } }
+function appvYSave(arr) {
+  const data = arr.slice(0, 20000);
+  localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(data));
+  setLS(LS.sales, data);
+}
+/* 並び順（旧: Y_SALES_ACCOUNT_ORDER/yAccountRank/ySortImportedSalesRows と同一） */
+const APPV_Y_SALES_ACCOUNT_ORDER = ['ヤフオク1', 'ヤフオク2', 'ヤフオク3', 'ヤフオク4', 'ヤフオク5', 'ヤフオク6', 'ヤフオク7', 'ヤフオク8', 'メルカリShops'];
+function appvYAccountRank(name) {
+  const z = '０１２３４５６７８９';
+  const normalized = String(name || '').replace(/[０-９]/g, (ch) => String(z.indexOf(ch))).replace(/\s+/g, '');
+  const idx = APPV_Y_SALES_ACCOUNT_ORDER.indexOf(normalized);
+  return idx >= 0 ? idx : 999;
+}
+function appvYSortImportedSalesRows(rows) {
+  return (rows || []).map((row, idx) => ({ row, idx })).sort((a, b) => {
+    const accountDiff = appvYAccountRank(a.row.shop) - appvYAccountRank(b.row.shop);
+    if (accountDiff) return accountDiff;
+    const ao = Number(a.row.order);
+    const bo = Number(b.row.order);
+    const orderDiff = (Number.isFinite(ao) && ao > 0 ? ao : a.idx + 1) - (Number.isFinite(bo) && bo > 0 ? bo : b.idx + 1);
+    if (orderDiff) return orderDiff;
+    return a.idx - b.idx;
+  }).map((x) => x.row);
+}
+
+/* ---- 売上CSV取込（旧: importYahooSalesCsv と同一ロジック。DOM依存部分のみ引数化） ----
+ * 戻り値: { added, patched, skipped, total } */
+function appvImportYahooCsv(file, csvText, account, forceMonth) {
+  const isYahoo = account.startsWith('ヤフオク');
+  const rows = appvYParseCsv(csvText);
+  if (!rows.length || rows.length === 1) return { error: rows.length ? 'ヘッダー行のみでした' : 'CSVが空です' };
+  const h = rows[0];
+  const isMercariShops = account === 'メルカリShops';
+  const idxId = isYahoo ? appvYFindIndex(h, ['商品ID', 'オークションID', '管理番号'], 0) : isMercariShops ? 0 : appvYFindIndex(h, ['注文番号', '商品ID', '管理番号'], 0);
+  const idxDate = isMercariShops ? 6 : appvYFindIndex(h, ['完了日', '落札日', '終了日時', '取扱日'], 1);
+  const idxName = appvYFindIndex(h, ['商品名', 'タイトル', '取扱内容'], 2);
+  const idxAmount = isMercariShops ? 12 : appvYFindIndex(h, ['決済金額', '落札価格', '売上金額', '合計'], 3);
+  const idxFee = isYahoo ? appvYFindIndex(h, ['落札システム利用料', '手数料'], 4) : isMercariShops ? 15 : appvYFindIndex(h, ['手数料'], 4);
+  const idxShip = appvYFindIndex(h, ['送料'], 5);
+  const idxStatus = appvYFindIndex(h, ['状態', 'ステータス'], 6);
+  const idxPay = appvYFindIndex(h, ['支払方法', '決済方法'], 7);
+
+  const old = appvYRows();
+  const seen = new Set(old.map((x) => x.itemId));
+  let imported = 0, skipped = 0, patched = 0;
+  const added = [];
+
+  rows.slice(1).forEach((r, i) => {
+    const csvOrder = i + 1;
+    const rawId = String(r[idxId] || '').trim();
+    const itemId = isYahoo ? appvYItemId(r[idxId] || r.join(' ')) : (rawId || appvYItemId(r.join(' ')));
+    if (!itemId) { skipped++; return; }
+    const status = String(r[idxStatus] || '');
+    const pay = String(r[idxPay] || '');
+    if (status.includes('受取連絡待ち') || /キャンセル|cancel/i.test(status) || pay.includes('現金振り込み')) { skipped++; return; }
+    const amount = appvYNum(r[idxAmount]);
+    const rawDateVal = String(r[idxDate] || '');
+    const dateStr = (isMercariShops && !/\d{4}[\/\-年]\d{1,2}/.test(rawDateVal)) ? today() : appvYDate(rawDateVal);
+
+    if (seen.has(itemId)) {
+      // 既存(重複)：金額・送料・手数料などの空欄だけ補完する（旧UIと同じ「補完更新」規則）
+      const existing = old.find((x) => x.itemId === itemId);
+      if (existing) {
+        const csvFee = appvYNum(r[idxFee]);
+        const csvShipping = appvYNum(r[idxShip]);
+        let touched = false;
+        if (account && existing.shop !== account) { existing.shop = account; touched = true; }
+        if (forceMonth && existing.month !== forceMonth) {
+          existing.month = forceMonth;
+          existing.date = forceMonth + '-' + (/^\d{4}-\d{2}-(\d{2})/.test(String(existing.date || '')) ? String(existing.date).slice(8, 10) : '01');
+          touched = true;
+        }
+        if (!Number(existing.fee) && csvFee) { existing.fee = csvFee; touched = true; }
+        if (!Number(existing.shipping) && csvShipping) { existing.shipping = csvShipping; existing.ship = csvShipping; touched = true; }
+        if (touched) { existing.profit = Number(existing.amount || existing.price || 0) - Number(existing.fee || 0) - Number(existing.shipping || 0); patched++; }
+      }
+      skipped++;
+      return;
+    }
+
+    const fee = appvYNum(r[idxFee]);
+    const shipping = appvYNum(r[idxShip]);
+    const effMonth = forceMonth || dateStr.slice(0, 7);
+    const effDate = forceMonth ? (forceMonth + '-' + (/^\d{4}-\d{2}-(\d{2})/.test(dateStr) ? dateStr.slice(8, 10) : '01')) : dateStr;
+    const row = {
+      id: itemId, itemId: itemId, date: effDate, month: effMonth, shop: account,
+      name: r[idxName] || '', amount: amount, price: amount, fee: fee, shipping: shipping, ship: shipping,
+      profit: amount - fee - shipping, slip: '', deliveryCompany: '', matchStatus: '売上CSV取込',
+      memo: (isYahoo ? 'ヤフオク売上CSV' : account + '売上CSV') + ' / ' + file.name,
+      source: 'YahooCSV Ver60.0', order: csvOrder
+    };
+    added.push(row);
+    seen.add(itemId);
+    imported++;
+  });
+
+  if (added.length === 0 && patched === 0) return { error: '取込できる行がありませんでした（重複またはCSV形式をご確認ください）' };
+
+  // 月ロック保護（旧: smpLockProtectAfterImport と同じ規則。ロック月の既存行は取込前の状態へ戻す）
+  const lockedMonths = appvLockedMonthsGet();
+  let revertedCount = 0;
+  let finalAdded = added, finalOld = old;
+  if (lockedMonths.length) {
+    const lset = {}; lockedMonths.forEach((m) => { lset[m] = 1; });
+    finalAdded = added.filter((r) => !lset[r.month]);
+    revertedCount = added.length - finalAdded.length;
+  }
+  const merged = appvYSortImportedSalesRows(finalOld.concat(finalAdded));
+  appvYSave(merged);
+  return { added: finalAdded.length, patched: patched, skipped: skipped, total: merged.length, reverted: revertedCount };
+}
+
+/* ---- 配送CSVパース・照合（旧: pages/app-shipping.js parseCsv/detectShipType/importShippingCsv/matchShipping と同一ロジック） ---- */
+function appvParseCsvLine(line) {
+  const out = [];
+  let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; continue; }
+    if (ch === '"') { q = !q; continue; }
+    if (ch === ',' && !q) { out.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+function appvParseCsv(text) {
+  text = String(text || '').replace(/^﻿/, '');
+  return text.split(/\r?\n/).filter((x) => x.trim()).map(appvParseCsvLine);
+}
+function appvNormalizeSlip(v) {
+  return String(v || '').replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/[-\s]/g, '').trim();
+}
+function appvExtractItemId(v) {
+  const s = String(v || '').trim();
+  const order = s.match(/order_[A-Za-z0-9]+/);
+  if (order) return order[0];
+  const m = s.match(/[a-z]?\d{9,12}/i);
+  if (m) return m[0];
+  if (s.length >= 8) return s;
+  return '';
+}
+function appvShipNormId(v) {
+  return String(v == null ? '' : v).replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/[Ａ-Ｚａ-ｚ]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).toLowerCase().replace(/[^a-z0-9_]/g, '');
+}
+function appvShipIdHit(sale, rawId) {
+  const id = appvShipNormId(rawId);
+  if (!id || id.length < 4) return false;
+  return [sale && sale.id, sale && sale.itemId, sale && sale.memo, sale && sale.name].some((f) => { const fv = appvShipNormId(f); return fv && fv.includes(id); });
+}
+function appvShipSlipHit(sale, slip) {
+  const t = appvNormalizeSlip(slip);
+  if (!t) return false;
+  return [sale && sale.slip, sale && sale.invoiceNo, sale && sale.memo].some((f) => appvNormalizeSlip(f) === t);
+}
+function appvDetectShipType(rows) {
+  let y1 = 0, y2 = 0, sg = 0;
+  (rows || []).forEach((r, idx) => {
+    const joined = (r || []).join('');
+    if (!joined.trim()) return;
+    if (idx === 0 && joined.match(/お客様|原票|運賃|伝票|管理|送料|問い合わせ|問合|商品/)) return;
+    if (num(r[11]) > 0 && appvNormalizeSlip(r[4] || '')) y2++;
+    else if (appvExtractItemId(r[0] || '') || appvExtractItemId(r[27] || '')) y1++;
+    if (appvExtractItemId(r[4] || '') && num(r[10]) > 0) sg++;
+  });
+  if (y2 > 0 && y2 >= y1 && y2 >= sg) return 'yamato2';
+  if (y1 > 0 && y1 >= sg) return 'yamato1';
+  if (sg > 0) return 'sagawa';
+  return null;
+}
+/* 配送CSVの保存先(旧: shipRows/saveShipRows と同一キー ribre_shipping_rows230) */
+function appvShipRows() { try { return JSON.parse(localStorage.getItem('ribre_shipping_rows230') || '[]') || []; } catch (e) { return []; } }
+function appvSaveShipRows(arr) { localStorage.setItem('ribre_shipping_rows230', JSON.stringify((arr || []).slice(-10000))); }
+function appvSaveShipResults(arr) { localStorage.setItem('ribre_shipping_results230', JSON.stringify((arr || []).slice(0, 10000))); }
+
+/* 配送CSVの取込（旧: importShippingCsv と同一ロジック） */
+function appvImportShippingCsv(csvText, type) {
+  const rows = appvParseCsv(csvText);
+  if (type === 'auto') {
+    type = appvDetectShipType(rows);
+    if (!type) return { error: 'CSVの種類を自動判別できませんでした。手動で種類を選んで再取込してください。' };
+  }
+  const mapped = [];
+  rows.forEach((r, idx) => {
+    const joined = r.join('');
+    if (idx === 0 && joined.match(/お客様|原票|運賃|伝票|管理|送料|問い合わせ|問合/)) return;
+    const obj = { type: type, raw: r, row: idx + 1, itemId: '', slip: '', shipping: 0, company: '', status: '未照合' };
+    if (type === 'yamato1') {
+      obj.company = 'ヤマト';
+      obj.itemId = appvExtractItemId(r[0] || '') || appvExtractItemId(r[27] || '');
+      obj.slip = appvNormalizeSlip(r[3] || '');
+    } else if (type === 'yamato2') {
+      obj.company = 'ヤマト';
+      obj.slip = appvNormalizeSlip(r[4] || '');
+      obj.shipping = Math.round(num(r[11] || 0) * 1.1);
+    } else {
+      obj.company = '佐川急便';
+      obj.itemId = appvExtractItemId(r[4] || '');
+      obj.shipping = Math.round(num(r[10] || 0) * 1.1);
+    }
+    if (obj.itemId || obj.slip || obj.shipping) mapped.push(obj);
+  });
+  const prev = appvShipRows();
+  const keyOf = (r) => r.type + '|' + (appvNormalizeSlip(r.slip) || String(r.itemId || '') || ('c' + (Array.isArray(r.raw) ? r.raw.join('') : String(r.raw || ''))));
+  const merged = new Map();
+  prev.forEach((r) => merged.set(keyOf(r), r));
+  mapped.forEach((r) => merged.set(keyOf(r), r));
+  const finalRows = Array.from(merged.values());
+  appvSaveShipRows(finalRows);
+  if (!mapped.length) return { error: 'CSVは読めましたが、商品ID・伝票番号・送料が見つかりませんでした。CSV種類を変えて再取込してください。', total: finalRows.length };
+  return { imported: mapped.length, total: finalRows.length };
+}
+
+/* 配送照合の実行（旧: matchShipping と同一ロジック。ribre_full_sales221(sales())を更新） */
+function appvMatchShipping() {
+  const ships = appvShipRows();
+  const s = sales();
+  if (!ships.length) return { error: '先に配送CSVを取込してください' };
+  let matched = 0, unmatched = 0;
+  const unmatchedList = [];
+  ships.forEach((sh) => {
+    let target = null;
+    if (sh.itemId) target = s.find((x) => appvShipIdHit(x, sh.itemId));
+    if (!target && sh.slip) target = s.find((x) => appvShipSlipHit(x, sh.slip));
+    if (target && target.matchStatus === '手入力') return; // 手入力保護（旧UIと同じ）
+    if (target) {
+      if (sh.slip) target.slip = sh.slip;
+      if (sh.shipping) { target.shipping = sh.shipping; target.ship = sh.shipping; target.profit = num(target.amount || target.price) - num(target.fee) - num(sh.shipping); }
+      target.deliveryCompany = sh.company;
+      target.matchStatus = '配送CSV一致';
+      matched++;
+    } else {
+      unmatched++;
+      unmatchedList.push({ company: sh.company, itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping });
+    }
+  });
+  setLS(LS.sales, s);
+  const salesResults = s.map((x) => {
+    const shipped = Number(x.shipping || 0) > 0;
+    const csvMatched = x.matchStatus === '配送CSV一致' && shipped;
+    const status = csvMatched ? '一致' : (shipped ? '匿名配送' : '未一致');
+    return { status: status, company: x.deliveryCompany || '', itemId: x.itemId || x.id || '', slip: x.slip || '', shipping: x.shipping || 0, name: x.name || '' };
+  });
+  appvSaveShipResults(salesResults);
+  return { matched: matched, unmatched: unmatched, unmatchedList: unmatchedList.slice(0, 100) };
+}
+
+/* ---- UIハンドラ ---- */
+function appvImpSetStatus(id, msg) { const el = document.getElementById(id); if (el) el.textContent = msg; }
+function appvReadFileAsText(file, cb) {
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const buf = rd.result;
+      let text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+      if (text.indexOf('�') >= 0) { try { text = new TextDecoder('shift-jis').decode(buf); } catch (e) {} }
+      cb(text);
+    } catch (e) { cb(''); }
+  };
+  rd.onerror = () => cb('');
+  rd.readAsArrayBuffer(file);
+}
+async function appvHandleYahooImport() {
+  const fileEl = document.getElementById('impYahooFile');
+  const file = fileEl && fileEl.files && fileEl.files[0];
+  const account = document.getElementById('impYahooAccount').value;
+  const monthEl = document.getElementById('impYahooMonth');
+  const forceMonth = (monthEl && /^\d{4}-\d{2}$/.test(monthEl.value)) ? monthEl.value : '';
+  if (!file) { alert('売上CSVを選択してください'); return; }
+  appvImpSetStatus('impYahooStatus', '取込中…');
+  try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv yahoo csv import'); } catch (e) {}
+  appvReadFileAsText(file, async (text) => {
+    const r = appvImportYahooCsv(file, text, account, forceMonth);
+    if (r.error) { appvImpSetStatus('impYahooStatus', '⚠ ' + r.error); return; }
+    let msg = '✅ 取込完了：新規 ' + r.added + '件・補完更新 ' + r.patched + '件・スキップ ' + r.skipped + '件（累計 ' + r.total + '件）';
+    if (r.reverted) msg += '　🔒 ロック中の月のため ' + r.reverted + '件は取り込みませんでした';
+    appvImpSetStatus('impYahooStatus', msg);
+    await appvAfterWrite();
+    const push = await appvPushCloudSafe();
+    if (push && push.ok) appvToast('☁ クラウドに同期しました');
+  });
+}
+function appvRenderShipUnmatchTable(list) {
+  const wrap = document.getElementById('impShipUnmatchWrap');
+  const body = document.getElementById('impShipUnmatchBody');
+  if (!wrap || !body) return;
+  appvClear(body);
+  if (!list || !list.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  list.forEach((r) => {
+    const tr = document.createElement('tr');
+    const tdCompany = document.createElement('td'); tdCompany.textContent = r.company || '';
+    const tdItemId = document.createElement('td'); tdItemId.textContent = r.itemId || '';
+    const tdSlip = document.createElement('td'); tdSlip.textContent = r.slip || '';
+    const tdShip = document.createElement('td'); tdShip.style.textAlign = 'right'; tdShip.className = 'num'; tdShip.textContent = yen(r.shipping || 0);
+    tr.appendChild(tdCompany); tr.appendChild(tdItemId); tr.appendChild(tdSlip); tr.appendChild(tdShip);
+    body.appendChild(tr);
+  });
+}
+async function appvHandleShipImport() {
+  const fileEl = document.getElementById('impShipFile');
+  const file = fileEl && fileEl.files && fileEl.files[0];
+  const type = document.getElementById('impShipType').value;
+  if (!file) { alert('配送CSVを選択してください'); return; }
+  appvImpSetStatus('impShipStatus', '取込中…');
+  try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv shipping csv import'); } catch (e) {}
+  const rd = new FileReader();
+  rd.onload = async () => {
+    const text = String(rd.result || '');
+    const r = appvImportShippingCsv(text, type);
+    if (r.error) { appvImpSetStatus('impShipStatus', '⚠ ' + r.error); return; }
+    appvImpSetStatus('impShipStatus', '取込OK（' + r.imported + '件・累計' + r.total + '件）。照合しています…');
+    const m = appvMatchShipping();
+    if (m.error) { appvImpSetStatus('impShipStatus', '⚠ ' + m.error); return; }
+    document.getElementById('impShipResult').style.display = 'block';
+    appvSetText('impShipMatchCount', String(m.matched));
+    appvSetText('impShipUnmatchCount', String(m.unmatched));
+    appvRenderShipUnmatchTable(m.unmatchedList);
+    appvImpSetStatus('impShipStatus', '✅ 照合完了：一致 ' + m.matched + '件・不一致 ' + m.unmatched + '件');
+    await appvAfterWrite();
+    await appvRenderTodos();
+    const push = await appvPushCloudSafe();
+    if (push && push.ok) appvToast('☁ クラウドに同期しました');
+  };
+  rd.onerror = () => appvImpSetStatus('impShipStatus', '⚠ 配送CSVを読み込めませんでした');
+  rd.readAsText(file, 'Shift_JIS');
+}
+
+/* ---- メール取込状況（読み取り専用。mf_evidence の source='mail' を件数・最新日時のみ表示） ---- */
+async function appvRenderMailImportStatus() {
+  const el = document.getElementById('impMailNote');
+  if (!el) return;
+  const u = restUrl('mf_evidence');
+  if (!u) { el.textContent = '未ログインのため表示できません'; return; }
+  try {
+    const res = await fetch(u + '?select=id,created_at&source=eq.mail&order=created_at.desc&limit=1', { headers: Object.assign({}, restHeaders(), { Prefer: 'count=exact' }) });
+    if (!res.ok) { el.textContent = '取得に失敗しました'; return; }
+    const range = res.headers.get('content-range') || '';
+    const cm = /\/(\d+)$/.exec(range);
+    const total = cm ? Number(cm[1]) : null;
+    const data = await res.json();
+    const latest = Array.isArray(data) && data[0] && data[0].created_at ? new Date(data[0].created_at).toLocaleString('ja-JP') : 'なし';
+    el.textContent = 'メール取込：累計 ' + (total != null ? total : '?') + '件／最新取込 ' + latest;
+  } catch (e) {
+    el.textContent = '取得に失敗しました';
+  }
+}
+
 /* ==================== テンプレート（新UI専用機能。localStorageの新規キー ribre_appv2_templates_v1 のみ使用。旧UIデータには一切触れない） ==================== */
 const APPV_TEMPLATES_KEY = 'ribre_appv2_templates_v1';
 function appvGetTemplates() {
@@ -1390,6 +1801,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (drawerOverlay) drawerOverlay.addEventListener('click', (e) => { if (e.target === drawerOverlay) appvCloseDrawer(); });
   const drawerCloseBtn = document.getElementById('drawerCloseBtn');
   if (drawerCloseBtn) drawerCloseBtn.addEventListener('click', appvCloseDrawer);
+
+  /* Phase C: 取込画面（CSV取込・配送照合） */
+  const impYahooBtn = document.getElementById('impYahooBtn');
+  if (impYahooBtn) impYahooBtn.addEventListener('click', appvHandleYahooImport);
+  const impShipBtn = document.getElementById('impShipBtn');
+  if (impShipBtn) impShipBtn.addEventListener('click', appvHandleShipImport);
 
   appvBoot();
 });
