@@ -567,7 +567,8 @@ function appvLedgerSalesRows() {
 
 /* 旧: smpDownloadSalesCsv(app-simple.js 3229-3242行目)と同一の列構成・値・BOM付きCSV。
  * 旧のファイル名規則 '売上_' + (アカウント名 or '全アカウント') + '_' + (年月 or '全期間') + '.csv' のうち、
- * 新UIにはアカウント/年月の絞り込みUIが無いため、常に「全アカウント」「全期間」で出力する。 */
+ * 新UIにはアカウント/年月の絞り込みUIが無いため、常に「全アカウント」「全期間」で出力する。
+ * ボタンからは外し、Excel出力(appvExportReportExcel)に差し替え済み。関数自体は互換のため残す。 */
 function appvDownloadSalesCsv() {
   const arr = appvLedgerSalesRows();
   const rows = [['日付', '月', '取込元', '商品名', '金額', '手数料', '送料', '利益', '商品ID', 'メモ']];
@@ -580,6 +581,117 @@ function appvDownloadSalesCsv() {
   const monthEl = document.getElementById('monthFilter');
   const mSel = (monthEl && monthEl.value) || '全期間';
   csvDownload(rows, '売上_全アカウント_' + mSel + '.csv');
+}
+
+/* ==================== Excel出力(旧UIから移植) ====================
+ * 旧: index.html 集計タブの「Excel出力」ボタン → app-simple.js smpExportReportExcel
+ * (2752-2791行目)。出力の実体はxlsxではなく、HTMLテーブルをSpreadsheetML以前の単純な
+ * <table>ベースのHTMLとして組み立て、MIME "application/vnd.ms-excel" + 拡張子 .xls で
+ * 保存する“HTML-as-.xls”方式（BOM付きUTF-8）。Excelはこの拡張子とcharsetから
+ * HTML文書と認識して開く。列構成・行順・値の計算式を全て同一ロジックで移植する。
+ * 対象期間は旧UIの#smpSummaryMonth(月選択, all=全期間)に相当するものが新UIには無いため、
+ * 取引ページの#monthFilter(空なら全期間)に連動させる。 */
+
+/* 旧: SMP_REPORT_ACCS(app-simple.js 2810行目)と同一の並び順。注意: 通常の一覧表示で使う
+ * SMP_ACCS/APPV_SMP_ACCS(メルカリ→メルカリShopsの順)とは異なり、Excel出力(集計タブ)だけは
+ * メルカリShops→メルカリの順になっているため、専用の定数・キー関数を用意する。 */
+const APPV_REPORT_ACCS = ['ヤフオク1', 'ヤフオク2', 'ヤフオク3', 'ヤフオク4', 'ヤフオク5', 'ヤフオク6', 'ヤフオク7', 'ヤフオク8', 'メルカリShops', 'メルカリ', 'ラクマ', 'その他'];
+function appvReportChannelOrderKey(partner) {
+  const i = APPV_REPORT_ACCS.indexOf(appvNormAccount(partner));
+  return i < 0 ? 999 : i;
+}
+/* 旧: smpSortReportSalesRows(app-simple.js 3151-3163行目)と同一。並び順はAPPV_REPORT_ACCS基準。 */
+function appvSortReportSalesRows(arr) {
+  return (arr || []).map((row, idx) => ({ row: row, idx: idx })).sort((a, b) => {
+    const ra = appvReportChannelOrderKey(a.row.shop), rb = appvReportChannelOrderKey(b.row.shop);
+    if (ra !== rb) return ra - rb;
+    const oa = appvCsvOrder(a.row, a.idx + 1), ob = appvCsvOrder(b.row, b.idx + 1);
+    if (oa !== ob) return oa - ob;
+    return a.idx - b.idx;
+  }).map((x) => x.row);
+}
+
+/* 旧: smpSaleTax(app-simple.js 2467-2470行目)と同一。r.taxがあればそれを、無ければ金額/11の切り捨て。 */
+function appvSaleTax(r) {
+  if (r.tax != null && r.tax !== '') return num(r.tax);
+  return Math.floor(num(r.amount || r.price || 0) / 11);
+}
+/* 旧: smpSaleProfit(app-simple.js 2471-2474行目)と同一。r.profitがあればそれを、無ければ金額-手数料-送料。 */
+function appvSaleProfit(r) {
+  if (r.profit != null && r.profit !== '') return num(r.profit);
+  return num(r.amount || r.price || 0) - num(r.fee) - num(r.ship || r.shipping);
+}
+/* 旧: smpPurchaseTax(app-simple.js 2475-2478行目)と同一。r.taxがあればそれを、無ければ合計/11の切り捨て。 */
+function appvPurchaseTax(r) {
+  if (r.tax != null && r.tax !== '') return num(r.tax);
+  return Math.floor(num(r.total || r.amount || 0) / 11);
+}
+/* 旧: smpMonthStats(app-simple.js 2655-2665行目)と同一。指定月の売上・仕入から集計値と消費税を算出する。 */
+function appvMonthReportStats(month, salesAll, purchasesAll) {
+  const s = (salesAll || []).filter((r) => (r.month || String(r.date || '').slice(0, 7)) === month);
+  const p = (purchasesAll || []).filter((r) => (r.month || String(r.date || '').slice(0, 7)) === month);
+  const sale = s.reduce((a, r) => a + num(r.amount || r.price), 0);
+  const fee = s.reduce((a, r) => a + num(r.fee), 0);
+  const ship = s.reduce((a, r) => a + num(r.ship || r.shipping), 0);
+  const pur = p.reduce((a, r) => a + num(r.total || r.amount), 0);
+  const profit = sale - fee - ship - pur;
+  const tax = Math.floor(sale / 11);
+  return { month: month, sale: sale, fee: fee, ship: ship, pur: pur, profit: profit, tax: tax, count: s.length };
+}
+/* 旧: smpMonthLabel(app-simple.js 58-61行目)と同一。'2026-07' → '2026年7月'。 */
+function appvMonthLabel(month) {
+  const p = String(month || '').split('-');
+  return p.length === 2 ? p[0] + '年' + Number(p[1]) + '月' : '今月';
+}
+/* 旧: smpHtmlCell(app-simple.js 2749-2751行目)と同一のHTMLエスケープ。 */
+function appvHtmlCell(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+/* 旧: smpExportReportExcel(app-simple.js 2752-2791行目)と同一の生成ロジック（バイト単位で同一の
+ * HTML/スタイル/BOM付きBlob/MIME/ファイル名規則）。対象期間のみ、旧の#smpSummaryMonth(月選択select)
+ * の代わりに新UIの#monthFilter(空なら全期間)を使う。 */
+function appvExportReportExcel() {
+  const monthEl = document.getElementById('monthFilter');
+  const month = (monthEl && monthEl.value) || 'all';
+  const all = month === 'all';
+  const salesAll = get(LS.sales, []);
+  const purchasesAll = get(LS.purchases, []);
+  const inMonth = (r) => all || (r.month || String(r.date || '').slice(0, 7)) === month;
+  const sRows = appvSortReportSalesRows((Array.isArray(salesAll) ? salesAll : []).filter(inMonth));
+  const pRows = (Array.isArray(purchasesAll) ? purchasesAll : []).filter(inMonth);
+  const st = all ? null : appvMonthReportStats(month, salesAll, purchasesAll);
+  const totalSale = sRows.reduce((a, r) => a + num(r.amount || r.price), 0);
+  const totalFee = sRows.reduce((a, r) => a + num(r.fee), 0);
+  const totalShip = sRows.reduce((a, r) => a + num(r.ship || r.shipping), 0);
+  const totalPur = pRows.reduce((a, r) => a + num(r.total || r.amount), 0);
+  const profit = totalSale - totalFee - totalShip - totalPur;
+  const tax = st ? st.tax : Math.floor(totalSale / 11);
+  const sheetStyle = '<style>body{font-family:Yu Gothic,Meiryo,sans-serif}table{border-collapse:collapse;margin:12px 0}th{background:#eaf1fb}th,td{border:1px solid #cbd5e1;padding:6px 8px;white-space:nowrap}.num{text-align:right}.title{font-size:18px;font-weight:900}</style>';
+  const summary = [
+    ['対象月', all ? '全期間' : appvMonthLabel(month)],
+    ['売上', totalSale],
+    ['税抜売上', totalSale - tax],
+    ['消費税', tax],
+    ['仕入', totalPur],
+    ['手数料', totalFee],
+    ['送料', totalShip],
+    ['利益', profit],
+    ['商品数', sRows.length],
+    ['平均単価', sRows.length ? Math.round(totalSale / sRows.length) : 0]
+  ];
+  const table = (rows) => '<table>' + rows.map((r, i) => '<tr>' + r.map((c, j) => (i === 0 ? '<th' : '<td') + (typeof c === 'number' ? ' class="num"' : '') + '>' + appvHtmlCell(c) + (i === 0 ? '</th>' : '</td>')).join('') + '</tr>').join('') + '</table>';
+  const salesRows = [['No', '日付', '販売先', '商品ID', '内容', '種別', '手数料', '送料', '消費税', '利益', '金額']]
+    .concat(sRows.map((r, i) => [i + 1, r.date || '', r.shop || '', r.itemId || r.id || '', r.name || '', r.type || '', num(r.fee), num(r.ship || r.shipping), appvSaleTax(r), appvSaleProfit(r), num(r.amount || r.price)]));
+  const purRows = [['No', '日付', '仕入れ先', '金額', '消費税', '手数料', '種別', 'メモ']]
+    .concat(pRows.map((r, i) => [i + 1, r.date || '', r.vendor || '', num(r.total || r.amount), appvPurchaseTax(r), num(r.fee), r.type || '', r.memo || '']));
+  const html = '<html><head><meta charset="utf-8">' + sheetStyle + '</head><body><div class="title">RIBRE 月次レポート</div>' + table(summary) + '<h2>売上明細</h2>' + table(salesRows) + '<h2>仕入明細</h2>' + table(purRows) + '</body></html>';
+  const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'RIBRE_売上仕入レポート_' + (all ? '全期間' : month) + '.xls';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 /* 旧: smpCopyShippingOnly(app-simple.js 3194-3213行目)と同一。全件表示相当(acc='all')なので
@@ -3923,7 +4035,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   appvUpdateLedgerSalesToolsVisibility();
   const ledgerCsvBtn = document.getElementById('ledgerCsvBtn');
-  if (ledgerCsvBtn) ledgerCsvBtn.addEventListener('click', appvDownloadSalesCsv);
+  if (ledgerCsvBtn) ledgerCsvBtn.addEventListener('click', appvExportReportExcel);
   const ledgerShipCopyBtn = document.getElementById('ledgerShipCopyBtn');
   if (ledgerShipCopyBtn) ledgerShipCopyBtn.addEventListener('click', appvCopyShippingOnly);
   const profitYearSel = document.getElementById('profitYearSel');
