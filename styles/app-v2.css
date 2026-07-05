@@ -221,3 +221,13 @@ tr.rowclick:hover td{background:#FAFBFA;}
 .tpl-chip:hover{background:var(--accent-light); border-color:var(--accent);}
 .tpl-chip-x{color:var(--sub); font-weight:700; padding:0 2px;}
 .tpl-chip-x:hover{color:var(--err);}
+
+/* ---------- 分析: 当月の仮入力 ---------- */
+.prov-input{
+  width:110px; padding:6px 8px; border:1px solid var(--border); border-radius:8px;
+  background:#fff; color:var(--text); text-align:right;
+}
+.prov-badge{
+  display:inline-block; padding:2px 8px; border-radius:999px; font-size:11.5px; font-weight:600;
+  background:var(--accent-light); color:var(--accent);
+}

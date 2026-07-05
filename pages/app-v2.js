@@ -113,6 +113,7 @@ function appvGotoPage(page) {
   document.querySelectorAll('#bottomNav button[data-page]').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   window.scrollTo({ top: 0, behavior: 'instant' });
   if (page === 'import' && typeof appvRenderMailImportStatus === 'function') appvRenderMailImportStatus();
+  if (page === 'analysis' && typeof appvRenderProvPanel === 'function') appvRenderProvPanel();
 }
 
 /* ==================== 明細(profit_meisai)・経費仮入力(profit_prov) の取得 ====================
@@ -640,6 +641,177 @@ async function appvRenderProfit() {
   tr.appendChild(tdExp);
   tr.appendChild(tdProfit);
   body.appendChild(tr);
+}
+
+/* =====================================================================
+ * 分析ページ「当月の仮入力」編集パネル（Phase D本実装の先行実装）
+ * 保存先・同期規則は旧UI(app-simple.js)と完全同一にする:
+ *  - ストア構造: localStorage 'ribre_smp_profit_prov_v1' = { [month]: { [チャネル名]: 額, __ship__: 額, __fee__: 額 }, _m: { 'month|チャネル': 更新時刻(ms) } }
+ *    （旧: smpProfitProvGet/smpProfitProvSet 1773-1776行目）
+ *  - マス単位マージ: 月×チャネルごとに _m の更新時刻を比較し新しい方を採用。
+ *    同時刻はローカル優先（旧: smpProvMerge 1781-1810行目、呼び出しは常に merge(local, cloud)）
+ *  - クラウド同期: 保存前に必ずクラウドを取得→マージ→保存の順（旧: smpProfitProvPushCloud 1820-1839行目）。
+ *    Supabase app_settings (user_email, skey='profit_prov') に { data, ts } を upsert。
+ *  - 実数優先ルール: CSV実数(chanReal)が1件でもあるチャネルは仮入力を無視して実数を表示する
+ *    （旧: saleEff 2065行目 "if (real > 0) return real;"）。取込側がprovを消すのではなく、
+ *    表示側（saleEff/appvMonthTotals）が実数を優先するだけ＝実数0に戻ればまた仮が使われる。
+ * ===================================================================== */
+function appvProvGet() {
+  try { return JSON.parse(localStorage.getItem('ribre_smp_profit_prov_v1') || '{}') || {}; } catch (e) { return {}; }
+}
+function appvProvTsGet() { return Number(localStorage.getItem('ribre_smp_profit_prov_ts') || 0) || 0; }
+function appvProvTsSet(t) { try { localStorage.setItem('ribre_smp_profit_prov_ts', String(t || Date.now())); } catch (e) {} }
+/* 旧: smpProvMerge（app-simple.js 1781-1810行目）と同一規則で移植。 */
+function appvProvMerge(aData, aTs, bData, bTs) {
+  const a = aData || {}, b = bData || {};
+  const am = (a._m && typeof a._m === 'object') ? a._m : {};
+  const bm = (b._m && typeof b._m === 'object') ? b._m : {};
+  const keys = {};
+  const collect = (o, m) => {
+    Object.keys(o).forEach((mo) => {
+      if (mo === '_m') return;
+      const row = o[mo];
+      if (row && typeof row === 'object') Object.keys(row).forEach((ch) => { keys[mo + '|' + ch] = 1; });
+    });
+    Object.keys(m).forEach((k) => { keys[k] = 1; });
+  };
+  collect(a, am); collect(b, bm);
+  const out = { _m: {} };
+  Object.keys(keys).forEach((k) => {
+    const i = k.indexOf('|'); if (i < 0) return;
+    const mo = k.slice(0, i), ch = k.slice(i + 1);
+    const hasA = a[mo] && a[mo][ch] != null, hasB = b[mo] && b[mo][ch] != null;
+    const ta = Number(am[k] || (hasA ? (aTs || 0) : 0)) || 0;
+    const tb = Number(bm[k] || (hasB ? (bTs || 0) : 0)) || 0;
+    const useA = ta >= tb; // 同時刻はローカル優先（merge(local, cloud)で呼ぶ）
+    const val = useA ? (hasA ? a[mo][ch] : undefined) : (hasB ? b[mo][ch] : undefined);
+    out._m[k] = Math.max(ta, tb);
+    if (val != null) { out[mo] = out[mo] || {}; out[mo][ch] = val; }
+  });
+  const lim = Date.now() - 180 * 24 * 3600 * 1000;
+  Object.keys(out._m).forEach((k) => { const i = k.indexOf('|'); const mo = k.slice(0, i); const ch = k.slice(i + 1); if (out._m[k] < lim && !(out[mo] && out[mo][ch] != null)) delete out._m[k]; });
+  return out;
+}
+/* 旧: smpProfitProvFetchCloud（1811-1819行目）と同一。 */
+async function appvProvFetchCloud(cr) {
+  try {
+    const r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.profit_prov&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const cloud = data && data[0] && data[0].value;
+    return (cloud && typeof cloud === 'object' && cloud.data) ? cloud : null;
+  } catch (e) { return null; }
+}
+/* 旧: smpProfitProvPushCloud（1820-1839行目）と同一手順：
+   クラウド先取得→マージ→ローカル保存→upsert。 */
+async function appvProvPushCloud() {
+  const cr = appvCreds(); if (!cr) return { ok: false, reason: 'no-login' };
+  try {
+    let body = appvProvGet();
+    const cloud = await appvProvFetchCloud(cr);
+    if (cloud) {
+      body = appvProvMerge(appvProvGet(), appvProvTsGet(), cloud.data, cloud.ts || 0);
+      try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(body)); } catch (e) {}
+    }
+    const now = Date.now();
+    appvProvTsSet(now);
+    const r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
+      method: 'POST',
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ user_email: cr.em, skey: 'profit_prov', value: { data: body, ts: now } }])
+    });
+    return { ok: r.ok, status: r.status };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+/* 旧: smpProfitSetProv（1854-1862行目）と同一のマス単位更新（1回のフィールド更新につき1回呼ぶ）。 */
+function appvProvSetOne(o, month, chan, val) {
+  o[month] = o[month] || {};
+  o._m = (o._m && typeof o._m === 'object') ? o._m : {};
+  const n = Number(String(val == null ? '' : val).replace(/[^0-9.-]/g, '')) || 0;
+  if (n) o[month][chan] = n; else if (o[month]) delete o[month][chan];
+  o._m[month + '|' + chan] = Date.now();
+}
+/* 分析ページのカードを描画：実数(>0)があるチャネルはバッジ表示・入力不可、実数0のチャネルは入力欄。 */
+async function appvRenderProvPanel() {
+  const body = document.getElementById('provChannelBody');
+  if (!body) return;
+  const month = appvCurrentMonth(); // 旧UIと同じく仮入力は当月のみ
+  appvSetText('provMonthLabel', month);
+  const salesAll = get(LS.sales, []);
+  const chanReal = {};
+  (Array.isArray(salesAll) ? salesAll : []).forEach((r) => {
+    if (appvIsMeiRowLocal(r)) return;
+    if (appvMonthOfLocal(r) !== month) return;
+    const c = String(r.shop || r.type || r.matchStatus || '').trim() || 'その他';
+    chanReal[c] = (chanReal[c] || 0) + num(r.amount != null ? r.amount : r.price);
+  });
+  const prov = appvProvGet();
+  const provMonth = prov[month] || {};
+  appvClear(body);
+  APPV_SALES_CHANNELS.forEach((c) => {
+    const real = chanReal[c] || 0;
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td');
+    tdName.textContent = c;
+    const tdVal = document.createElement('td');
+    tdVal.style.textAlign = 'right';
+    if (real > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'prov-badge';
+      badge.textContent = '実数あり';
+      const amt = document.createElement('span');
+      amt.className = 'num';
+      amt.style.marginLeft = '8px';
+      amt.textContent = yen(real);
+      tdVal.appendChild(amt);
+      tdVal.appendChild(badge);
+    } else {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.inputMode = 'numeric';
+      input.className = 'prov-input';
+      input.placeholder = '0';
+      input.dataset.chan = c;
+      const v = provMonth[c];
+      input.value = (v != null ? v : '');
+      tdVal.appendChild(input);
+    }
+    tr.appendChild(tdName);
+    tr.appendChild(tdVal);
+    body.appendChild(tr);
+  });
+  const shipInput = document.getElementById('provShipInput');
+  if (shipInput) shipInput.value = (provMonth.__ship__ != null ? provMonth.__ship__ : '');
+  const feeInput = document.getElementById('provFeeInput');
+  if (feeInput) feeInput.value = (provMonth.__fee__ != null ? provMonth.__fee__ : '');
+  appvSetText('provSaveStatus', '');
+}
+/* 保存ボタン：フォームの全入力値をprovストアへ反映→push（旧UIと同一の同期手順）→KPI再計算・トースト。 */
+async function appvSaveProvPanel() {
+  const btn = document.getElementById('provSaveBtn');
+  const month = appvCurrentMonth();
+  const o = appvProvGet();
+  document.querySelectorAll('#provChannelBody input.prov-input').forEach((input) => {
+    appvProvSetOne(o, month, input.dataset.chan, input.value);
+  });
+  const shipInput = document.getElementById('provShipInput');
+  if (shipInput) appvProvSetOne(o, month, '__ship__', shipInput.value);
+  const feeInput = document.getElementById('provFeeInput');
+  if (feeInput) appvProvSetOne(o, month, '__fee__', feeInput.value);
+  try { localStorage.setItem('ribre_smp_profit_prov_v1', JSON.stringify(o)); } catch (e) {}
+  appvProvTsSet(Date.now());
+  if (btn) btn.disabled = true;
+  appvSetText('provSaveStatus', '保存中…');
+  try {
+    const res = await appvProvPushCloud();
+    appvSetText('provSaveStatus', res && res.ok ? '✅ 保存しました' : '⚠️ クラウド保存に失敗しました（ローカルには保存済み）');
+  } catch (e) {
+    appvSetText('provSaveStatus', '⚠️ クラウド保存に失敗しました（ローカルには保存済み）');
+  }
+  if (btn) btn.disabled = false;
+  await appvRenderProvPanel();
+  if (appvViewMonth === month || !appvViewMonth) await appvRenderKpi();
+  appvToast('仮入力を保存しました');
 }
 
 /* ==================== 詳細ドロワー（表示＋編集・削除） ==================== */
@@ -1956,6 +2128,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (impYahooBtn) impYahooBtn.addEventListener('click', appvHandleYahooImport);
   const impShipBtn = document.getElementById('impShipBtn');
   if (impShipBtn) impShipBtn.addEventListener('click', appvHandleShipImport);
+
+  const provSaveBtn = document.getElementById('provSaveBtn');
+  if (provSaveBtn) provSaveBtn.addEventListener('click', appvSaveProvPanel);
 
   appvBoot();
 });

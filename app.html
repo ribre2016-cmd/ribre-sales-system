@@ -69,7 +69,10 @@
           <div class="kpi-foot" id="kpiProfitFoot"></div>
         </div>
       </div>
-      <div class="muted" id="kpiScopeNote" style="font-size:11px;margin-top:-6px;margin-bottom:8px">対象: EC＋ヤフオク＋メルカリ＋明細</div>
+      <div class="flex-between" style="margin-top:-6px;margin-bottom:8px">
+        <div class="muted" id="kpiScopeNote" style="font-size:11px">対象: EC＋ヤフオク＋メルカリ＋明細</div>
+        <button class="btn ghost sm" data-page-link="analysis" style="font-size:11px;padding:0">仮入力を編集 →</button>
+      </div>
 
       <div class="card section-gap">
         <h2>やること</h2>
@@ -229,6 +232,32 @@
     <!-- ============ 5. 分析（プレースホルダー） ============ -->
     <section class="page" id="page-analysis">
       <h1>分析</h1>
+
+      <!-- 当月の仮入力（Phase D本実装の先行実装）：CSV未取込チャネルの売上・送料・手数料を
+           旧UI(app-simple.js)と同一のprofit_provストアへ入力する。KPI(appvMonthTotals)は
+           既にこのストアを読む実装済みのため、ここで保存すればホームのKPIへ即反映される。 -->
+      <div class="card section-gap">
+        <div class="flex-between">
+          <h2 style="margin:0">当月の仮入力</h2>
+          <span class="muted" id="provMonthLabel" style="font-size:12.5px"></span>
+        </div>
+        <div class="muted" style="font-size:12.5px;margin-top:4px">CSV未取込のチャネルの売上・送料・手数料を仮の金額で入力できます（当月のみ）。CSVを取り込むと実数が優先され、仮入力は自動的に使われなくなります。</div>
+        <div class="table-scroll section-gap">
+          <table>
+            <thead><tr><th>チャネル</th><th style="text-align:right">金額</th></tr></thead>
+            <tbody id="provChannelBody"></tbody>
+            <tfoot>
+              <tr><td>送料合計（仮）</td><td style="text-align:right"><input type="text" inputmode="numeric" id="provShipInput" class="prov-input" placeholder="0"></td></tr>
+              <tr><td>手数料合計（仮）</td><td style="text-align:right"><input type="text" inputmode="numeric" id="provFeeInput" class="prov-input" placeholder="0"></td></tr>
+            </tfoot>
+          </table>
+        </div>
+        <div class="flex-between section-gap" style="margin-top:14px">
+          <span class="muted" id="provSaveStatus" style="font-size:12.5px"></span>
+          <button class="btn primary" id="provSaveBtn">保存</button>
+        </div>
+      </div>
+
       <div class="card">
         <h2>Phase Cで実装予定</h2>
         <div class="muted">売上・粗利の推移グラフや目標管理などの分析機能は、今後のフェーズで新UIに統合予定です。現在は従来の画面をご利用ください。</div>
