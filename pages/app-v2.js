@@ -1210,7 +1210,11 @@ function appvGoalSave() {
   }
   appvGoalsSet(g);
 }
-async function appvGoalOnInput(kind, curSale, curProf) { appvGoalSave(); appvGoalCalc(kind, curSale, curProf); }
+async function appvGoalOnInput(kind, curSale, curProf) {
+  appvGoalSave();
+  appvGoalCalc(kind, curSale, curProf);
+  if (typeof appvRenderPacemaker === 'function') { try { await appvRenderPacemaker(); } catch (e) {} }
+}
 async function appvRenderGoals() {
   const card = document.getElementById('goalSaleBar');
   if (!card) return;
@@ -1558,15 +1562,180 @@ async function appvRenderDailyTrend() {
   }
 }
 
+/* ==================== D. 手数料率・送料率の推移（直近6ヶ月） ====================
+ * 手数料率 = fee合計 ÷ 売上(chanSale+meiSale)合計 × 100（appvMonthTotalsのexp内訳と同じ集計源）。
+ * 送料率も同様。売上0の月は0除算になるため一覧から除外する。 */
+async function appvFeeShipRateLast6Months() {
+  const cur = appvCurrentMonth();
+  const months = [];
+  let m = cur;
+  for (let i = 0; i < 6; i++) { months.unshift(m); m = appvPrevMonth(m); }
+  const out = [];
+  for (const mo of months) {
+    const t = await appvMonthTotals(mo);
+    if (!t.sale) continue; // 売上0の月は表示スキップ
+    out.push({ month: mo, feeRate: (t.fee / t.sale) * 100, shipRate: (t.ship / t.sale) * 100 });
+  }
+  return out;
+}
+async function appvRenderFeeRateChart() {
+  const svg = document.getElementById('feeRateChart');
+  if (!svg) return;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const data = await appvFeeShipRateLast6Months();
+  const W = 640, H = 200, padTop = 14, padBottom = 26, padSide = 10;
+  const chartH = H - padTop - padBottom;
+  if (!data.length) {
+    const label = appvSvgEl('text', { x: W / 2, y: H / 2, 'text-anchor': 'middle', 'font-size': 13, fill: '#67716B' });
+    label.textContent = '対象月の売上データがありません';
+    svg.appendChild(label);
+    return;
+  }
+  const maxRate = Math.max(5, ...data.map((d) => Math.max(d.feeRate, d.shipRate)));
+  const groupW = (W - padSide * 2) / data.length;
+  const barW = Math.min(24, groupW / 3);
+  svg.appendChild(appvSvgEl('line', { x1: padSide, y1: H - padBottom, x2: W - padSide, y2: H - padBottom, stroke: '#E4E7E3', 'stroke-width': 1 }));
+  data.forEach((d, i) => {
+    const cx = padSide + groupW * i + groupW / 2;
+    const feeH = (d.feeRate / maxRate) * chartH;
+    const shipH = (d.shipRate / maxRate) * chartH;
+    const feeBar = appvSvgEl('rect', { x: cx - barW - 2, y: H - padBottom - feeH, width: barW, height: Math.max(1, feeH), fill: 'var(--warn)', rx: 3 });
+    const feeTitle = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    feeTitle.textContent = appvMonthLabel(d.month) + ' 手数料率 ' + d.feeRate.toFixed(1) + '%';
+    feeBar.appendChild(feeTitle);
+    svg.appendChild(feeBar);
+    const shipBar = appvSvgEl('rect', { x: cx + 2, y: H - padBottom - shipH, width: barW, height: Math.max(1, shipH), fill: 'var(--info)', rx: 3 });
+    const shipTitle = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    shipTitle.textContent = appvMonthLabel(d.month) + ' 送料率 ' + d.shipRate.toFixed(1) + '%';
+    shipBar.appendChild(shipTitle);
+    svg.appendChild(shipBar);
+    const label = appvSvgEl('text', { x: cx, y: H - 8, 'text-anchor': 'middle', 'font-size': 11, fill: '#67716B' });
+    label.textContent = Number(d.month.slice(5, 7)) + '月';
+    svg.appendChild(label);
+  });
+}
+
+/* ==================== E. 目標ペースメーカー ====================
+ * 年度末（翌2月末）までの残り日数 = appvFiscalMonths最終月の月末日 − 今日。
+ * 1日あたり必要額 = (年間売上目標 − 年度累計売上) ÷ 残り日数。商品単価はappvGoalsGetのcurSaleUnitを流用。 */
+function appvFiscalYearEndDate(startYear) {
+  const months = appvFiscalMonths(startYear);
+  const lastKey = months[months.length - 1].key; // 翌年2月
+  return new Date(appvMonthLastDay(lastKey) + 'T23:59:59');
+}
+async function appvRenderPacemaker() {
+  const body = document.getElementById('pacemakerBody');
+  if (!body) return;
+  const g = appvGoalsGet();
+  const yearSale = num(g.yearSale);
+  appvClear(body);
+  if (!yearSale) {
+    const note = document.createElement('div');
+    note.className = 'muted';
+    note.textContent = '目標を設定してください（上の「🎯 目標」カードの年度モードで売上目標額を入力）';
+    body.appendChild(note);
+    return;
+  }
+  const startYear = appvFiscalStartYear();
+  const yt = await appvRenderFiscalYearCard();
+  const remainAmount = Math.max(0, yearSale - yt.sale);
+  const endDate = appvFiscalYearEndDate(startYear);
+  const now = new Date();
+  const msPerDay = 24 * 3600 * 1000;
+  const remainDays = Math.max(1, Math.ceil((endDate.getTime() - now.getTime()) / msPerDay));
+  const perDay = Math.round(remainAmount / remainDays);
+  const unit = num(g.curSaleUnit);
+  const perDayCount = unit > 0 ? Math.ceil(perDay / unit) : 0;
+
+  const line1 = document.createElement('div');
+  line1.className = 'flex-between';
+  const l1a = document.createElement('span'); l1a.className = 'muted'; l1a.textContent = '年度累計売上 / 目標';
+  const l1b = document.createElement('span'); l1b.className = 'num'; l1b.textContent = yen(yt.sale) + ' / ' + yen(yearSale);
+  line1.appendChild(l1a); line1.appendChild(l1b);
+  body.appendChild(line1);
+
+  const line2 = document.createElement('div');
+  line2.className = 'flex-between section-gap';
+  line2.style.marginTop = '6px';
+  const l2a = document.createElement('span'); l2a.className = 'muted'; l2a.textContent = '残り金額 / 年度末までの残り日数';
+  const l2b = document.createElement('span'); l2b.className = 'num'; l2b.textContent = yen(remainAmount) + ' / ' + remainDays + '日';
+  line2.appendChild(l2a); line2.appendChild(l2b);
+  body.appendChild(line2);
+
+  const line3 = document.createElement('div');
+  line3.style.marginTop = '10px';
+  line3.style.fontSize = '15px';
+  line3.style.fontWeight = '700';
+  line3.style.color = 'var(--accent)';
+  line3.textContent = '1日あたり ' + yen(perDay) + (unit > 0 ? '（商品単価' + yen(unit) + 'なら約' + perDayCount.toLocaleString('ja-JP') + '個/日）' : '');
+  body.appendChild(line3);
+}
+
+/* ==================== F. 販売先ランキング ====================
+ * 明細売上（appvGetMeisai().sales）を相手先(name)別に年度合計し、トップ10を横棒表示。 */
+async function appvPartnerRankData(startYear) {
+  const months = appvFiscalMonths(startYear);
+  const keyset = {}; months.forEach((m) => { keyset[m.key] = 1; });
+  const mei = await appvGetMeisai();
+  const meiOf = (e) => (e.month || String(e.date || '').slice(0, 7));
+  const byPartner = {};
+  mei.sales.filter((e) => keyset[meiOf(e)]).forEach((e) => {
+    const p = String(e.name || '').trim() || '(相手先未設定)';
+    byPartner[p] = (byPartner[p] || 0) + num(e.amount);
+  });
+  return Object.keys(byPartner).map((p) => ({ partner: p, amount: byPartner[p] })).sort((a, b) => b.amount - a.amount).slice(0, 10);
+}
+async function appvRenderPartnerRank() {
+  const body = document.getElementById('partnerRankBody');
+  if (!body) return;
+  const startYear = appvFiscalStartYear();
+  const ranked = await appvPartnerRankData(startYear);
+  appvClear(body);
+  if (!ranked.length) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = '年度内の明細（まとめ売り）データがありません';
+    body.appendChild(empty);
+    return;
+  }
+  const total = ranked.reduce((s, r) => s + r.amount, 0);
+  ranked.forEach((r) => {
+    const pct = total ? Math.round(r.amount / total * 100) : 0;
+    const row = document.createElement('div');
+    row.className = 'dist-row';
+    const label = document.createElement('div');
+    label.className = 'dist-label';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = r.partner;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'num';
+    valSpan.textContent = yen(r.amount) + '（' + pct + '%）';
+    label.appendChild(nameSpan);
+    label.appendChild(valSpan);
+    const barWrap = document.createElement('div');
+    barWrap.className = 'dist-bar-wrap';
+    const bar = document.createElement('div');
+    bar.className = 'dist-bar';
+    bar.style.width = pct + '%';
+    barWrap.appendChild(bar);
+    row.appendChild(label);
+    row.appendChild(barWrap);
+    body.appendChild(row);
+  });
+}
+
 /* ==================== 分析ページ全体の描画エントリ ==================== */
 async function appvRenderAnalysisPage() {
   await appvRenderTrendChart();
   await appvRenderUnitPriceCard();
   await appvRenderPriceDist();
   await appvRenderDailyTrend();
+  await appvRenderFeeRateChart();
   await appvRenderGoals();
+  await appvRenderPacemaker();
   await appvRenderChannelMix();
-  try { await appvGoalsPullCloud(); await appvRenderGoals(); } catch (e) {}
+  await appvRenderPartnerRank();
+  try { await appvGoalsPullCloud(); await appvRenderGoals(); await appvRenderPacemaker(); } catch (e) {}
 }
 
 /* =====================================================================

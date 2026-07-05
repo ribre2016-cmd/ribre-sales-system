@@ -297,6 +297,17 @@
         <div class="muted section-gap" id="dailyTrendForecast" style="font-size:13px"></div>
       </div>
 
+      <!-- D. 手数料率・送料率の推移（直近6ヶ月。売上0の月は表示スキップ） -->
+      <div class="card section-gap">
+        <h2>手数料率・送料率の推移（直近6ヶ月）</h2>
+        <div class="muted" style="font-size:12px;margin-top:2px">各月の（手数料÷売上）%・（送料÷売上）%。売上が0の月は表示から除きます。</div>
+        <svg id="feeRateChart" viewBox="0 0 640 200" style="width:100%;height:200px;display:block;margin-top:8px"></svg>
+        <div class="flex-between" style="margin-top:10px;font-size:12px">
+          <span><span class="legend-dot" style="background:var(--warn)"></span>手数料率</span>
+          <span><span class="legend-dot" style="background:var(--info)"></span>送料率</span>
+        </div>
+      </div>
+
       <!-- 年度累計（旧UIホーム smpGoalYearTotals と同じ計算：3月〜翌2月） -->
       <div class="card section-gap">
         <div class="flex-between">
@@ -359,6 +370,12 @@
         <div class="muted" id="goalUnitSrc" style="font-size:11.5px"></div>
       </div>
 
+      <!-- E. 目標ペースメーカー（年間売上目標に対し、年度末までの残り日数から1日あたりの必要額を算出） -->
+      <div class="card section-gap">
+        <h2>目標ペースメーカー</h2>
+        <div id="pacemakerBody"></div>
+      </div>
+
       <!-- チャネル構成比（選択月の売上をチャネル別に横棒で。旧UIsaleEffルール＝実数優先＋当月のみ仮入力） -->
       <div class="card section-gap">
         <div class="flex-between">
@@ -366,6 +383,13 @@
           <select id="channelMixMonthSel" class="prov-input" style="width:160px"></select>
         </div>
         <div id="channelMixBody" class="section-gap"></div>
+      </div>
+
+      <!-- F. 販売先ランキング（明細売上=まとめ売りの相手先別・年度合計トップ10） -->
+      <div class="card section-gap">
+        <h2>販売先ランキング（明細・年度トップ10）</h2>
+        <div class="muted" style="font-size:12px;margin-top:2px">明細（相手先へのまとめ売り）の年度累計を相手先ごとに集計した上位10件です。</div>
+        <div id="partnerRankBody" class="section-gap"></div>
       </div>
 
       <!-- 当月の仮入力（Phase D本実装の先行実装）：CSV未取込チャネルの売上・送料・手数料を
