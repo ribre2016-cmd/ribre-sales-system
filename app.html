@@ -229,9 +229,94 @@
       </div>
     </section>
 
-    <!-- ============ 5. 分析（プレースホルダー） ============ -->
+    <!-- ============ 5. 分析 ============ -->
     <section class="page" id="page-analysis">
       <h1>分析</h1>
+
+      <!-- 月次推移（直近6ヶ月・appvMonthTotalsで各月計算）：売上=緑棒／粗利=マイナス時は赤 -->
+      <div class="card section-gap">
+        <h2>月次推移（直近6ヶ月）</h2>
+        <div class="muted" style="font-size:12.5px;margin-bottom:10px">棒をタップ（ホバー）すると月と金額を表示します。</div>
+        <div id="trendChartWrap" style="position:relative">
+          <svg id="trendChart" viewBox="0 0 640 220" style="width:100%;height:220px;display:block"></svg>
+          <div id="trendTooltip" class="trend-tooltip" style="display:none"></div>
+        </div>
+        <div class="flex-between" style="margin-top:10px;font-size:12px">
+          <span><span class="legend-dot" style="background:var(--accent)"></span>売上</span>
+          <span><span class="legend-dot" style="background:var(--info)"></span>粗利（マイナスは赤）</span>
+        </div>
+      </div>
+
+      <!-- 年度累計（旧UIホーム smpGoalYearTotals と同じ計算：3月〜翌2月） -->
+      <div class="card section-gap">
+        <div class="flex-between">
+          <h2 style="margin:0" id="fiscalYearTitle">年度累計</h2>
+        </div>
+        <div class="grid4" style="margin-top:10px">
+          <div><div class="kpi-label">総売上</div><div class="kpi-value num" id="fyTotalSale">¥0</div></div>
+          <div><div class="kpi-label">総仕入</div><div class="kpi-value num" id="fyTotalPur">¥0</div></div>
+          <div><div class="kpi-label">経費</div><div class="kpi-value num" id="fyTotalExp">¥0</div></div>
+          <div><div class="kpi-label">粗利</div><div class="kpi-value num" id="fyTotalProfit" style="color:var(--accent)">¥0</div></div>
+        </div>
+      </div>
+
+      <!-- 目標進捗（旧UIホーム「🎯目標」と同一ストア・同一同期。年度/月ごと切替あり） -->
+      <div class="card section-gap">
+        <div class="flex-between">
+          <h2 style="margin:0">🎯 目標（あと何個で達成）</h2>
+          <div class="tx-kind-choice" id="goalModeChoice" style="width:auto;gap:6px;margin:0">
+            <button type="button" class="choice-btn active" id="goalBtnYear" data-mode="year">年度</button>
+            <button type="button" class="choice-btn" id="goalBtnMonth" data-mode="month">月ごと</button>
+          </div>
+        </div>
+        <div id="goalMonthWrap" style="display:none;margin-top:10px">
+          <select id="goalMonthSel" class="prov-input" style="width:160px"></select>
+        </div>
+
+        <div class="goal-block section-gap">
+          <div class="flex-between"><span class="muted">売上目標</span><span class="num" id="goalSaleCurTxt">¥0</span><span class="muted">/</span><span class="num" id="goalSaleTgt">¥0</span></div>
+          <div class="goal-bar-wrap"><div class="goal-bar" id="goalSaleBar" style="width:0%"></div></div>
+          <div class="flex-between" style="margin-top:4px;font-size:12.5px">
+            <span id="goalSalePct" class="muted">0%</span>
+            <span><span id="goalSaleRem" class="muted"></span> <span id="goalSaleN" class="muted"></span></span>
+          </div>
+          <div class="tx-field" style="margin-top:8px">
+            <label>売上目標額（円）</label>
+            <input type="number" id="goalSaleInput" inputmode="numeric" placeholder="0">
+          </div>
+          <div class="tx-field">
+            <label>商品単価（円・あと何個の計算用。空欄は先月までの平均）</label>
+            <input type="number" id="goalSaleUnitInput" inputmode="numeric" placeholder="0">
+          </div>
+        </div>
+
+        <div class="goal-block">
+          <div class="flex-between"><span class="muted">粗利目標</span><span class="num" id="goalProfCurTxt">¥0</span><span class="muted">/</span><span class="num" id="goalProfTgt">¥0</span></div>
+          <div class="goal-bar-wrap"><div class="goal-bar" id="goalProfBar" style="width:0%"></div></div>
+          <div class="flex-between" style="margin-top:4px;font-size:12.5px">
+            <span id="goalProfPct" class="muted">0%</span>
+            <span><span id="goalProfRem" class="muted"></span> <span id="goalProfN" class="muted"></span></span>
+          </div>
+          <div class="tx-field" style="margin-top:8px">
+            <label>粗利目標額（円）</label>
+            <input type="number" id="goalProfInput" inputmode="numeric" placeholder="0">
+          </div>
+          <div class="tx-field">
+            <label>商品単価（円・粗利ベース。空欄は先月までの平均）</label>
+            <input type="number" id="goalProfUnitInput" inputmode="numeric" placeholder="0">
+          </div>
+        </div>
+        <div class="muted" id="goalUnitSrc" style="font-size:11.5px"></div>
+      </div>
+
+      <!-- チャネル構成比（選択月の売上をチャネル別に横棒で。旧UIsaleEffルール＝実数優先＋当月のみ仮入力） -->
+      <div class="card section-gap">
+        <div class="flex-between">
+          <h2 style="margin:0">チャネル構成比</h2>
+          <select id="channelMixMonthSel" class="prov-input" style="width:160px"></select>
+        </div>
+        <div id="channelMixBody" class="section-gap"></div>
+      </div>
 
       <!-- 当月の仮入力（Phase D本実装の先行実装）：CSV未取込チャネルの売上・送料・手数料を
            旧UI(app-simple.js)と同一のprofit_provストアへ入力する。KPI(appvMonthTotals)は
@@ -258,11 +343,6 @@
         </div>
       </div>
 
-      <div class="card">
-        <h2>Phase Cで実装予定</h2>
-        <div class="muted">売上・粗利の推移グラフや目標管理などの分析機能は、今後のフェーズで新UIに統合予定です。現在は従来の画面をご利用ください。</div>
-        <div style="margin-top:14px"><a href="/" class="btn">従来の画面を開く</a></div>
-      </div>
     </section>
 
     <!-- ============ 6. 台帳・設定 ============ -->

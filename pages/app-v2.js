@@ -114,6 +114,8 @@ function appvGotoPage(page) {
   window.scrollTo({ top: 0, behavior: 'instant' });
   if (page === 'import' && typeof appvRenderMailImportStatus === 'function') appvRenderMailImportStatus();
   if (page === 'analysis' && typeof appvRenderProvPanel === 'function') appvRenderProvPanel();
+  if (page === 'analysis' && typeof appvRenderAnalysisPage === 'function') appvRenderAnalysisPage();
+  if (page === 'settings' && typeof appvRenderSettingsPage === 'function') appvRenderSettingsPage();
 }
 
 /* ==================== 明細(profit_meisai)・経費仮入力(profit_prov) の取得 ====================
@@ -641,6 +643,410 @@ async function appvRenderProfit() {
   tr.appendChild(tdExp);
   tr.appendChild(tdProfit);
   body.appendChild(tr);
+}
+
+/* =====================================================================
+ * 分析ページ本実装（Phase D）
+ * 月次推移グラフ・年度累計・目標進捗・チャネル構成比。
+ * データ源はいずれもappvMonthTotals/旧UI(app-simple.js)と同一にする。
+ * ===================================================================== */
+
+/* ---- 年度の月列挙（旧: app-simple.js smpProfitFiscalMonths 1749-1758行目と同一。3月〜翌2月） ---- */
+function appvFiscalMonths(startYear) {
+  const arr = [];
+  for (let i = 0; i < 12; i++) {
+    const m = 3 + i;
+    const y = startYear + (m > 12 ? 1 : 0);
+    const mm = ((m - 1) % 12) + 1;
+    arr.push({ key: y + '-' + String(mm).padStart(2, '0'), label: mm + '月' });
+  }
+  return arr;
+}
+/* 現在月からの年度開始年（旧: smpGoalFiscalStart 412行目と同一ロジック） */
+function appvFiscalStartYear() {
+  const cur = appvCurrentMonth();
+  const y = parseInt(cur.slice(0, 4), 10), m = parseInt(cur.slice(5, 7), 10);
+  return m >= 3 ? y : y - 1;
+}
+function appvMonthLabel(month) {
+  const p = String(month || '').split('-');
+  return p.length === 2 ? p[0] + '年' + Number(p[1]) + '月' : '今月';
+}
+
+/* ==================== 月次推移グラフ（直近6ヶ月・インラインSVG棒グラフ） ==================== */
+async function appvLast6Months() {
+  const cur = appvCurrentMonth();
+  const months = [];
+  let m = cur;
+  for (let i = 0; i < 6; i++) { months.unshift(m); m = appvPrevMonth(m); }
+  const out = [];
+  for (const mo of months) {
+    const t = await appvMonthTotals(mo);
+    out.push({ month: mo, sale: t.sale, profit: t.profit });
+  }
+  return out;
+}
+function appvSvgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  Object.keys(attrs || {}).forEach((k) => el.setAttribute(k, attrs[k]));
+  return el;
+}
+async function appvRenderTrendChart() {
+  const svg = document.getElementById('trendChart');
+  const tooltip = document.getElementById('trendTooltip');
+  if (!svg) return;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const data = await appvLast6Months();
+  const W = 640, H = 220, padTop = 14, padBottom = 28, padSide = 10;
+  const chartH = H - padTop - padBottom;
+  const maxAbs = Math.max(1, ...data.map((d) => Math.max(Math.abs(d.sale), Math.abs(d.profit))));
+  const groupW = (W - padSide * 2) / data.length;
+  const barW = Math.min(28, groupW / 3);
+  const zeroY = padTop + chartH * (maxAbs === 0 ? 0.5 : (Math.max(0, maxAbs) / (maxAbs * 2 || 1)));
+  // ゼロ基準線（マイナス粗利があり得るため中央基準にする簡易スケール）
+  const hasNeg = data.some((d) => d.profit < 0);
+  const scaleMax = maxAbs || 1;
+  const baseline = hasNeg ? padTop + chartH * 0.7 : padTop + chartH;
+  const posH = hasNeg ? chartH * 0.7 : chartH;
+  const negH = hasNeg ? chartH * 0.3 : 0;
+  svg.appendChild(appvSvgEl('line', { x1: padSide, y1: baseline, x2: W - padSide, y2: baseline, stroke: '#E4E7E3', 'stroke-width': 1 }));
+  data.forEach((d, i) => {
+    const cx = padSide + groupW * i + groupW / 2;
+    const saleH = scaleMax ? (Math.abs(d.sale) / scaleMax) * posH : 0;
+    const saleY = baseline - saleH;
+    const saleBar = appvSvgEl('rect', {
+      x: cx - barW - 2, y: saleY, width: barW, height: Math.max(1, saleH),
+      fill: 'var(--accent)', rx: 3, class: 'trend-bar', 'data-month': d.month, 'data-kind': 'sale', 'data-val': d.sale
+    });
+    svg.appendChild(saleBar);
+    const profNeg = d.profit < 0;
+    const profH = scaleMax ? (Math.abs(d.profit) / scaleMax) * (profNeg ? negH : posH) : 0;
+    const profY = profNeg ? baseline : baseline - profH;
+    const profBar = appvSvgEl('rect', {
+      x: cx + 2, y: profY, width: barW, height: Math.max(1, profH),
+      fill: profNeg ? 'var(--err)' : 'var(--info)', rx: 3, class: 'trend-bar', 'data-month': d.month, 'data-kind': 'profit', 'data-val': d.profit
+    });
+    svg.appendChild(profBar);
+    const label = appvSvgEl('text', { x: cx, y: H - 8, 'text-anchor': 'middle', 'font-size': 11, fill: '#67716B' });
+    label.textContent = Number(d.month.slice(5, 7)) + '月';
+    svg.appendChild(label);
+  });
+  const showTip = (e) => {
+    const t = e.target;
+    if (!t || !t.dataset || !t.dataset.month) { if (tooltip) tooltip.style.display = 'none'; return; }
+    if (!tooltip) return;
+    const kindLabel = t.dataset.kind === 'sale' ? '売上' : '粗利';
+    tooltip.textContent = appvMonthLabel(t.dataset.month) + ' ' + kindLabel + ' ' + yen(Number(t.dataset.val));
+    const rect = t.getBoundingClientRect();
+    const wrapRect = svg.parentElement.getBoundingClientRect();
+    tooltip.style.left = (rect.left - wrapRect.left + rect.width / 2) + 'px';
+    tooltip.style.top = (rect.top - wrapRect.top) + 'px';
+    tooltip.style.display = 'block';
+  };
+  svg.addEventListener('mousemove', showTip);
+  svg.addEventListener('mouseleave', () => { if (tooltip) tooltip.style.display = 'none'; });
+  svg.addEventListener('click', showTip);
+}
+
+/* ==================== 年度累計カード（旧UIホーム smpGoalYearTotals と同一計算） ==================== */
+async function appvRenderFiscalYearCard() {
+  const startYear = appvFiscalStartYear();
+  appvSetText('fiscalYearTitle', startYear + '年度（3月〜翌2月）累計');
+  const months = appvFiscalMonths(startYear);
+  let sale = 0, pur = 0, exp = 0, profit = 0;
+  for (const mo of months) {
+    const t = await appvMonthTotals(mo.key);
+    sale += t.sale; pur += t.pur; exp += t.exp; profit += t.profit;
+  }
+  appvSetText('fyTotalSale', yen(sale));
+  appvSetText('fyTotalPur', yen(pur));
+  appvSetText('fyTotalExp', yen(exp));
+  appvSetText('fyTotalProfit', (profit >= 0 ? '+' : '−') + yen(Math.abs(profit)));
+  return { sale, pur, exp, profit, months };
+}
+
+/* ==================== 目標進捗（旧UIホーム「🎯目標」と同一ストア・同一同期規則） ====================
+ * ストア: localStorage 'ribre_smp_goals_v1' = { yearSale, yearProf, curSaleUnit, curProfUnit, mSale:{}, mProf:{} }
+ * 同期: 旧 smpGoalsGet/Set/PushCloud/PullCloud（app-simple.js 349-406行目）と全く同じキー・同じ手順で移植。 */
+let appvGoalMode = 'year';
+function appvGoalsGet() {
+  try { const o = JSON.parse(localStorage.getItem('ribre_smp_goals_v1') || '{}') || {}; o.mSale = o.mSale || {}; o.mProf = o.mProf || {}; return o; }
+  catch (e) { return { mSale: {}, mProf: {} }; }
+}
+function appvGoalsTsGet() { return Number(localStorage.getItem('ribre_smp_goals_ts') || 0) || 0; }
+function appvGoalsTsSet(t) { try { localStorage.setItem('ribre_smp_goals_ts', String(t || Date.now())); } catch (e) {} }
+function appvGoalsSet(o) { try { localStorage.setItem('ribre_smp_goals_v1', JSON.stringify(o)); } catch (e) {} appvGoalsTsSet(Date.now()); appvGoalsPushDebounced(); }
+/* 旧: smpFlatMerge（app-simple.js 326-348行目）と同一のマス単位マージ規則を移植 */
+function appvFlatMerge(a, aTs, b, bTs) {
+  a = a || {}; b = b || {};
+  const am = (a._m && typeof a._m === 'object') ? a._m : {};
+  const bm = (b._m && typeof b._m === 'object') ? b._m : {};
+  const keys = {};
+  Object.keys(a).forEach((k) => { if (k !== '_m') keys[k] = 1; });
+  Object.keys(b).forEach((k) => { if (k !== '_m') keys[k] = 1; });
+  Object.keys(am).forEach((k) => { keys[k] = 1; });
+  Object.keys(bm).forEach((k) => { keys[k] = 1; });
+  const out = { _m: {} };
+  Object.keys(keys).forEach((k) => {
+    const ta = am[k] != null ? am[k] : aTs, tb = bm[k] != null ? bm[k] : bTs;
+    const hasA = a[k] != null, hasB = b[k] != null;
+    const useA = ta >= tb;
+    const val = useA ? (hasA ? a[k] : undefined) : (hasB ? b[k] : undefined);
+    out._m[k] = Math.max(ta, tb);
+    if (val !== undefined) out[k] = val;
+  });
+  const lim = Date.now() - 180 * 24 * 3600 * 1000;
+  Object.keys(out._m).forEach((k) => { if (out._m[k] < lim && out[k] == null) delete out._m[k]; });
+  return out;
+}
+/* 旧: smpGoalsMerge（app-simple.js 357-368行目）と同一 */
+function appvGoalsMerge(a, aTs, b, bTs) {
+  a = a || {}; b = b || {};
+  const useA = (aTs || 0) >= (bTs || 0);
+  const top = useA ? a : b, other = useA ? b : a;
+  const out = {};
+  ['yearSale', 'yearProf', 'curSaleUnit', 'curProfUnit'].forEach((k) => {
+    out[k] = (top[k] != null && top[k] !== 0) ? top[k] : other[k];
+  });
+  out.mSale = appvFlatMerge(a.mSale, aTs, b.mSale, bTs);
+  out.mProf = appvFlatMerge(a.mProf, aTs, b.mProf, bTs);
+  return out;
+}
+async function appvGoalsFetchCloud(cr) {
+  try {
+    const r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.goals&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const c = d && d[0] && d[0].value;
+    return (c && c.data) ? c : null;
+  } catch (e) { return null; }
+}
+let appvGoalsPushTimer = null;
+function appvGoalsPushDebounced() { if (appvGoalsPushTimer) clearTimeout(appvGoalsPushTimer); appvGoalsPushTimer = setTimeout(appvGoalsPushCloud, 800); }
+async function appvGoalsPushCloud() {
+  const cr = appvCreds(); if (!cr) return { ok: false };
+  try {
+    let body = appvGoalsGet();
+    const cloud = await appvGoalsFetchCloud(cr);
+    if (cloud) {
+      body = appvGoalsMerge(appvGoalsGet(), appvGoalsTsGet(), cloud.data, cloud.ts || 0);
+      try { localStorage.setItem('ribre_smp_goals_v1', JSON.stringify(body)); } catch (e) {}
+    }
+    const now = Date.now();
+    appvGoalsTsSet(now);
+    const r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
+      method: 'POST',
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ user_email: cr.em, skey: 'goals', value: { data: body, ts: now } }])
+    });
+    return { ok: r.ok, status: r.status };
+  } catch (e) { return { ok: false }; }
+}
+async function appvGoalsPullCloud() {
+  const cr = appvCreds(); if (!cr) return false;
+  const cloud = await appvGoalsFetchCloud(cr);
+  if (!cloud) return false;
+  const local = appvGoalsGet();
+  const merged = appvGoalsMerge(local, appvGoalsTsGet(), cloud.data, cloud.ts || 0);
+  const changed = JSON.stringify(merged) !== JSON.stringify(local);
+  try { localStorage.setItem('ribre_smp_goals_v1', JSON.stringify(merged)); } catch (e) {}
+  appvGoalsTsSet(Math.max(appvGoalsTsGet(), Number(cloud.ts || 0)));
+  if (JSON.stringify(merged) !== JSON.stringify(cloud.data)) appvGoalsPushDebounced();
+  return changed;
+}
+/* 「あと何個で達成」カウント（旧: smpGoalCount 407-411行目と同一。sales()＋profit_meisai売上の件数） */
+async function appvGoalCount(m) {
+  let c = 0;
+  try {
+    c = sales().filter((r) => (r.month || String(r.date || '').slice(0, 7)) === m).length;
+    const mei = await appvGetMeisai();
+    c += mei.sales.filter((e) => (e.month || String(e.date || '').slice(0, 7)) === m).length;
+  } catch (e) {}
+  return c;
+}
+/* 先月までの平均単価（旧: smpGoalYearAvgUnit 418-423行目と同一） */
+async function appvGoalYearAvgUnit() {
+  const cur = appvCurrentMonth();
+  const months = appvFiscalMonths(appvFiscalStartYear());
+  let saleSum = 0, profSum = 0, cnt = 0;
+  for (const mo of months) {
+    if (mo.key < cur) {
+      const t = await appvMonthTotals(mo.key);
+      saleSum += t.sale; profSum += t.profit; cnt += await appvGoalCount(mo.key);
+    }
+  }
+  return { su: cnt ? Math.round(saleSum / cnt) : 0, pu: cnt ? Math.round(profSum / cnt) : 0, cnt: cnt };
+}
+function appvGoalSetMode(mode) {
+  appvGoalMode = mode;
+  const by = document.getElementById('goalBtnYear'), bm = document.getElementById('goalBtnMonth');
+  if (by) by.classList.toggle('active', mode === 'year');
+  if (bm) bm.classList.toggle('active', mode === 'month');
+  const mw = document.getElementById('goalMonthWrap');
+  if (mw) mw.style.display = mode === 'month' ? 'block' : 'none';
+  appvRenderGoals();
+}
+function appvGoalCalc(kind, curSale, curProf) {
+  const isSale = kind === 'sale';
+  const cur = isSale ? curSale : curProf;
+  const t = Math.max(0, num((document.getElementById(isSale ? 'goalSaleInput' : 'goalProfInput') || {}).value));
+  const u = Math.max(1, num((document.getElementById(isSale ? 'goalSaleUnitInput' : 'goalProfUnitInput') || {}).value));
+  const rem = Math.max(0, t - cur), pct = t > 0 ? Math.min(100, Math.round(cur / t * 100)) : 0, n = rem > 0 ? Math.ceil(rem / u) : 0;
+  const pre = isSale ? 'goalSale' : 'goalProf';
+  appvSetText(pre + 'CurTxt', yen(cur));
+  appvSetText(pre + 'Tgt', yen(t));
+  appvSetText(pre + 'Pct', pct + '%');
+  const bar = document.getElementById(pre + 'Bar'); if (bar) bar.style.width = pct + '%';
+  appvSetText(pre + 'Rem', rem > 0 ? ('あと ' + yen(rem)) : '🎉 達成');
+  appvSetText(pre + 'N', rem > 0 ? ('＝ 約' + n.toLocaleString('ja-JP') + '個') : '');
+}
+/* 保存（旧: smpGoalSave 438-451行目と同一）。年度モードはyearSale/yearProf、月ごとモードはmSale[m]/mProf[m]。 */
+function appvGoalSave() {
+  const g = appvGoalsGet();
+  const cur = appvCurrentMonth();
+  const sT = num((document.getElementById('goalSaleInput') || {}).value);
+  const pT = num((document.getElementById('goalProfInput') || {}).value);
+  const sU = num((document.getElementById('goalSaleUnitInput') || {}).value);
+  const pU = num((document.getElementById('goalProfUnitInput') || {}).value);
+  if (appvGoalMode === 'year') {
+    g.yearSale = sT; g.yearProf = pT; g.curSaleUnit = sU; g.curProfUnit = pU;
+  } else {
+    const sel = document.getElementById('goalMonthSel');
+    const m = (sel && sel.value) || cur;
+    g.mSale[m] = sT; g.mProf[m] = pT;
+    g.mSale._m = g.mSale._m || {}; g.mSale._m[m] = Date.now();
+    g.mProf._m = g.mProf._m || {}; g.mProf._m[m] = Date.now();
+    if (m === cur) { g.curSaleUnit = sU; g.curProfUnit = pU; }
+  }
+  appvGoalsSet(g);
+}
+async function appvGoalOnInput(kind, curSale, curProf) { appvGoalSave(); appvGoalCalc(kind, curSale, curProf); }
+async function appvRenderGoals() {
+  const card = document.getElementById('goalSaleBar');
+  if (!card) return;
+  const g = appvGoalsGet();
+  const cur = appvCurrentMonth();
+  const msel = document.getElementById('goalMonthSel');
+  if (msel && !msel.options.length) {
+    const months = appvFiscalMonths(appvFiscalStartYear()).map((mo) => mo.key).concat([cur]);
+    const uniq = Array.from(new Set(months)).sort().reverse();
+    msel.innerHTML = uniq.map((m) => '<option value="' + m + '"' + (m === cur ? ' selected' : '') + '>' + appvMonthLabel(m) + (m === cur ? '（当月）' : '') + '</option>').join('');
+  }
+  let curSale, curProf, sT, pT, sU, pU, src;
+  if (appvGoalMode === 'year') {
+    const yt = await appvRenderFiscalYearCard();
+    curSale = yt.sale; curProf = yt.profit;
+    sT = num(g.yearSale); pT = num(g.yearProf);
+    const av = await appvGoalYearAvgUnit();
+    sU = (g.curSaleUnit != null && g.curSaleUnit !== '') ? num(g.curSaleUnit) : av.su;
+    pU = (g.curProfUnit != null && g.curProfUnit !== '') ? num(g.curProfUnit) : av.pu;
+    src = '先月までの平均（手入力で調整可）';
+  } else {
+    const m = (msel && msel.value) || cur;
+    const t = await appvMonthTotals(m);
+    curSale = t.sale; curProf = t.profit;
+    sT = num((g.mSale || {})[m]); pT = num((g.mProf || {})[m]);
+    const av = await appvGoalYearAvgUnit();
+    sU = (g.curSaleUnit != null && g.curSaleUnit !== '') ? num(g.curSaleUnit) : av.su;
+    pU = (g.curProfUnit != null && g.curProfUnit !== '') ? num(g.curProfUnit) : av.pu;
+    src = '先月までの平均（手入力で調整可）';
+  }
+  const saleInput = document.getElementById('goalSaleInput');
+  if (saleInput && document.activeElement !== saleInput) saleInput.value = sT || '';
+  const profInput = document.getElementById('goalProfInput');
+  if (profInput && document.activeElement !== profInput) profInput.value = pT || '';
+  const saleUnitInput = document.getElementById('goalSaleUnitInput');
+  if (saleUnitInput && document.activeElement !== saleUnitInput) saleUnitInput.value = sU || '';
+  const profUnitInput = document.getElementById('goalProfUnitInput');
+  if (profUnitInput && document.activeElement !== profUnitInput) profUnitInput.value = pU || '';
+  appvSetText('goalUnitSrc', src);
+  appvGoalCalc('sale', curSale, curProf);
+  appvGoalCalc('prof', curSale, curProf);
+}
+
+/* ==================== チャネル構成比（選択月・旧UIのsaleEffルール＝実数優先＋当月のみ仮入力） ==================== */
+async function appvChannelSaleMap(month) {
+  const salesAll = get(LS.sales, []);
+  const chanReal = {};
+  (Array.isArray(salesAll) ? salesAll : []).forEach((r) => {
+    if (appvIsMeiRowLocal(r)) return;
+    if (appvMonthOfLocal(r) !== month) return;
+    const c = String(r.shop || r.type || r.matchStatus || '').trim() || 'その他';
+    chanReal[c] = (chanReal[c] || 0) + num(r.amount != null ? r.amount : r.price);
+  });
+  const map = {};
+  APPV_SALES_CHANNELS.forEach((c) => { map[c] = chanReal[c] || 0; });
+  Object.keys(chanReal).forEach((c) => { if (map[c] == null) map[c] = chanReal[c]; });
+  const cur = appvCurrentMonth();
+  if (month === cur) {
+    const prov = await appvGetProv();
+    const provMonth = (prov && prov[month]) || {};
+    Object.keys(map).forEach((c) => {
+      if (map[c] > 0) return;
+      const pv = num(provMonth[c]);
+      if (pv) map[c] = pv;
+    });
+  }
+  // 明細(profit_meisai)の売上はチャネル別ではないため「明細」として別枠追加
+  const mei = await appvGetMeisai();
+  const meiSum = mei.sales.filter((e) => (e.month || String(e.date || '').slice(0, 7)) === month).reduce((s, e) => s + num(e.amount), 0);
+  if (meiSum) map['明細'] = (map['明細'] || 0) + meiSum;
+  return map;
+}
+async function appvRenderChannelMix() {
+  const sel = document.getElementById('channelMixMonthSel');
+  const body = document.getElementById('channelMixBody');
+  if (!sel || !body) return;
+  const cur = appvCurrentMonth();
+  if (!sel.options.length) {
+    const months = [];
+    let m = cur;
+    for (let i = 0; i < 12; i++) { months.push(m); m = appvPrevMonth(m); }
+    sel.innerHTML = months.map((mo) => '<option value="' + mo + '"' + (mo === cur ? ' selected' : '') + '>' + appvMonthLabel(mo) + '</option>').join('');
+  }
+  const month = sel.value || cur;
+  const map = await appvChannelSaleMap(month);
+  const entries = Object.keys(map).filter((c) => map[c] > 0).sort((a, b) => map[b] - map[a]);
+  const total = entries.reduce((s, c) => s + map[c], 0);
+  appvClear(body);
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = '対象月の売上データがありません';
+    body.appendChild(empty);
+    return;
+  }
+  entries.forEach((c) => {
+    const pct = total ? Math.round(map[c] / total * 100) : 0;
+    const row = document.createElement('div');
+    row.className = 'chmix-row';
+    const label = document.createElement('div');
+    label.className = 'chmix-label';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = c;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'num';
+    valSpan.textContent = yen(map[c]) + '（' + pct + '%）';
+    label.appendChild(nameSpan);
+    label.appendChild(valSpan);
+    const barWrap = document.createElement('div');
+    barWrap.className = 'chmix-bar-wrap';
+    const bar = document.createElement('div');
+    bar.className = 'chmix-bar';
+    bar.style.width = pct + '%';
+    barWrap.appendChild(bar);
+    row.appendChild(label);
+    row.appendChild(barWrap);
+    body.appendChild(row);
+  });
+}
+
+/* ==================== 分析ページ全体の描画エントリ ==================== */
+async function appvRenderAnalysisPage() {
+  await appvRenderTrendChart();
+  await appvRenderGoals();
+  await appvRenderChannelMix();
+  try { await appvGoalsPullCloud(); await appvRenderGoals(); } catch (e) {}
 }
 
 /* =====================================================================
@@ -2131,6 +2537,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const provSaveBtn = document.getElementById('provSaveBtn');
   if (provSaveBtn) provSaveBtn.addEventListener('click', appvSaveProvPanel);
+
+  /* Phase D: 分析ページ（目標進捗・チャネル構成比） */
+  const goalBtnYear = document.getElementById('goalBtnYear');
+  if (goalBtnYear) goalBtnYear.addEventListener('click', () => appvGoalSetMode('year'));
+  const goalBtnMonth = document.getElementById('goalBtnMonth');
+  if (goalBtnMonth) goalBtnMonth.addEventListener('click', () => appvGoalSetMode('month'));
+  const goalMonthSel = document.getElementById('goalMonthSel');
+  if (goalMonthSel) goalMonthSel.addEventListener('change', appvRenderGoals);
+  ['goalSaleInput', 'goalSaleUnitInput'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', async () => {
+      const t = appvGoalMode === 'year' ? await appvRenderFiscalYearCard() : await appvMonthTotals((document.getElementById('goalMonthSel') || {}).value || appvCurrentMonth());
+      const curSale = t.sale, curProf = t.profit != null ? t.profit : t.profit;
+      appvGoalOnInput('sale', curSale, t.profit);
+    });
+  });
+  ['goalProfInput', 'goalProfUnitInput'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', async () => {
+      const t = appvGoalMode === 'year' ? await appvRenderFiscalYearCard() : await appvMonthTotals((document.getElementById('goalMonthSel') || {}).value || appvCurrentMonth());
+      appvGoalOnInput('prof', t.sale, t.profit);
+    });
+  });
+  const channelMixMonthSel = document.getElementById('channelMixMonthSel');
+  if (channelMixMonthSel) channelMixMonthSel.addEventListener('change', appvRenderChannelMix);
 
   appvBoot();
 });
