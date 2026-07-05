@@ -209,7 +209,7 @@ tr.rowclick:hover td{background:#FAFBFA;}
 .choice-btn.active{background:var(--accent-light); border-color:var(--accent); color:var(--accent);}
 .tx-field{margin-bottom:12px;}
 .tx-field label{display:block; font-size:12.5px; color:var(--sub); margin-bottom:4px; font-weight:600;}
-.tx-field input, .tx-field textarea{
+.tx-field input, .tx-field textarea, .tx-field select{
   width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
   background:#fff; color:var(--text); resize:vertical;
 }

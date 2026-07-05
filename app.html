@@ -79,8 +79,8 @@
       <div class="card section-gap">
         <h2>クイックアクション</h2>
         <div class="quick-actions">
-          <button class="btn primary" data-action="open-tx-modal" data-kind="sale">＋ 売上を登録</button>
-          <button class="btn primary" data-action="open-tx-modal" data-kind="purchase">＋ 仕入を登録</button>
+          <button class="btn primary" data-action="open-tx-modal" data-kind="sale" data-mode="meisai">＋ 売上を登録</button>
+          <button class="btn primary" data-action="open-tx-modal" data-kind="purchase" data-mode="meisai">＋ 仕入を登録</button>
           <button class="btn" data-action="goto-evidence">📎 証憑を貼る</button>
         </div>
       </div>
@@ -220,14 +220,40 @@
   </div>
 </div>
 
-<!-- 取引 登録・編集モーダル（Phase B） -->
+<!-- 取引 登録・編集モーダル（Phase B＝その他タブ／Phase 明細方式＝旧UI手入力互換） -->
 <div class="overlay" id="txModalOverlay">
   <div class="drawer" style="right:auto; left:50%; top:50%; transform:translate(-50%,-50%); width:420px; max-width:92vw; max-height:88vh;">
     <div class="drawer-head">
       <h2 id="txModalTitle" style="margin:0">＋ 登録</h2>
       <button class="drawer-close" id="txModalCloseBtn">✕</button>
     </div>
-    <div id="txModalForm" data-kind="sale">
+
+    <!-- モード切替: 明細（旧UI手入力と同じ・販売先/買取先プルダウン） / その他（商品名あり・自由入力＋テンプレート） -->
+    <div class="tx-kind-choice" id="txModeChoice">
+      <button type="button" class="choice-btn active" data-mode="meisai">📋 明細（販売先/買取先）</button>
+      <button type="button" class="choice-btn" data-mode="free">🏷 その他（商品名あり）</button>
+    </div>
+
+    <!-- ===== 明細モード：旧UI(app-simple.js)手入力タブと同じ保存先(profit_meisai)・同じ月ロック ===== -->
+    <div id="txMeisaiForm">
+      <div class="tx-kind-choice" id="txMeisaiKind">
+        <button type="button" class="choice-btn active" data-kind="sale">📈 売上明細</button>
+        <button type="button" class="choice-btn" data-kind="purchase">📦 仕入明細</button>
+      </div>
+      <div class="muted" id="txMeisaiLockWarn" style="display:none; font-size:12.5px; color:var(--err); background:var(--err-light); border-radius:8px; padding:8px 10px; margin-bottom:10px;">
+        🔒 この月はロックされています。登録・編集・削除はできません。
+      </div>
+      <div class="tx-field">
+        <label id="txMeisaiPartnerLabel">販売先を選択</label>
+        <select id="txMeisaiPartnerSel"></select>
+        <input type="text" id="txMeisaiPartnerNew" placeholder="新しい相手先名" style="display:none; margin-top:6px;">
+      </div>
+      <div class="tx-field"><label>日付</label><input type="date" id="txMeisaiDate"></div>
+      <div class="tx-field"><label>金額（円）</label><input type="number" id="txMeisaiAmount" inputmode="numeric" placeholder="0"></div>
+    </div>
+
+    <!-- ===== その他モード（Phase B・商品名あり自由入力・テンプレート機能はこちらのみ） ===== -->
+    <div id="txModalForm" data-kind="sale" style="display:none">
       <div class="tx-kind-choice" id="txModalKind">
         <button type="button" class="choice-btn active" data-kind="sale">📈 売上</button>
         <button type="button" class="choice-btn" data-kind="purchase">📦 仕入</button>
