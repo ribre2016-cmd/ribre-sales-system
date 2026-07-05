@@ -216,7 +216,10 @@ function appvNormalizeSale(x) {
     memo: x.memo || '',
     source: '明細',  // 上書きされる（呼び出し側で実ソースを設定）
     _cid: appvClientIdOf(x, 's'),
-    _shop: x.account || x.shop || ''
+    _shop: x.account || x.shop || '',
+    // 商品ID・CSV取込順（旧: app-simple.js smpSaleDetailCell('商品ID',...) 2870行目 / smpCsvOrder 3136行目 が参照する row.itemId/row.order と同一フィールドをそのまま保持する）
+    itemId: x.itemId || x.id || '',
+    order: x.order
   };
 }
 function appvNormalizePurchase(x) {
@@ -230,7 +233,10 @@ function appvNormalizePurchase(x) {
     source: '明細',
     _cid: appvClientIdOf(x, 'p'),
     _vendor: x.vendor || '',
-    expense: /^\[経費\]/.test(String(memo).trim())
+    expense: /^\[経費\]/.test(String(memo).trim()),
+    // 商品ID・CSV取込順（旧UIの仕入CSVには商品ID/order概念がないため通常は空。将来仕入CSVにorderが付く場合の互換のため保持）
+    itemId: x.itemId || x.id || '',
+    order: x.order
   };
 }
 /* profit_meisai(明細ストア)の当月分を取引一覧の内部形式へ正規化。
@@ -251,12 +257,17 @@ function appvNormalizeMeisai(e, kind) {
   };
 }
 /* 対象月のsales/purchasesを読み込み、appvSales/appvPurchasesへ格納する（表示用：明細=source行含む）
- * ＋profit_meisai（明細方式で登録した行）も統合して表示する。 */
+ * ＋profit_meisai（明細方式で登録した行）も統合して表示する。
+ * 旧UI(app-simple.js)は取引一覧を含め常にローカル(core.jsのsales()/purchases()=localStorage
+ * ribre_full_sales221/ribre_full_purchases221)だけを見る設計のため、こちらもローカルを優先する。
+ * Supabaseの sales/purchases テーブルは旧UIからの一方向アップロード先（移行/バックアップ用）で
+ * 重複/古い行が残っている場合があるため、ローカルが空のときだけのフォールバックに降格する
+ * （KPI集計のappvMonthTotalsは元々ローカル直読みのため、これで表示とKPIのデータ源が一致する）。 */
 async function appvLoadMonth(month) {
-  let data = await appvFetchFromSupabase(month);
-  if (!data || (!data.sales.length && !data.purchases.length)) {
-    const local = appvFetchFromLocal(month);
-    if (local.sales.length || local.purchases.length || !data) data = local;
+  let data = appvFetchFromLocal(month);
+  if (!data.sales.length && !data.purchases.length) {
+    const remote = await appvFetchFromSupabase(month);
+    if (remote && (remote.sales.length || remote.purchases.length)) data = remote;
   }
   appvSales = (data.sales || []).map((x) => Object.assign(appvNormalizeSale(x), { srcTag: appvSrcTag(x, 'sale') }));
   appvPurchases = (data.purchases || []).map((x) => Object.assign(appvNormalizePurchase(x), { srcTag: appvSrcTag(x, 'purchase') }));
@@ -503,13 +514,23 @@ function appvRenderRecent() {
 }
 
 /* ==================== 取引一覧（台帳・読み取り専用） ==================== */
-/* チャネルの表示順キー: ヤフオク1→2→…→8 を数値順で先頭に、その他チャネル・明細相手は後ろ（名前順） */
+/* チャネルの表示順キー（旧: app-simple.js SMP_ACCS 2808行目 / smpAccRank 3132-3135行目 と同一の序列。
+ * SMP_ACCS = ['ヤフオク1'..'ヤフオク8','メルカリ','メルカリShops','ラクマ','その他'] の並び順そのまま）。
+ * 旧UIのsmpNormAccountは全角数字→半角・空白除去も行うため、同様に正規化してから照合する。 */
+const APPV_SMP_ACCS = ['ヤフオク1', 'ヤフオク2', 'ヤフオク3', 'ヤフオク4', 'ヤフオク5', 'ヤフオク6', 'ヤフオク7', 'ヤフオク8', 'メルカリ', 'メルカリShops', 'ラクマ', 'その他'];
+function appvNormAccount(shop) {
+  const z = '０１２３４５６７８９';
+  return String(shop || '').replace(/[０-９]/g, (ch) => String(z.indexOf(ch))).replace(/\s+/g, '');
+}
 function appvChannelOrderKey(partner) {
-  const m = String(partner || '').match(/^ヤフオク\s*(\d+)/);
-  if (m) return Number(m[1]);
-  if (/^メルカリ/.test(String(partner || ''))) return 100;
-  if (/^ラクマ/.test(String(partner || ''))) return 110;
-  return 500;
+  const i = APPV_SMP_ACCS.indexOf(appvNormAccount(partner));
+  return i < 0 ? 999 : i;
+}
+/* 行のCSV取込順（旧: app-simple.js smpCsvOrder 3136-3139行目と同一。row.orderが正の数ならそれを、
+ * 無ければ配列添字(fallback)を使う） */
+function appvCsvOrder(row, fallback) {
+  const order = Number(row && row.order);
+  return Number.isFinite(order) && order > 0 ? order : fallback;
 }
 function appvRenderLedger() {
   const body = document.getElementById('ledgerBody');
@@ -518,15 +539,16 @@ function appvRenderLedger() {
   const search = searchEl ? searchEl.value.trim() : '';
   appvClear(body);
 
-  // 並び順: ヤフオク1→8の順、各チャネル内は元データ(CSV取込)の並び順を維持
+  // 並び順: 旧UI smpSortByAccount(app-simple.js 3140-3149行目)と同一規則。
+  // チャネル順（appvChannelOrderKey）→ order（CSV取込順。無ければ添字+1）→ 添字。
   let list = []
     .concat(appvSales.map((x, i) => Object.assign({ type: 'sale', _oi: i }, x)))
     .concat(appvPurchases.map((x, i) => Object.assign({ type: 'purchase', _oi: 100000 + i }, x)));
   list.sort((a, b) => {
     const ka = appvChannelOrderKey(a.partner), kb = appvChannelOrderKey(b.partner);
     if (ka !== kb) return ka - kb;
-    const pa = String(a.partner || ''), pb = String(b.partner || '');
-    if (ka === 500 && pa !== pb) return pa.localeCompare(pb, 'ja');
+    const oa = appvCsvOrder(a, a._oi + 1), ob = appvCsvOrder(b, b._oi + 1);
+    if (oa !== ob) return oa - ob;
     return a._oi - b._oi;
   });
   if (appvLedgerTab !== 'all') list = list.filter((t) => t.type === appvLedgerTab);
@@ -634,6 +656,8 @@ function appvOpenDrawer(t) {
     ['日付', t.date || ''],
     ['品目・内容', t.name || ''],
     ['相手先', t.partner || ''],
+    // 商品ID（旧: app-simple.js smpSaleDetailCell('商品ID', itemId||'-') 2866-2870行目 と同一表示。無ければ「-」）
+    ['商品ID', t.itemId || '-'],
     ['金額', (sign > 0 ? '+' : '-') + yen(t.amount).replace('円', '')],
     ['メモ', t.memo || '（なし）']
   ];
@@ -661,10 +685,16 @@ function appvOpenDrawer(t) {
     if (warnEl) { warnEl.style.display = locked ? 'block' : 'none'; warnEl.textContent = '🔒 この月はロックされています。編集・削除はできません。'; }
   } else {
     // ローカル配列上で一意に同定できない行（同一内容の重複行など）は編集・削除を無効化する
+    // （appvFindLocalRowIndexはcid＋order＋一覧添字(_oi)の複合キーで、一覧のその行から
+    // 開いた場合はできる限り一意特定を試みる。それでも決まらない＝同一商品IDの行が
+    // 複数あり行番号の情報が失われているケースなど）
     const canEdit = appvFindLocalRowIndex(t) >= 0;
     if (editBtn) editBtn.disabled = !canEdit;
     if (delBtn) delBtn.disabled = !canEdit;
-    if (warnEl) { warnEl.style.display = canEdit ? 'none' : 'block'; warnEl.textContent = '同一内容の行が複数あるため、この行は一意に特定できず編集・削除できません。'; }
+    if (warnEl) {
+      warnEl.style.display = canEdit ? 'none' : 'block';
+      warnEl.textContent = '同じ商品IDの行が複数あります。行の特定には商品IDに加え行番号が必要なため、この行の編集はCSV再取込で行ってください';
+    }
   }
   const overlay = document.getElementById('drawerOverlay');
   if (overlay) overlay.classList.add('show');
@@ -709,6 +739,12 @@ async function appvPushCloudSafe() {
  * 対象行のIDを求め、ribre_full_sales221 / ribre_full_purchases221 の
  * 実配列から一致するindexを探す。同一内容の行が複数あり一意に決まらない
  * 場合は -1 を返し、編集・削除側で安全に中断させる（誤操作防止）。 */
+/* 同定キーの拡張: 同一商品ID(数量2以上の落札等)で内容が完全一致する行が複数存在する場合、
+ * cid(内容ハッシュ)だけでは一意に決まらない。CSV取込順(order)と、一覧を描画した時点の
+ * 配列添字(_oi。appvRenderLedgerが各行に付与)を複合キーに加えることで、一覧のその行から
+ * 開いた場合は一意特定できるようにする（同定キー = cid＋order＋添字）。
+ * 一覧を経由せず _oi が無い呼び出し(明細方式以外の想定外経路)の場合はcidのみで判定し、
+ * 候補が2件以上あれば従来通り安全側で編集・削除を拒否する。 */
 function appvFindLocalRowIndex(t) {
   if (!t) return -1;
   const isSale = t.type === 'sale';
@@ -716,12 +752,20 @@ function appvFindLocalRowIndex(t) {
   const list = get(arrKey, []);
   if (!Array.isArray(list)) return -1;
   const targetCid = t._cid || appvClientIdOf(t, isSale ? 's' : 'p');
-  let foundIdx = -1, count = 0;
+  const candidates = [];
   for (let i = 0; i < list.length; i++) {
     const cid = appvClientIdOf(list[i], isSale ? 's' : 'p');
-    if (cid === targetCid) { count++; foundIdx = i; }
+    if (cid === targetCid) candidates.push(i);
   }
-  return count === 1 ? foundIdx : -1;
+  if (candidates.length <= 1) return candidates.length === 1 ? candidates[0] : -1;
+  // cidだけでは複数候補：order＋一覧添字(_oi)で絞り込む
+  if (typeof t._oi === 'number') {
+    const targetOrder = appvCsvOrder(t, t._oi + 1);
+    const narrowed = candidates.filter((i) => appvCsvOrder(list[i], i + 1) === targetOrder);
+    if (narrowed.length === 1) return narrowed[0];
+  }
+  // それでも一意に決まらない場合は安全側で編集・削除を拒否する（誤操作防止）
+  return -1;
 }
 
 /* ---- 登録モーダル ----
