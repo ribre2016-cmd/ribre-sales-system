@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>RIBRE 売上管理（新UI）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="styles/app-v2.css">
+</head>
+<body>
+<!-- auth-gate.js/signIn()が参照する共通ログインフォーム要素（非表示・値はゲートのフォームから転記） -->
+<input id="email" type="email" style="display:none">
+<input id="password" type="password" style="display:none">
+<select id="role" style="display:none"><option value="staff">スタッフ</option><option value="admin">管理者</option><option value="viewer">閲覧のみ</option></select>
+<div id="settingsList" style="display:none"></div>
+
+<div id="toastWrap"></div>
+
+<div class="app">
+  <!-- ===== サイドバー（デスクトップ） ===== -->
+  <aside class="sidebar">
+    <div class="logo">RIBRE</div>
+    <nav id="sideNav">
+      <button class="nav-item" data-page="home"><span class="ic">🏠</span>ホーム</button>
+      <button class="nav-item" data-page="ledger"><span class="ic">💴</span>取引</button>
+      <button class="nav-item" data-page="import"><span class="ic">📥</span>取込</button>
+      <button class="nav-item" data-page="evidence"><span class="ic">📎</span>証憑</button>
+      <button class="nav-item" data-page="analysis"><span class="ic">📊</span>分析</button>
+      <button class="nav-item" data-page="settings"><span class="ic">⚙️</span>台帳・設定</button>
+    </nav>
+    <div class="sidebar-foot">
+      <a href="/" class="legacy-link">← 従来の画面に戻る</a>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- モバイル上部バー -->
+    <div class="topbar-mobile">
+      <div class="logo">RIBRE</div>
+      <a href="/" class="legacy-link-mobile">従来の画面へ</a>
+    </div>
+
+    <!-- ============ 1. ホーム ============ -->
+    <section class="page active" id="page-home">
+      <h1 id="greeting">ホーム</h1>
+      <div class="muted section-gap" id="todayDate"></div>
+
+      <div class="grid4 section-gap">
+        <div class="card">
+          <div class="kpi-label">今月の売上</div>
+          <div class="kpi-value num" id="kpiSales">¥0</div>
+          <div class="kpi-foot" id="kpiSalesFoot"></div>
+        </div>
+        <div class="card">
+          <div class="kpi-label">今月の仕入</div>
+          <div class="kpi-value num" id="kpiPurchases">¥0</div>
+          <div class="kpi-foot" id="kpiPurchasesFoot"></div>
+        </div>
+        <div class="card">
+          <div class="kpi-label">今月の経費</div>
+          <div class="kpi-value num" id="kpiExpenses">¥0</div>
+          <div class="kpi-foot" id="kpiExpensesFoot"></div>
+        </div>
+        <div class="card" style="border-color:var(--accent)">
+          <div class="kpi-label">今月の粗利</div>
+          <div class="kpi-value big num" id="kpiProfit">¥0</div>
+          <div class="kpi-foot" id="kpiProfitFoot"></div>
+        </div>
+      </div>
+
+      <div class="card section-gap">
+        <h2>やること</h2>
+        <div id="todoList"><div class="muted" style="padding:10px 4px">読込中...</div></div>
+      </div>
+
+      <div class="card section-gap">
+        <h2>クイックアクション</h2>
+        <div class="quick-actions">
+          <button class="btn primary" data-action="phaseb-toast" data-label="売上を登録">＋ 売上を登録</button>
+          <button class="btn primary" data-action="phaseb-toast" data-label="仕入を登録">＋ 仕入を登録</button>
+          <button class="btn" data-action="goto-evidence">📎 証憑を貼る</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="flex-between section-gap">
+          <h2 style="margin:0">最近の取引</h2>
+          <button class="btn ghost sm" data-page-link="ledger">すべて見る →</button>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>日付</th><th>種別</th><th>相手</th><th>金額</th></tr></thead>
+            <tbody id="recentTxBody"><tr><td colspan="4" class="muted">読込中...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 2. 取引 ============ -->
+    <section class="page" id="page-ledger">
+      <h1>取引</h1>
+      <div class="muted section-gap">売上・仕入をまとめて表示（読み取り専用）</div>
+
+      <div class="tabs" id="ledgerTabs">
+        <button class="tab active" data-type="all">すべて</button>
+        <button class="tab" data-type="sale">売上</button>
+        <button class="tab" data-type="purchase">仕入</button>
+        <button class="tab" data-type="profit">粗利</button>
+      </div>
+
+      <div class="filter-row" id="ledgerFilterRow">
+        <input type="month" id="monthFilter">
+        <input type="text" id="searchFilter" placeholder="相手先・品目で検索">
+        <div class="spacer"></div>
+        <button class="btn primary" data-action="phaseb-toast" data-label="取引の登録">＋ 登録</button>
+      </div>
+
+      <div class="card" id="ledgerTableCard">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th>日付</th><th>種別</th><th>品目・内容</th><th>相手先</th><th style="text-align:right">金額</th></tr>
+            </thead>
+            <tbody id="ledgerBody"></tbody>
+          </table>
+        </div>
+        <div class="flex-between" style="margin-top:14px; font-size:13px">
+          <span class="muted" id="ledgerCount"></span>
+          <span>合計: <strong class="num" id="ledgerSum"></strong></span>
+        </div>
+      </div>
+
+      <div class="card" id="profitCard" style="display:none">
+        <div class="muted section-gap" id="profitNote"></div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th>月</th><th style="text-align:right">売上計</th><th style="text-align:right">仕入計</th><th style="text-align:right">粗利</th></tr>
+            </thead>
+            <tbody id="profitBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 3. 取込（プレースホルダー） ============ -->
+    <section class="page" id="page-import">
+      <h1>取込</h1>
+      <div class="card">
+        <h2>Phase Dで実装予定</h2>
+        <div class="muted">CSV取込・OCR取込・メール自動取込などの機能は、今後のフェーズで新UIに統合予定です。現在は従来の画面をご利用ください。</div>
+        <div style="margin-top:14px"><a href="/" class="btn">従来の画面を開く</a></div>
+      </div>
+    </section>
+
+    <!-- ============ 4. 証憑（既存ページへ誘導） ============ -->
+    <section class="page" id="page-evidence">
+      <h1>証憑</h1>
+      <div class="card">
+        <h2>証憑インボックス（マネーフォワード連携）</h2>
+        <div class="muted">証憑の貼り付け・承認・マッチングは既存の証憑ページで行います。</div>
+        <div style="margin-top:14px"><a href="/mf-evidence" class="btn primary">証憑インボックスを開く →</a></div>
+      </div>
+    </section>
+
+    <!-- ============ 5. 分析（プレースホルダー） ============ -->
+    <section class="page" id="page-analysis">
+      <h1>分析</h1>
+      <div class="card">
+        <h2>Phase Cで実装予定</h2>
+        <div class="muted">売上・粗利の推移グラフや目標管理などの分析機能は、今後のフェーズで新UIに統合予定です。現在は従来の画面をご利用ください。</div>
+        <div style="margin-top:14px"><a href="/" class="btn">従来の画面を開く</a></div>
+      </div>
+    </section>
+
+    <!-- ============ 6. 台帳・設定 ============ -->
+    <section class="page" id="page-settings">
+      <h1>台帳・設定</h1>
+      <div class="card section-gap">
+        <h2>電子古物台帳</h2>
+        <div class="muted">古物台帳の表示・CSV出力・印刷は既存の台帳ページで行います。</div>
+        <div style="margin-top:14px"><a href="/kobutsu-ledger" class="btn primary">電子古物台帳を開く →</a></div>
+      </div>
+      <div class="card">
+        <h2>設定</h2>
+        <div class="muted">Supabase接続・連携設定などは従来の画面から行えます。</div>
+        <div style="margin-top:14px"><a href="/" class="btn">従来の画面を開く</a></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- モバイル下部ナビ -->
+<nav class="bottom-nav" id="bottomNav">
+  <button class="active" data-page="home"><span class="ic">🏠</span>ホーム</button>
+  <button data-page="ledger"><span class="ic">💴</span>取引</button>
+  <div class="fab-wrap"><button class="fab" data-action="phaseb-toast" data-label="取引を登録">＋</button></div>
+  <button data-page="evidence"><span class="ic">📎</span>証憑</button>
+  <button data-page="analysis"><span class="ic">📊</span>分析</button>
+</nav>
+
+<!-- 取引詳細ドロワー（表示のみ） -->
+<div class="overlay" id="drawerOverlay">
+  <div class="drawer">
+    <div class="drawer-head">
+      <h2 style="margin:0">取引の詳細</h2>
+      <button class="drawer-close" id="drawerCloseBtn">✕</button>
+    </div>
+    <div id="drawerBody"></div>
+    <div class="modal-actions">
+      <button class="btn danger" data-action="phaseb-toast" data-label="削除">削除</button>
+      <button class="btn primary" data-action="phaseb-toast" data-label="編集">編集を保存</button>
+    </div>
+  </div>
+</div>
+
+<script src="services/core.js"></script>
+<script src="services/supabase-rest.js"></script>
+<script src="services/supabase-auth.js"></script>
+<script src="services/auth-gate.js"></script>
+<script src="pages/app-v2.js"></script>
+</body>
+</html>
