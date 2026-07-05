@@ -1371,7 +1371,8 @@ async function appvUnitPriceChannelTable(month) {
     byChan[c].count += 1;
     byChan[c].sale += amt;
   });
-  return Object.keys(byChan).sort((a, b) => byChan[b].sale - byChan[a].sale).map((c) => ({
+  // 並びは固定のチャネル順（ヤフオク1〜8→メルカリ→メルカリShops→ラクマ→その他）
+  return Object.keys(byChan).sort((a, b) => appvChannelOrderKey(a) - appvChannelOrderKey(b) || String(a).localeCompare(String(b), 'ja')).map((c) => ({
     chan: c, count: byChan[c].count, sale: byChan[c].sale,
     avg: byChan[c].count ? Math.round(byChan[c].sale / byChan[c].count) : 0
   }));
