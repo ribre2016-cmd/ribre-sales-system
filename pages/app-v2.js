@@ -3377,6 +3377,91 @@ async function appvRenderSettingsPage() {
   appvRenderMfConnStatus();
   appvRenderMailImportStatusSettings();
   appvRenderCloudSyncStatus();
+  appvRenderAccountCard();
+  appvRenderSupabaseCard();
+}
+
+/* ---- アカウント（ログイン中メール表示・ログアウト） ---- */
+function appvRenderAccountCard() {
+  const el = document.getElementById('acctEmail');
+  if (!el) return;
+  const em = (typeof email === 'function') ? email() : '';
+  el.textContent = em || '未ログイン';
+}
+function appvSignOut() {
+  const ok = confirm('ログアウトすると端末のキャッシュデータが消去されます（クラウドに同期済みのデータは安全）。ログアウトしますか？');
+  if (!ok) return;
+  if (typeof window.signOut === 'function') {
+    window.signOut();
+  } else {
+    appvToast('ログアウト機能が見つかりません');
+    return;
+  }
+  appvRenderAccountCard();
+  appvRenderCloudSyncStatus();
+  appvToast('ログアウトしました');
+}
+
+/* ---- Supabase接続設定（旧UI pages/settings.js の saveSupabase/checkSupabase と同一の保存先・検証方法） ---- */
+function appvRenderSupabaseCard() {
+  const cfg = (typeof sb === 'function') ? sb() : {};
+  const urlEl = document.getElementById('sbUrlV2');
+  const keyEl = document.getElementById('sbKeyV2');
+  if (urlEl && !urlEl.matches(':focus')) urlEl.value = (cfg && cfg.url) || '';
+  if (keyEl && !keyEl.matches(':focus')) keyEl.value = (cfg && cfg.key) || '';
+}
+function appvSaveSupabase() {
+  const urlEl = document.getElementById('sbUrlV2');
+  const keyEl = document.getElementById('sbKeyV2');
+  const url = (urlEl && urlEl.value || '').trim();
+  const key = (keyEl && keyEl.value || '').trim();
+  if (!url || !key) {
+    appvToast('URLとkeyを入れてください');
+    return;
+  }
+  setLS(LS.sb, { url, key });
+  appvToast('Supabase設定を保存しました');
+  appvRenderSupabaseCard();
+  appvRenderCloudSyncStatus();
+}
+async function appvCheckSupabase() {
+  const statusEl = document.getElementById('sbStatusV2');
+  if (statusEl) statusEl.textContent = '確認中…';
+  const r = await rest('sales', { query: '?select=id&limit=1' });
+  if (statusEl) statusEl.textContent = r.error ? 'エラー' : 'OK';
+  appvToast(r.error ? ('接続エラー: ' + r.error.message) : 'Supabase接続OK');
+}
+
+/* ---- ユーザー登録（旧UI services/supabase-auth.js の signUp と同一フロー。隠しinput #email/#password/#role へ転記して呼ぶ） ---- */
+async function appvSubmitRegister() {
+  const emEl = document.getElementById('regEmailV2');
+  const pwEl = document.getElementById('regPasswordV2');
+  const roleEl = document.getElementById('regRoleV2');
+  const em = (emEl && emEl.value || '').trim();
+  const pw = (pwEl && pwEl.value || '').trim();
+  const role = (roleEl && roleEl.value) || 'staff';
+  if (!em || !pw) {
+    appvToast('メールとパスワードを入力してください');
+    return;
+  }
+  const hiddenEmail = document.getElementById('email');
+  const hiddenPassword = document.getElementById('password');
+  const hiddenRole = document.getElementById('role');
+  if (hiddenEmail) hiddenEmail.value = em;
+  if (hiddenPassword) hiddenPassword.value = pw;
+  if (hiddenRole) hiddenRole.value = role;
+  if (typeof window.signUp !== 'function') {
+    appvToast('登録機能が見つかりません');
+    return;
+  }
+  try {
+    await window.signUp();
+    appvToast('登録しました。ログインしてください');
+    if (emEl) emEl.value = '';
+    if (pwEl) pwEl.value = '';
+  } catch (e) {
+    appvToast('登録に失敗しました');
+  }
 }
 
 /* ---- バックアップ（旧UI app-simple.js smpFullBackup/smpFullRestore と完全同一形式・同一キー） ---- */
@@ -3737,6 +3822,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if (closeMonthBtn) closeMonthBtn.addEventListener('click', appvCloseMonth);
   const reopenMonthBtn = document.getElementById('reopenMonthBtn');
   if (reopenMonthBtn) reopenMonthBtn.addEventListener('click', appvReopenMonth);
+
+  /* Phase D: 設定ページ（アカウント・Supabase接続・ユーザー登録） */
+  const acctSignOutBtn = document.getElementById('acctSignOutBtn');
+  if (acctSignOutBtn) acctSignOutBtn.addEventListener('click', appvSignOut);
+  const sbSaveBtnV2 = document.getElementById('sbSaveBtnV2');
+  if (sbSaveBtnV2) sbSaveBtnV2.addEventListener('click', appvSaveSupabase);
+  const sbCheckBtnV2 = document.getElementById('sbCheckBtnV2');
+  if (sbCheckBtnV2) sbCheckBtnV2.addEventListener('click', appvCheckSupabase);
+  const regSubmitBtnV2 = document.getElementById('regSubmitBtnV2');
+  if (regSubmitBtnV2) regSubmitBtnV2.addEventListener('click', appvSubmitRegister);
 
   /* Phase D: 設定ページ（バックアップ・手動同期） */
   const backupExportBtn = document.getElementById('backupExportBtn');

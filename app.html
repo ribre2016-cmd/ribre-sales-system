@@ -450,10 +450,42 @@
         </div>
       </div>
 
-      <div class="card">
-        <h2>設定</h2>
-        <div class="muted">Supabase接続・連携設定などは従来の画面から行えます。</div>
-        <div style="margin-top:14px"><a href="/" class="btn">従来の画面を開く</a></div>
+      <!-- アカウント（ログイン中ユーザー・ログアウト） -->
+      <div class="card section-gap">
+        <h2>アカウント</h2>
+        <div class="status-row"><span>ログイン中</span><span id="acctEmail" class="muted">未ログイン</span></div>
+        <div style="margin-top:12px"><button class="btn danger" id="acctSignOutBtn">ログアウト</button></div>
+      </div>
+
+      <!-- Supabase接続設定 -->
+      <div class="card section-gap">
+        <h2>Supabase接続</h2>
+        <div class="muted" style="font-size:12.5px;margin-bottom:10px">クラウド保存先のSupabaseプロジェクトURL・公開キー（旧UIと同じ保存先・同じ形式）</div>
+        <div style="display:flex;flex-direction:column;gap:8px;max-width:480px">
+          <input id="sbUrlV2" class="prov-input" style="width:100%;text-align:left" placeholder="Supabase Project URL">
+          <input id="sbKeyV2" class="prov-input" style="width:100%;text-align:left" placeholder="Publishable key">
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="btn primary" id="sbSaveBtnV2">保存</button>
+          <button class="btn" id="sbCheckBtnV2">接続確認</button>
+        </div>
+        <div class="status-row"><span>接続状態</span><span id="sbStatusV2" class="muted">未設定</span></div>
+      </div>
+
+      <!-- ユーザー登録（スタッフ追加） -->
+      <div class="card section-gap">
+        <h2>ユーザー登録</h2>
+        <div class="muted" style="font-size:12.5px;margin-bottom:10px">スタッフ・管理者アカウントを追加登録します。</div>
+        <div style="display:flex;flex-direction:column;gap:8px;max-width:480px">
+          <input id="regEmailV2" type="email" class="prov-input" style="width:100%;text-align:left" placeholder="メールアドレス">
+          <input id="regPasswordV2" type="password" class="prov-input" style="width:100%;text-align:left" placeholder="パスワード">
+          <select id="regRoleV2" class="prov-input" style="width:100%;text-align:left">
+            <option value="staff">スタッフ</option>
+            <option value="admin">管理者</option>
+            <option value="viewer">閲覧のみ</option>
+          </select>
+        </div>
+        <div style="margin-top:12px"><button class="btn primary" id="regSubmitBtnV2">登録する</button></div>
       </div>
 
       <!-- 連携状態（Phase D） -->
