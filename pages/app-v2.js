@@ -411,11 +411,20 @@ async function appvFetchEvidenceCount(query) {
     return null;
   }
 }
-/* 配送照合の不一致件数（旧: pages/app-shipping.js shipResults() と同一ストア ribre_shipping_results230 を読むだけ） */
+/* 配送照合の不一致件数。照合結果ストア(ribre_shipping_results230)は照合実行時のスナップショットのため、
+ * その後に送料が手入力等で解消された行（旧UIの一覧タブ経由など、結果ストアが更新されない経路がある）は
+ * 売上行と突き合わせて除外する（appvNeedsShipがfalse＝解消済み）。 */
 function appvShipUnmatchCount() {
   try {
     const rows = JSON.parse(localStorage.getItem('ribre_shipping_results230') || '[]') || [];
-    return Array.isArray(rows) ? rows.filter((r) => r.status === '未一致').length : 0;
+    if (!Array.isArray(rows)) return 0;
+    const saleById = {};
+    sales().forEach((s) => { const k = String(s.itemId || s.id || ''); if (k) saleById[k] = s; });
+    return rows.filter((r) => {
+      if (r.status !== '未一致') return false;
+      const sale = saleById[String(r.itemId || '')];
+      return !sale || appvNeedsShip(sale);
+    }).length;
   } catch (e) { return 0; }
 }
 async function appvRenderTodos() {
@@ -3241,12 +3250,18 @@ function appvCloseChecklistMonth() {
 function appvShipUnmatchCountForMonth(month) {
   try {
     const salesAll = get(LS.sales, []);
-    const idsInMonth = new Set((Array.isArray(salesAll) ? salesAll : [])
+    const saleById = {};
+    (Array.isArray(salesAll) ? salesAll : [])
       .filter((r) => appvMonthOfLocal(r) === month && r.itemId)
-      .map((r) => String(r.itemId)));
-    if (!idsInMonth.size) return 0;
+      .forEach((r) => { saleById[String(r.itemId)] = r; });
+    if (!Object.keys(saleById).length) return 0;
     const rows = JSON.parse(localStorage.getItem('ribre_shipping_results230') || '[]') || [];
-    return (Array.isArray(rows) ? rows : []).filter((r) => r.status === '未一致' && idsInMonth.has(String(r.itemId))).length;
+    // 解消済み（売上行側で送料入力済み等、appvNeedsShip=false）の行は除外（appvShipUnmatchCountと同ルール）
+    return (Array.isArray(rows) ? rows : []).filter((r) => {
+      if (r.status !== '未一致') return false;
+      const sale = saleById[String(r.itemId)];
+      return !!sale && appvNeedsShip(sale);
+    }).length;
   } catch (e) { return 0; }
 }
 /* mf_evidenceのcreated_atが対象月内かで絞り込んで件数を数える（coverageと違い月内の証憑件数を見る用途）。 */
@@ -3797,7 +3812,9 @@ function appvRenderShipPersistentTable() {
   rows.forEach((r) => {
     const itemId = r.itemId || r.id || '';
     const res = itemId ? resultByItemId[String(itemId)] : null;
-    const status = res ? res.status : '未一致';
+    let status = res ? res.status : '未一致';
+    // 結果ストアが未一致のままでも、売上行側で解消済み（送料入力済み/手入力/匿名等）なら実態を優先
+    if (status === '未一致' && !appvNeedsShip(r)) status = r.matchStatus || '手入力';
     if (status === '一致' || status === '手入力') matched++;
     else if (status === '未一致') unmatched++;
     const tr = document.createElement('tr');
