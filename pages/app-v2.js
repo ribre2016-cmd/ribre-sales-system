@@ -1353,6 +1353,23 @@ function appvYSortImportedSalesRows(rows) {
   }).map((x) => x.row);
 }
 
+/* ---- 通常モードの締め月保護（旧: services/app-main-v2.js isMonthClosed 15-18行目 と同一ロジック） ----
+ * [LOCK]メモタグ方式：対象月に1件以上sales行があり、かつ全行のmemoに"[LOCK]"を含む場合に締め済みとみなす。
+ * services/app-main-v2.js（かんたんモードのダッシュボード）はapp.htmlでは読み込まれておらず
+ * window.isMonthClosed が存在しないため、同一ロジックをappv側にも移植して直接使えるようにする。
+ * ローカルのsales()を対象にする点も旧実装と同じ（Supabase上の値は見ない）。 */
+function appvIsMonthClosed(vm) {
+  const rows = sales().filter((x) => (x.month || String(x.date || '').slice(0, 7)) === vm);
+  return rows.length > 0 && rows.every((x) => String(x.memo || '').includes('[LOCK]'));
+}
+/* CSV取込行（{month,...}の配列）の中に締め済み月への行が含まれていれば、旧UIと同じ文言でconfirm()し、
+ * キャンセルされたら true（中止すべき）を返す。旧: pages/app-shipping.js 697-705行目と同一の確認文言・挙動。 */
+function appvConfirmClosedMonthsOrCancel(rowsWithMonth) {
+  const closedMonths = Array.from(new Set(rowsWithMonth.map((r) => r.month).filter((m) => m && appvIsMonthClosed(m))));
+  if (!closedMonths.length) return false;
+  return !confirm('締め済みの月（' + closedMonths.join(', ') + '）へのデータが含まれています。取り込みを続行しますか？');
+}
+
 /* ---- 売上CSV取込（旧: importYahooSalesCsv と同一ロジック。DOM依存部分のみ引数化） ----
  * 戻り値: { added, patched, skipped, total } */
 function appvImportYahooCsv(file, csvText, account, forceMonth) {
@@ -1425,6 +1442,12 @@ function appvImportYahooCsv(file, csvText, account, forceMonth) {
   });
 
   if (added.length === 0 && patched === 0) return { error: '取込できる行がありませんでした（重複またはCSV形式をご確認ください）' };
+
+  // 通常モードの締め月保護（旧: pages/app-shipping.js 697-705行目と同一の確認）。
+  // キャンセルされたら取込を中止する（かんたんモードのロック月保護とは別の、通常モード[LOCK]メモタグ方式の保護）。
+  if (added.length > 0 && appvConfirmClosedMonthsOrCancel(added)) {
+    return { error: '締め済み月のため取込を中止しました' };
+  }
 
   // 月ロック保護（旧: smpLockProtectAfterImport と同じ規則。ロック月の既存行は取込前の状態へ戻す）
   const lockedMonths = appvLockedMonthsGet();
