@@ -1672,6 +1672,145 @@ async function appvRenderPacemaker() {
   body.appendChild(line3);
 }
 
+/* ==================== E2. 年間着地予測 ====================
+ * 年度（appvFiscalMonths）の各月を3種に分類して年間の着地を予測する。
+ *  1) 確定月（当月より前の月）＝ appvMonthTotals の実績をそのまま合算。
+ *  2) 当月　＝ 機能C（appvDailySalesData）と同じ日割り着地予測を使う。
+ *     売上は「経過日数までの合計 ÷ 経過日数 × 当月日数」。
+ *     粗利は当月のsale/pur/expを同じ日割り率（月日数÷経過日数）で月末換算してから
+ *     profit = sale - pur - exp を計算する（＝sale/pur/expそれぞれを同率で日割り）。
+ *  3) 未来月（当月より後の月）＝ 直近3ヶ月（当月を除く確定月のうち直近3つ）の
+ *     月平均（売上・粗利それぞれ）× 残り月数。確定月が3ヶ月未満ならある分の平均を使う。
+ * 予測年間売上 = 1)+2)+3)の売上、予測年間粗利も同様に合算。 */
+async function appvYearForecastData() {
+  const cur = appvCurrentMonth();
+  const startYear = appvFiscalStartYear();
+  const months = appvFiscalMonths(startYear);
+
+  const settled = []; // 確定月のt（sale/pur/exp/profit）
+  let curForecast = null; // 当月の日割り着地予測 {sale, pur, exp, profit}
+  let futureCount = 0;
+
+  for (const mo of months) {
+    if (mo.key < cur) {
+      const t = await appvMonthTotals(mo.key);
+      settled.push(t);
+    } else if (mo.key === cur) {
+      // 当月：機能Cと同じ日割り着地予測ロジックを流用
+      const data = await appvDailySalesData(mo.key);
+      const days = Object.keys(data.byDay).map(Number).sort((a, b) => a - b);
+      const todayD = Number(today().slice(8, 10));
+      const elapsedDays = Math.max(1, Math.min(todayD, data.lastDay));
+      const elapsedSum = days.filter((d) => d <= elapsedDays).reduce((s, d) => s + data.byDay[d], 0);
+      const saleForecast = Math.round((elapsedSum / elapsedDays) * data.lastDay);
+
+      // 粗利も同率で日割り：当月のsale/pur/expを（月日数÷経過日数）倍して月末換算する
+      const t = await appvMonthTotals(mo.key);
+      const ratio = data.lastDay / elapsedDays;
+      const purForecast = Math.round(t.pur * ratio);
+      const expForecast = Math.round(t.exp * ratio);
+      curForecast = { sale: saleForecast, pur: purForecast, exp: expForecast, profit: saleForecast - purForecast - expForecast };
+    } else {
+      futureCount += 1;
+    }
+  }
+
+  // 未来月の予測＝直近3ヶ月（当月を除く確定月のうち直近3つ）の平均 × 残り月数
+  const recent3 = settled.slice(-3);
+  const recentN = recent3.length;
+  const recentAvgSale = recentN ? recent3.reduce((s, t) => s + t.sale, 0) / recentN : 0;
+  const recentAvgProfit = recentN ? recent3.reduce((s, t) => s + t.profit, 0) / recentN : 0;
+  const futureSale = recentAvgSale * futureCount;
+  const futureProfit = recentAvgProfit * futureCount;
+
+  const settledSale = settled.reduce((s, t) => s + t.sale, 0);
+  const settledProfit = settled.reduce((s, t) => s + t.profit, 0);
+  const curSale = curForecast ? curForecast.sale : 0;
+  const curProfit = curForecast ? curForecast.profit : 0;
+
+  const forecastSale = settledSale + curSale + futureSale;
+  const forecastProfit = settledProfit + curProfit + futureProfit;
+
+  return {
+    settledCount: settled.length,
+    settledSale: settledSale,
+    settledProfit: settledProfit,
+    curForecast: curForecast,
+    futureCount: futureCount,
+    recentN: recentN,
+    recentAvgSale: recentAvgSale,
+    recentAvgProfit: recentAvgProfit,
+    futureSale: futureSale,
+    futureProfit: futureProfit,
+    forecastSale: forecastSale,
+    forecastProfit: forecastProfit
+  };
+}
+async function appvRenderYearForecast() {
+  const body = document.getElementById('yearForecastBody');
+  if (!body) return;
+  appvClear(body);
+  const d = await appvYearForecastData();
+  const g = appvGoalsGet();
+  const yearSale = num(g.yearSale);
+
+  const big = document.createElement('div');
+  big.className = 'grid2';
+  big.style.marginTop = '2px';
+  const bigSale = document.createElement('div');
+  bigSale.innerHTML = '<div class="kpi-label">予測年間売上</div>';
+  const bigSaleVal = document.createElement('div');
+  bigSaleVal.className = 'kpi-value big num';
+  bigSaleVal.textContent = yen(Math.round(d.forecastSale));
+  bigSale.appendChild(bigSaleVal);
+  const bigProfit = document.createElement('div');
+  bigProfit.innerHTML = '<div class="kpi-label">予測年間粗利</div>';
+  const bigProfitVal = document.createElement('div');
+  bigProfitVal.className = 'kpi-value big num';
+  bigProfitVal.style.color = 'var(--accent)';
+  bigProfitVal.textContent = yen(Math.round(d.forecastProfit));
+  bigProfit.appendChild(bigProfitVal);
+  big.appendChild(bigSale); big.appendChild(bigProfit);
+  body.appendChild(big);
+
+  if (yearSale) {
+    const diff = Math.round(d.forecastSale - yearSale);
+    const pct = yearSale ? Math.round((d.forecastSale / yearSale) * 100) : 0;
+    const goalLine = document.createElement('div');
+    goalLine.className = 'section-gap';
+    goalLine.style.fontSize = '14px';
+    goalLine.style.fontWeight = '700';
+    goalLine.style.color = diff >= 0 ? 'var(--accent)' : 'var(--err)';
+    goalLine.textContent = '目標 ' + yen(yearSale) + ' に対し ' + (diff >= 0 ? '+' : '−') + yen(Math.abs(diff)) + '円（達成率' + pct + '%見込み）';
+    body.appendChild(goalLine);
+  }
+
+  const table = document.createElement('div');
+  table.className = 'section-gap';
+  table.style.fontSize = '12.5px';
+  const rows = [
+    ['確定実績（' + d.settledCount + 'ヶ月分）', yen(Math.round(d.settledSale)) + '（粗利' + yen(Math.round(d.settledProfit)) + '）'],
+    ['当月着地予測', d.curForecast ? (yen(Math.round(d.curForecast.sale)) + '（粗利' + yen(Math.round(d.curForecast.profit)) + '）') : '―'],
+    ['残り' + d.futureCount + 'ヶ月の予測（直近' + d.recentN + 'ヶ月平均 ' + yen(Math.round(d.recentAvgSale)) + '/月ベース）', yen(Math.round(d.futureSale)) + '（粗利' + yen(Math.round(d.futureProfit)) + '）']
+  ];
+  rows.forEach((r) => {
+    const row = document.createElement('div');
+    row.className = 'flex-between';
+    row.style.marginTop = '4px';
+    const l = document.createElement('span'); l.className = 'muted'; l.textContent = r[0];
+    const v = document.createElement('span'); v.className = 'num'; v.textContent = r[1];
+    row.appendChild(l); row.appendChild(v);
+    table.appendChild(row);
+  });
+  body.appendChild(table);
+
+  const note = document.createElement('div');
+  note.className = 'muted section-gap';
+  note.style.fontSize = '11.5px';
+  note.textContent = '予測は直近3ヶ月の平均ペースに基づく参考値です。';
+  body.appendChild(note);
+}
+
 /* ==================== F. 販売先ランキング ====================
  * 明細売上（appvGetMeisai().sales）を相手先(name)別に年度合計し、トップ10を横棒表示。 */
 async function appvPartnerRankData(startYear) {
@@ -1734,9 +1873,10 @@ async function appvRenderAnalysisPage() {
   await appvRenderFeeRateChart();
   await appvRenderGoals();
   await appvRenderPacemaker();
+  await appvRenderYearForecast();
   await appvRenderChannelMix();
   await appvRenderPartnerRank();
-  try { await appvGoalsPullCloud(); await appvRenderGoals(); await appvRenderPacemaker(); } catch (e) {}
+  try { await appvGoalsPullCloud(); await appvRenderGoals(); await appvRenderPacemaker(); await appvRenderYearForecast(); } catch (e) {}
 }
 
 /* =====================================================================
