@@ -538,6 +538,93 @@ function appvCsvOrder(row, fallback) {
   const order = Number(row && row.order);
   return Number.isFinite(order) && order > 0 ? order : fallback;
 }
+
+/* ==================== 売上CSVダウンロード／送料だけコピー(旧UIから移植) ====================
+ * 旧: index.html 1199-1200行目のボタン → app-simple.js smpCopyShippingOnly(3194-3213行目) /
+ *     smpDownloadSalesCsv(3229-3242行目)。対象データ・列構成・並び順・ファイル名を完全に同一にする。
+ * 旧UIの一覧はアカウント絞り込み(all/個別)・年月絞り込み(all/個別)・送料未入力のみ表示チェックボックスを
+ * 持つが、新UI「取引」ページにはそれらが無いため、対象は「ローカル全期間・全アカウント」固定
+ * （旧UIの初期状態＝smpListAccFilter='all'・smpListMonth='all'・smpListShipOnly=false と同じ範囲）。 */
+const APPV_SHIP_COPY_ACCS = ['ヤフオク1', 'ヤフオク2', 'ヤフオク3', 'ヤフオク4', 'ヤフオク5', 'ヤフオク6', 'ヤフオク7', 'ヤフオク8', 'メルカリShops'];
+
+/* 旧: smpVisibleSalesRows(app-simple.js 3120-3129行目)のうち、絞り込みUIが無い新UIでは
+ * 「送料未入力のみ」off・アカウント'all'・年月'all'に相当する全件を、smpSortByAccount
+ * (3140-3149行目)と同じ規則（チャネル順→CSV取込順→添字）で並べ替えて返す。 */
+function appvLedgerSalesRows() {
+  const salesAll = get(LS.sales, []);
+  const arr = Array.isArray(salesAll) ? salesAll.slice() : [];
+  return arr.map((row, idx) => ({ row: row, idx: idx })).sort((a, b) => {
+    const ra = appvChannelOrderKey(a.row.shop), rb = appvChannelOrderKey(b.row.shop);
+    if (ra !== rb) return ra - rb;
+    const oa = appvCsvOrder(a.row, a.idx + 1), ob = appvCsvOrder(b.row, b.idx + 1);
+    if (oa !== ob) return oa - ob;
+    return a.idx - b.idx;
+  }).map((x) => x.row);
+}
+
+/* 旧: smpDownloadSalesCsv(app-simple.js 3229-3242行目)と同一の列構成・値・BOM付きCSV。
+ * 旧のファイル名規則 '売上_' + (アカウント名 or '全アカウント') + '_' + (年月 or '全期間') + '.csv' のうち、
+ * 新UIにはアカウント/年月の絞り込みUIが無いため、常に「全アカウント」「全期間」で出力する。 */
+function appvDownloadSalesCsv() {
+  const arr = appvLedgerSalesRows();
+  const rows = [['日付', '月', '取込元', '商品名', '金額', '手数料', '送料', '利益', '商品ID', 'メモ']];
+  arr.forEach((r) => {
+    const amt = num(r.amount || r.price), fee = num(r.fee), ship = num(r.ship || r.shipping);
+    const profit = (r.profit !== undefined && r.profit !== '') ? num(r.profit) : (amt - fee - ship);
+    rows.push([r.date || '', r.month || String(r.date || '').slice(0, 7), r.shop || '', r.name || '', amt, fee, ship, profit, r.itemId || r.id || '', r.memo || '']);
+  });
+  if (rows.length <= 1) { appvToast('該当する売上データがありません'); return; }
+  csvDownload(rows, '売上_全アカウント_全期間.csv');
+}
+
+/* 旧: smpCopyShippingOnly(app-simple.js 3194-3213行目)と同一。全件表示相当(acc='all')なので
+ * SMP_SHIP_COPY_ACCS(ヤフオク1〜8・メルカリShops)に絞り込み、smpSortShippingCopyRows
+ * (3165-3177行目)と同じ規則で並べ替え、送料の数値だけを改行区切りでコピーする。 */
+function appvSortShippingCopyRows(arr) {
+  return arr.map((row, idx) => ({ row: row, idx: idx })).sort((a, b) => {
+    const ra = APPV_SHIP_COPY_ACCS.indexOf(appvNormAccount(a.row.shop)), rb = APPV_SHIP_COPY_ACCS.indexOf(appvNormAccount(b.row.shop));
+    const aa = ra < 0 ? 999 : ra, bb = rb < 0 ? 999 : rb;
+    if (aa !== bb) return aa - bb;
+    const oa = appvCsvOrder(a.row, a.idx + 1), ob = appvCsvOrder(b.row, b.idx + 1);
+    if (oa !== ob) return oa - ob;
+    return a.idx - b.idx;
+  }).map((x) => x.row);
+}
+async function appvWriteClipboardText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  return ok;
+}
+async function appvCopyShippingOnly() {
+  let arr = appvLedgerSalesRows().filter((r) => APPV_SHIP_COPY_ACCS.indexOf(appvNormAccount(r.shop)) >= 0);
+  arr = appvSortShippingCopyRows(arr);
+  const lines = arr.map((r) => String(num(r.ship || r.shipping || 0)));
+  if (!lines.length) { appvToast('コピーできる送料がありません'); return; }
+  const text = lines.join('\n');
+  const ok = await appvWriteClipboardText(text);
+  appvToast(ok ? '送料だけコピーしました（' + lines.length + '件 / ヤフオク1〜8・メルカリShops順）' : 'コピーできませんでした。ブラウザの権限を確認してください');
+}
+
+/* 「取引」タブが売上を含む(すべて/売上)ときだけ、CSV/送料コピーのボタンを表示（旧UI一覧の文脈に合わせる） */
+function appvUpdateLedgerSalesToolsVisibility() {
+  const show = appvLedgerTab === 'all' || appvLedgerTab === 'sale';
+  const csvBtn = document.getElementById('ledgerCsvBtn');
+  const shipBtn = document.getElementById('ledgerShipCopyBtn');
+  if (csvBtn) csvBtn.style.display = show ? 'inline-block' : 'none';
+  if (shipBtn) shipBtn.style.display = show ? 'inline-block' : 'none';
+}
+
 function appvRenderLedger() {
   const body = document.getElementById('ledgerBody');
   if (!body) return;
@@ -3825,9 +3912,15 @@ document.addEventListener('DOMContentLoaded', () => {
       // 粗利タブ中はコンテンツ幅の上限を解除（12ヶ月+年計を横スクロール無しで収める）
       const mainEl = document.querySelector('.main');
       if (mainEl) mainEl.classList.toggle('profit-wide', isProfit);
+      appvUpdateLedgerSalesToolsVisibility();
       if (isProfit) appvRenderProfit(); else appvRenderLedger();
     });
   });
+  appvUpdateLedgerSalesToolsVisibility();
+  const ledgerCsvBtn = document.getElementById('ledgerCsvBtn');
+  if (ledgerCsvBtn) ledgerCsvBtn.addEventListener('click', appvDownloadSalesCsv);
+  const ledgerShipCopyBtn = document.getElementById('ledgerShipCopyBtn');
+  if (ledgerShipCopyBtn) ledgerShipCopyBtn.addEventListener('click', appvCopyShippingOnly);
   const profitYearSel = document.getElementById('profitYearSel');
   if (profitYearSel) profitYearSel.addEventListener('change', () => {
     appvProfitStartYear = parseInt(profitYearSel.value, 10) || appvProfitDefaultStartYear();

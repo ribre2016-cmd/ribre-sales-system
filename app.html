@@ -120,6 +120,9 @@
       <div class="filter-row" id="ledgerFilterRow">
         <input type="month" id="monthFilter">
         <input type="text" id="searchFilter" placeholder="相手先・品目で検索">
+        <!-- 旧UI(index.html 1199-1200行目/app-simple.js smpCopyShippingOnly・smpDownloadSalesCsv)からの移植。売上を含むタブ(すべて/売上)でのみ表示 -->
+        <button class="btn sm" id="ledgerShipCopyBtn" style="display:none">送料だけコピー</button>
+        <button class="btn sm" id="ledgerCsvBtn" style="display:none">📥 売上CSVダウンロード</button>
         <div class="spacer"></div>
         <button class="btn primary" data-action="open-tx-modal" data-kind="sale">＋ 登録</button>
       </div>
