@@ -1331,9 +1331,239 @@ async function appvRenderChannelMix() {
   });
 }
 
+/* ==================== A. 個数・平均単価カード ====================
+ * 個数 = CSV由来売上行（sales, source!=='明細'）のうち対象月に属する行数。
+ * 平均単価 = チャネル売上金額(chanReal合計。当月のみ実数0チャネルへ仮入力を加算) ÷ 個数。
+ * 明細（まとめ売り）・仮入力（CSV未取込チャネルの手入力額）は金額のみを持ち商品行を持たないため、
+ * 個数には一切含めない（既存のappvMonthTotals/appvChannelSaleMapと同じ「実数優先＋当月のみ仮入力」ルールを流用）。 */
+function appvSalesCsvRowsInMonth(month) {
+  const salesAll = get(LS.sales, []);
+  return (Array.isArray(salesAll) ? salesAll : []).filter((r) => appvMonthOfLocal(r) === month && !appvIsMeiRowLocal(r));
+}
+async function appvUnitPriceStats(month) {
+  const rows = appvSalesCsvRowsInMonth(month);
+  const count = rows.length;
+  const map = await appvChannelSaleMap(month); // 実数優先＋当月のみ仮入力込みのチャネル別売上（明細は別枠'明細'として入るが個数対象外なので合計から除く）
+  const chanSale = Object.keys(map).filter((c) => c !== '明細').reduce((s, c) => s + map[c], 0);
+  const avg = count ? Math.round(chanSale / count) : 0;
+  return { count: count, chanSale: chanSale, avg: avg };
+}
+async function appvUnitPriceYearStats(startYear) {
+  const months = appvFiscalMonths(startYear);
+  let count = 0, chanSale = 0;
+  for (const mo of months) {
+    const st = await appvUnitPriceStats(mo.key);
+    count += st.count; chanSale += st.chanSale;
+  }
+  return { count: count, chanSale: chanSale, avg: count ? Math.round(chanSale / count) : 0 };
+}
+async function appvUnitPriceChannelTable(month) {
+  const rows = appvSalesCsvRowsInMonth(month);
+  const byChan = {};
+  rows.forEach((r) => {
+    const c = String(r.shop || r.type || r.matchStatus || '').trim() || 'その他';
+    const amt = num(r.amount != null ? r.amount : r.price);
+    byChan[c] = byChan[c] || { count: 0, sale: 0 };
+    byChan[c].count += 1;
+    byChan[c].sale += amt;
+  });
+  return Object.keys(byChan).sort((a, b) => byChan[b].sale - byChan[a].sale).map((c) => ({
+    chan: c, count: byChan[c].count, sale: byChan[c].sale,
+    avg: byChan[c].count ? Math.round(byChan[c].sale / byChan[c].count) : 0
+  }));
+}
+async function appvRenderUnitPriceCard() {
+  const sel = document.getElementById('unitPriceMonthSel');
+  const body = document.getElementById('unitPriceChanBody');
+  if (!sel || !body) return;
+  const cur = appvCurrentMonth();
+  if (!sel.options.length) {
+    const months = [];
+    let m = cur;
+    for (let i = 0; i < 12; i++) { months.push(m); m = appvPrevMonth(m); }
+    sel.innerHTML = months.map((mo) => '<option value="' + mo + '"' + (mo === cur ? ' selected' : '') + '>' + appvMonthLabel(mo) + '</option>').join('');
+  }
+  const month = sel.value || cur;
+  const prevMonth = appvPrevMonth(month);
+  const st = await appvUnitPriceStats(month);
+  const prevSt = await appvUnitPriceStats(prevMonth);
+  appvSetText('unitPriceCount', st.count.toLocaleString('ja-JP') + '件');
+  appvSetText('unitPriceAvg', yen(st.avg));
+  const badge = appvPctBadge(st.count, prevSt.count);
+  const footEl = document.getElementById('unitPriceCountFoot');
+  if (footEl) {
+    appvClear(footEl);
+    const b = document.createElement('span');
+    b.className = 'badge ' + badge.cls;
+    b.textContent = badge.text;
+    footEl.appendChild(b);
+  }
+  const startYear = appvFiscalStartYear();
+  const yst = await appvUnitPriceYearStats(startYear);
+  appvSetText('unitPriceYearCount', yst.count.toLocaleString('ja-JP') + '件');
+  appvSetText('unitPriceYearAvg', yen(yst.avg));
+
+  const table = await appvUnitPriceChannelTable(month);
+  appvClear(body);
+  if (!table.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4; td.className = 'muted'; td.textContent = '対象月のCSV売上データがありません';
+    tr.appendChild(td); body.appendChild(tr);
+    return;
+  }
+  table.forEach((row) => {
+    const tr = document.createElement('tr');
+    const tdC = document.createElement('td'); tdC.textContent = row.chan;
+    const tdN = document.createElement('td'); tdN.style.textAlign = 'right'; tdN.textContent = row.count.toLocaleString('ja-JP') + '件';
+    const tdS = document.createElement('td'); tdS.style.textAlign = 'right'; tdS.textContent = yen(row.sale);
+    const tdA = document.createElement('td'); tdA.style.textAlign = 'right'; tdA.textContent = yen(row.avg);
+    tr.appendChild(tdC); tr.appendChild(tdN); tr.appendChild(tdS); tr.appendChild(tdA);
+    body.appendChild(tr);
+  });
+}
+
+/* ==================== B. 価格帯分布 ==================== */
+const APPV_PRICE_BINS = [
+  { label: '〜999円', min: 0, max: 999 },
+  { label: '1,000〜2,999円', min: 1000, max: 2999 },
+  { label: '3,000〜4,999円', min: 3000, max: 4999 },
+  { label: '5,000〜9,999円', min: 5000, max: 9999 },
+  { label: '10,000〜29,999円', min: 10000, max: 29999 },
+  { label: '30,000円〜', min: 30000, max: Infinity }
+];
+function appvPriceDistData(month) {
+  const rows = appvSalesCsvRowsInMonth(month);
+  const bins = APPV_PRICE_BINS.map((b) => ({ label: b.label, min: b.min, max: b.max, count: 0, sale: 0 }));
+  rows.forEach((r) => {
+    const amt = num(r.amount != null ? r.amount : r.price);
+    const bin = bins.find((b) => amt >= b.min && amt <= b.max) || bins[bins.length - 1];
+    bin.count += 1;
+    bin.sale += amt;
+  });
+  return bins;
+}
+async function appvRenderPriceDist() {
+  const body = document.getElementById('priceDistBody');
+  const sel = document.getElementById('unitPriceMonthSel'); // 個数・平均単価カードの選択月と共用
+  if (!body) return;
+  const month = (sel && sel.value) || appvCurrentMonth();
+  const bins = appvPriceDistData(month);
+  const totalCount = bins.reduce((s, b) => s + b.count, 0);
+  const totalSale = bins.reduce((s, b) => s + b.sale, 0);
+  appvClear(body);
+  if (!totalCount) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = '対象月のCSV売上データがありません';
+    body.appendChild(empty);
+    return;
+  }
+  bins.forEach((b) => {
+    const pct = totalSale ? Math.round(b.sale / totalSale * 100) : 0;
+    const row = document.createElement('div');
+    row.className = 'dist-row';
+    const label = document.createElement('div');
+    label.className = 'dist-label';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = b.label;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'num';
+    valSpan.textContent = b.count.toLocaleString('ja-JP') + '件 / ' + yen(b.sale) + '（' + pct + '%）';
+    label.appendChild(nameSpan);
+    label.appendChild(valSpan);
+    const barWrap = document.createElement('div');
+    barWrap.className = 'dist-bar-wrap';
+    const bar = document.createElement('div');
+    bar.className = 'dist-bar';
+    bar.style.width = pct + '%';
+    barWrap.appendChild(bar);
+    row.appendChild(label);
+    row.appendChild(barWrap);
+    body.appendChild(row);
+  });
+}
+
+/* ==================== C. 当月の日別売上推移＋着地予測 ====================
+ * 選択月のCSV売上行（source!=='明細'）＋明細(profit_meisai)を日別に合算。
+ * 着地予測 = 経過日数までの合計 ÷ 経過日数 × 当月日数（当月選択時のみ。過去月は実績のみ表示）。 */
+async function appvDailySalesData(month) {
+  const rows = appvSalesCsvRowsInMonth(month);
+  const mei = await appvGetMeisai();
+  const meiOf = (e) => (e.month || String(e.date || '').slice(0, 7));
+  const meiRows = mei.sales.filter((e) => meiOf(e) === month);
+  const parts = String(month).split('-');
+  const lastDay = new Date(Number(parts[0]), Number(parts[1]), 0).getDate();
+  const byDay = {};
+  for (let d = 1; d <= lastDay; d++) byDay[d] = 0;
+  rows.forEach((r) => {
+    const dp = String(r.date || '').split('-');
+    const d = dp.length === 3 ? Number(dp[2]) : null;
+    if (d && byDay[d] != null) byDay[d] += num(r.amount != null ? r.amount : r.price);
+  });
+  meiRows.forEach((e) => {
+    const dp = String(e.date || '').split('-');
+    const d = dp.length === 3 ? Number(dp[2]) : null;
+    if (d && byDay[d] != null) byDay[d] += num(e.amount);
+  });
+  return { byDay: byDay, lastDay: lastDay };
+}
+async function appvRenderDailyTrend() {
+  const sel = document.getElementById('dailyTrendMonthSel');
+  const svg = document.getElementById('dailyTrendChart');
+  const foot = document.getElementById('dailyTrendForecast');
+  if (!sel || !svg) return;
+  const cur = appvCurrentMonth();
+  if (!sel.options.length) {
+    const months = [];
+    let m = cur;
+    for (let i = 0; i < 12; i++) { months.push(m); m = appvPrevMonth(m); }
+    sel.innerHTML = months.map((mo) => '<option value="' + mo + '"' + (mo === cur ? ' selected' : '') + '>' + appvMonthLabel(mo) + '</option>').join('');
+  }
+  const month = sel.value || cur;
+  const data = await appvDailySalesData(month);
+  const days = Object.keys(data.byDay).map(Number).sort((a, b) => a - b);
+  const vals = days.map((d) => data.byDay[d]);
+  const maxV = Math.max(1, ...vals);
+
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const W = 640, H = 200, padTop = 10, padBottom = 22, padSide = 8;
+  const chartH = H - padTop - padBottom;
+  const groupW = (W - padSide * 2) / days.length;
+  const barW = Math.max(2, Math.min(14, groupW * 0.7));
+  svg.appendChild(appvSvgEl('line', { x1: padSide, y1: H - padBottom, x2: W - padSide, y2: H - padBottom, stroke: '#E4E7E3', 'stroke-width': 1 }));
+  days.forEach((d, i) => {
+    const v = data.byDay[d];
+    const h = maxV ? (v / maxV) * chartH : 0;
+    const x = padSide + groupW * i + (groupW - barW) / 2;
+    const y = H - padBottom - h;
+    const rect = appvSvgEl('rect', { x: x, y: y, width: barW, height: Math.max(0, h), fill: 'var(--accent)', rx: 2 });
+    svg.appendChild(rect);
+    if (d === 1 || d % 5 === 0 || d === days.length) {
+      const label = appvSvgEl('text', { x: x + barW / 2, y: H - 6, 'text-anchor': 'middle', 'font-size': 9, fill: '#67716B' });
+      label.textContent = String(d);
+      svg.appendChild(label);
+    }
+  });
+
+  const total = vals.reduce((s, v) => s + v, 0);
+  if (month === cur) {
+    const todayD = Number(today().slice(8, 10));
+    const elapsedDays = Math.max(1, Math.min(todayD, data.lastDay));
+    const elapsedSum = days.filter((d) => d <= elapsedDays).reduce((s, d) => s + data.byDay[d], 0);
+    const forecast = Math.round((elapsedSum / elapsedDays) * data.lastDay);
+    appvSetText('dailyTrendForecast', '経過' + elapsedDays + '日／' + data.lastDay + '日：合計' + yen(elapsedSum) + ' ÷ ' + elapsedDays + '日 × ' + data.lastDay + '日 ＝ 着地予測 ' + yen(forecast));
+  } else {
+    appvSetText('dailyTrendForecast', '実績合計 ' + yen(total) + '（過去月のため着地予測はありません）');
+  }
+}
+
 /* ==================== 分析ページ全体の描画エントリ ==================== */
 async function appvRenderAnalysisPage() {
   await appvRenderTrendChart();
+  await appvRenderUnitPriceCard();
+  await appvRenderPriceDist();
+  await appvRenderDailyTrend();
   await appvRenderGoals();
   await appvRenderChannelMix();
   try { await appvGoalsPullCloud(); await appvRenderGoals(); } catch (e) {}
@@ -3179,6 +3409,16 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   const channelMixMonthSel = document.getElementById('channelMixMonthSel');
   if (channelMixMonthSel) channelMixMonthSel.addEventListener('change', appvRenderChannelMix);
+
+  /* A/B: 個数・平均単価カードの選択月（価格帯分布も共用） */
+  const unitPriceMonthSel = document.getElementById('unitPriceMonthSel');
+  if (unitPriceMonthSel) unitPriceMonthSel.addEventListener('change', async () => {
+    await appvRenderUnitPriceCard();
+    await appvRenderPriceDist();
+  });
+  /* C: 日別売上推移の選択月 */
+  const dailyTrendMonthSel = document.getElementById('dailyTrendMonthSel');
+  if (dailyTrendMonthSel) dailyTrendMonthSel.addEventListener('change', appvRenderDailyTrend);
 
   /* Phase D: 月締めチェックリスト */
   const closeMonthSel = document.getElementById('closeMonthSel');

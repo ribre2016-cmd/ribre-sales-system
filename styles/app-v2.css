@@ -255,6 +255,12 @@ tr.rowclick:hover td{background:#FAFBFA;}
 .chmix-bar-wrap{width:100%; height:14px; border-radius:999px; background:#EEF0EE; overflow:hidden;}
 .chmix-bar{height:100%; background:var(--accent); border-radius:999px;}
 
+/* ---------- 分析: 価格帯分布・販売先ランキング（チャネル構成比と同じ横棒スタイルを流用） ---------- */
+.dist-row{margin-bottom:10px;}
+.dist-label{display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px;}
+.dist-bar-wrap{width:100%; height:14px; border-radius:999px; background:#EEF0EE; overflow:hidden;}
+.dist-bar{height:100%; background:var(--info); border-radius:999px;}
+
 /* ---------- 台帳・設定: 月締めチェックリスト ---------- */
 .check-row{
   display:flex; align-items:center; justify-content:space-between; gap:10px;
