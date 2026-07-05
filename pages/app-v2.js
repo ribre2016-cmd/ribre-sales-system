@@ -2504,6 +2504,153 @@ async function appvRenderMailImportStatus() {
   }
 }
 
+/* =====================================================================
+ * 設定ページ本実装（Phase D）：連携状態・バックアップ・手動同期
+ * ===================================================================== */
+
+/* ---- 連携状態 ---- */
+async function appvRenderMfConnStatus() {
+  const el = document.getElementById('statusMfConn');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/mf/status');
+    if (!r.ok) { el.textContent = '確認失敗'; el.className = 'badge warn'; return; }
+    const d = await r.json();
+    if (d && d.connected) { el.textContent = '接続済み'; el.className = 'badge ok'; }
+    else { el.textContent = '未接続'; el.className = 'badge warn'; }
+  } catch (e) {
+    el.textContent = '確認失敗'; el.className = 'badge warn';
+  }
+}
+async function appvRenderMailImportStatusSettings() {
+  const el = document.getElementById('statusMailImport');
+  if (!el) return;
+  const u = restUrl('mf_evidence');
+  if (!u) { el.textContent = '未ログインのため表示できません'; return; }
+  try {
+    const res = await fetch(u + '?select=id,created_at&source=eq.mail&order=created_at.desc&limit=1', { headers: restHeaders() });
+    if (!res.ok) { el.textContent = '取得に失敗しました'; return; }
+    const data = await res.json();
+    const latest = Array.isArray(data) && data[0] && data[0].created_at ? new Date(data[0].created_at).toLocaleString('ja-JP') : 'なし';
+    el.textContent = '最終取込: ' + latest;
+  } catch (e) {
+    el.textContent = '取得に失敗しました';
+  }
+}
+function appvRenderCloudSyncStatus() {
+  const el = document.getElementById('statusCloudSync');
+  if (!el) return;
+  const em = (typeof email === 'function' && email()) || '';
+  if (!em) { el.textContent = '未ログイン'; return; }
+  const st = (window.ribreStore && window.ribreStore.status) ? window.ribreStore.status() : null;
+  const hydratedAt = st && st.hydratedAt;
+  el.textContent = 'ログイン中: ' + em + (hydratedAt ? '／最終取得 ' + hydratedAt : '（未取得）');
+}
+async function appvRenderSettingsPage() {
+  appvRenderMfConnStatus();
+  appvRenderMailImportStatusSettings();
+  appvRenderCloudSyncStatus();
+}
+
+/* ---- バックアップ（旧UI app-simple.js smpFullBackup/smpFullRestore と完全同一形式・同一キー） ---- */
+function appvFullBackupSnapshot() {
+  const pick = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+  return {
+    _type: 'ribre_full_backup_v1',
+    createdAt: new Date().toISOString(),
+    sales: pick('ribre_full_sales221'),
+    yahooSales: pick('ribre_yahoo_sales240'),
+    purchases: pick('ribre_full_purchases221'),
+    meisai: pick('ribre_smp_profit_meisai_v1'),
+    prov: pick('ribre_smp_profit_prov_v1'),
+    partners: pick('ribre_smp_partners_v1'),
+    lockedMonths: pick('ribre_smp_locked_months')
+  };
+}
+function appvBackupExport() {
+  const data = appvFullBackupSnapshot();
+  const statusEl = document.getElementById('backupStatus');
+  try {
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ribre_full_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    if (statusEl) statusEl.textContent = '✅ 書き出しました（売上' + ((data.sales || []).length) + '／仕入' + ((data.purchases || []).length) + '／売上明細' + ((data.meisai && data.meisai.sales || []).length) + '／仕入明細' + ((data.meisai && data.meisai.purchases || []).length) + '）';
+    appvToast('✅ バックアップを書き出しました');
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '⚠️ 書き出しに失敗: ' + e.message;
+  }
+}
+/* 読み込み：旧UI smpFullRestore（app-simple.js 257-293行目）と同一の検証・同一キーへの書き込み。
+ * 読み込み前に必ずcreateLocalSnapshot＋confirm（上書きの説明付き）。 */
+function appvBackupImport(file) {
+  const statusEl = document.getElementById('backupStatus');
+  if (!file) return;
+  if (!confirm('全データ（EC売上・仕入・粗利明細・仮入力・登録先・ロック）を復元します。今の内容は置き換わります。よろしいですか？')) return;
+  try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv backup import'); } catch (e) {}
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const d = JSON.parse(rd.result);
+      const put = (k, v) => { if (v != null) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+      if (d.sales) put('ribre_full_sales221', d.sales);
+      put('ribre_yahoo_sales240', d.yahooSales || d.sales);
+      if (d.purchases) put('ribre_full_purchases221', d.purchases);
+      if (d.meisai) put('ribre_smp_profit_meisai_v1', d.meisai);
+      if (d.prov) put('ribre_smp_profit_prov_v1', d.prov);
+      if (d.partners) put('ribre_smp_partners_v1', d.partners);
+      if (d.lockedMonths) put('ribre_smp_locked_months', d.lockedMonths);
+      try { refreshAll(); } catch (e) {}
+      const li = (typeof email === 'function' && email());
+      if (li && window.ribreStore && window.ribreStore.replaceCloudWithLocal) {
+        if (statusEl) statusEl.textContent = '復元中…クラウドを置き換えています';
+        window.ribreStore.replaceCloudWithLocal().then(() => {
+          if (statusEl) statusEl.textContent = '✅ 全データ復元＆クラウド反映完了。他端末は「クラウドから最新を取得」を押してください';
+          appvToast('✅ 復元し、クラウドにも反映しました');
+        });
+      } else {
+        if (statusEl) statusEl.textContent = '✅ 復元しました（未ログイン：この端末のみ）';
+        appvToast('✅ 復元しました（この端末のみ）');
+      }
+    } catch (e) {
+      if (statusEl) statusEl.textContent = '⚠️ 復元失敗: ' + e.message;
+      appvToast('⚠️ 復元に失敗しました');
+    }
+  };
+  rd.readAsText(file);
+}
+
+/* ---- 手動同期 ---- */
+async function appvManualPush() {
+  const statusEl = document.getElementById('manualSyncStatus');
+  if (statusEl) statusEl.textContent = '同期中…';
+  if (!(window.ribreStore && window.ribreStore.pushSafe)) { if (statusEl) statusEl.textContent = '⚠️ 同期機能が使えません'; return; }
+  try {
+    const r = await window.ribreStore.pushSafe();
+    if (statusEl) statusEl.textContent = r && r.ok ? '✅ クラウドに同期しました（' + new Date().toLocaleString('ja-JP') + '）' : '⚠️ 同期に失敗しました: ' + (r && (r.reason || r.error) || '不明なエラー');
+    appvToast(r && r.ok ? '✅ クラウドに同期しました' : '⚠️ 同期に失敗しました');
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '⚠️ 同期に失敗しました: ' + e.message;
+  }
+}
+async function appvManualHydrate() {
+  const statusEl = document.getElementById('manualSyncStatus');
+  if (!confirm('クラウドから最新を取得します。ローカル未同期の変更は失われる可能性があります。よろしいですか？')) return;
+  if (!(window.ribreStore && window.ribreStore.hydrate)) { if (statusEl) statusEl.textContent = '⚠️ 取得機能が使えません'; return; }
+  if (statusEl) statusEl.textContent = '取得中…';
+  try {
+    const r = await window.ribreStore.hydrate();
+    try { refreshAll(); } catch (e) {}
+    const s = (r && r.sales != null) ? r.sales : '?';
+    const p = (r && r.purchases != null) ? r.purchases : '?';
+    if (statusEl) statusEl.textContent = r && r.ok ? ('✅ クラウドから取得：売上 ' + s + '件 / 仕入 ' + p + '件') : '⚠️ 取得に失敗しました';
+    appvToast(r && r.ok ? '✅ クラウドの最新に揃えました' : '⚠️ 取得に失敗しました');
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '⚠️ 取得に失敗しました: ' + e.message;
+  }
+}
+
 /* ==================== テンプレート（新UI専用機能。localStorageの新規キー ribre_appv2_templates_v1 のみ使用。旧UIデータには一切触れない） ==================== */
 const APPV_TEMPLATES_KEY = 'ribre_appv2_templates_v1';
 function appvGetTemplates() {
@@ -2735,6 +2882,20 @@ document.addEventListener('DOMContentLoaded', () => {
   if (closeMonthBtn) closeMonthBtn.addEventListener('click', appvCloseMonth);
   const reopenMonthBtn = document.getElementById('reopenMonthBtn');
   if (reopenMonthBtn) reopenMonthBtn.addEventListener('click', appvReopenMonth);
+
+  /* Phase D: 設定ページ（バックアップ・手動同期） */
+  const backupExportBtn = document.getElementById('backupExportBtn');
+  if (backupExportBtn) backupExportBtn.addEventListener('click', appvBackupExport);
+  const backupImportFile = document.getElementById('backupImportFile');
+  if (backupImportFile) backupImportFile.addEventListener('change', () => {
+    const f = backupImportFile.files && backupImportFile.files[0];
+    appvBackupImport(f);
+    backupImportFile.value = '';
+  });
+  const manualPushBtn = document.getElementById('manualPushBtn');
+  if (manualPushBtn) manualPushBtn.addEventListener('click', appvManualPush);
+  const manualHydrateBtn = document.getElementById('manualHydrateBtn');
+  if (manualHydrateBtn) manualHydrateBtn.addEventListener('click', appvManualHydrate);
 
   appvBoot();
 });
