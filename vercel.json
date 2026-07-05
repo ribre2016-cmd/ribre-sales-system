@@ -2,14 +2,14 @@
   "version": 2,
   "cleanUrls": true,
   "trailingSlash": false,
-  "routes": [
-    { "src": "/", "dest": "/app.html" },
-    { "src": "/legacy", "dest": "/index.html" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/$1" }
-  ],
   "crons": [
-    { "path": "/api/mf/monthly-report", "schedule": "0 0 28 * *" },
-    { "path": "/api/mf/auto-match", "schedule": "0 22 * * *" }
+    {
+      "path": "/api/mf/monthly-report",
+      "schedule": "0 0 28 * *"
+    },
+    {
+      "path": "/api/mf/auto-match",
+      "schedule": "0 22 * * *"
+    }
   ]
 }

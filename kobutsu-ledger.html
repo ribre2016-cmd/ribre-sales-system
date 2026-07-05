@@ -22,7 +22,7 @@
   (function(){ try {
     var q = new URLSearchParams(location.search);
     if (q.get('from') === 'app') sessionStorage.setItem('ribre_back_to', 'app');
-    if (sessionStorage.getItem('ribre_back_to') === 'app') document.getElementById('backToSalesLink').href = '/app';
+    if (sessionStorage.getItem('ribre_back_to') === 'app') document.getElementById('backToSalesLink').href = '/';
   } catch(e) {} })();
   </script>
 </header>
