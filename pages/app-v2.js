@@ -1326,6 +1326,11 @@ function appvYDate(v) {
   if (m) return m[1] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[3]).padStart(2, '0');
   return s || today();
 }
+/* 文字化け判定（旧: pages/app-shipping.js 543-546行目 isGarbled と同一。空文字・置換文字（�）・文字化け時の□含みを判定） */
+function appvYIsGarbled(s) {
+  const v = String(s || '');
+  return !v || v.includes('�') || v.includes('□');
+}
 /* 保存先(旧: yRows/ySave と同一キー ribre_yahoo_sales240。ySaveと同様にribre_full_sales221(LS.sales)にも反映) */
 function appvYRows() { try { return JSON.parse(localStorage.getItem('ribre_yahoo_sales240') || '[]') || []; } catch (e) { return []; } }
 function appvYSave(arr) {
@@ -1405,11 +1410,13 @@ function appvImportYahooCsv(file, csvText, account, forceMonth) {
     const dateStr = (isMercariShops && !/\d{4}[\/\-年]\d{1,2}/.test(rawDateVal)) ? today() : appvYDate(rawDateVal);
 
     if (seen.has(itemId)) {
-      // 既存(重複)：金額・送料・手数料などの空欄だけ補完する（旧UIと同じ「補完更新」規則）
+      // 既存(重複)：金額・送料・手数料などの空欄だけ補完する（旧: pages/app-shipping.js 578-635行目と同一の「補完更新」規則）
       const existing = old.find((x) => x.itemId === itemId);
       if (existing) {
         const csvFee = appvYNum(r[idxFee]);
         const csvShipping = appvYNum(r[idxShip]);
+        const csvSettleAmount = appvYNum(r[idxAmount]);
+        const csvName = r[idxName] || '';
         let touched = false;
         if (account && existing.shop !== account) { existing.shop = account; touched = true; }
         if (forceMonth && existing.month !== forceMonth) {
@@ -1417,8 +1424,45 @@ function appvImportYahooCsv(file, csvText, account, forceMonth) {
           existing.date = forceMonth + '-' + (/^\d{4}-\d{2}-(\d{2})/.test(String(existing.date || '')) ? String(existing.date).slice(8, 10) : '01');
           touched = true;
         }
+        if (existing.order !== csvOrder) { existing.order = csvOrder; touched = true; }
         if (!Number(existing.fee) && csvFee) { existing.fee = csvFee; touched = true; }
+        // 手入力送料の巻き戻り防止（旧: app-shipping.js 596-608行目 wasManualShip と同一ロジック）。
+        // 手入力または配送CSV未一致のまま送料が入っている行は「手入力扱い」とし、
+        // 再取込CSVに送料が無ければ売上CSV取込直後の状態(未一致・送料0)へ戻す。
+        const statusText = [existing.matchStatus, existing.memo].map((v) => String(v || '')).join(' ');
+        const hasShipEvidence = !!(existing.slip || existing.invoiceNo || existing.deliveryCompany);
+        const isMatchedShip = /配送CSV一致|配送一致|匿名配送|匿名/.test(statusText) || hasShipEvidence;
+        const wasManualShip = String(existing.matchStatus || '') === '手入力' || (Number(existing.shipping || existing.ship || 0) > 0 && !isMatchedShip);
+        if (wasManualShip && !csvShipping) {
+          existing.shipping = 0;
+          existing.ship = 0;
+          existing.slip = '';
+          existing.invoiceNo = '';
+          existing.deliveryCompany = '';
+          existing.matchStatus = '売上CSV取込';
+          touched = true;
+        }
         if (!Number(existing.shipping) && csvShipping) { existing.shipping = csvShipping; existing.ship = csvShipping; touched = true; }
+        // settleAmount補完（旧: app-shipping.js 614行目と同一）
+        if (!Number(existing.settleAmount) && csvSettleAmount) { existing.settleAmount = csvSettleAmount; touched = true; }
+        // 文字化け修復（旧: app-shipping.js 543-546,615-619行目 isGarbled と同一。name/memoが文字化けまたは空なら再取込CSVの値で上書き）
+        if (csvName && appvYIsGarbled(existing.name)) { existing.name = csvName; touched = true; }
+        if (appvYIsGarbled(existing.memo)) {
+          existing.memo = (isYahoo ? 'ヤフオク売上CSV' : account + '売上CSV') + ' / ' + file.name;
+          touched = true;
+        }
+        // Mercari Shops 日付/金額backfill（旧: app-shipping.js 620-630行目と同一。日付が未確定または金額0のときのみ補完）
+        if (isMercariShops) {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(existing.date || ''))) {
+            existing.date = dateStr;
+            existing.month = dateStr.slice(0, 7);
+            touched = true;
+          }
+          if (!Number(existing.amount || 0) && Number(amount)) {
+            existing.amount = amount;
+            touched = true;
+          }
+        }
         if (touched) { existing.profit = Number(existing.amount || existing.price || 0) - Number(existing.fee || 0) - Number(existing.shipping || 0); patched++; }
       }
       skipped++;
@@ -1442,6 +1486,26 @@ function appvImportYahooCsv(file, csvText, account, forceMonth) {
   });
 
   if (added.length === 0 && patched === 0) return { error: '取込できる行がありませんでした（重複またはCSV形式をご確認ください）' };
+
+  // 0円行が半数超の異常検知（旧: pages/app-shipping.js 678-686行目と同一の確認・文言）
+  if (added.length > 0) {
+    const zeroAmt = added.filter((r) => !r.amount).length;
+    if (zeroAmt > added.length * 0.5) {
+      if (!confirm('金額が0円の行が多いです（' + zeroAmt + '件）。CSV列がずれている可能性があります。続行しますか？')) {
+        return { error: 'CSV取込を中止しました（金額0円の行が多いため）' };
+      }
+    }
+  }
+  // 日付不明行が7割超の異常検知（旧: pages/app-shipping.js 687-696行目と同一の確認・文言。Mercari Shopsは対象外）
+  if (!isMercariShops && added.length > 3) {
+    const todayStr = today();
+    const badDates = added.filter((r) => r.date === todayStr).length;
+    if (badDates > added.length * 0.7) {
+      if (!confirm('日付を確認できない行が多いです（' + badDates + '件）。CSV列がずれている可能性があります。続行しますか？')) {
+        return { error: 'CSV取込を中止しました（日付不明の行が多いため）' };
+      }
+    }
+  }
 
   // 通常モードの締め月保護（旧: pages/app-shipping.js 697-705行目と同一の確認）。
   // キャンセルされたら取込を中止する（かんたんモードのロック月保護とは別の、通常モード[LOCK]メモタグ方式の保護）。
