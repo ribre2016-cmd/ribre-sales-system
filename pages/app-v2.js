@@ -3421,8 +3421,31 @@ function appvSaveSupabase() {
   }
   setLS(LS.sb, { url, key });
   appvToast('Supabase設定を保存しました');
+  appvSbSetLocked(true); // 保存後は再ロック（普段は触らない設定のため）
   appvRenderSupabaseCard();
   appvRenderCloudSyncStatus();
+}
+/* Supabase接続カードのロック制御。普段は読み取り専用にし、明示的な解除でのみ編集可 */
+function appvSbSetLocked(locked) {
+  const urlEl = document.getElementById('sbUrlV2');
+  const keyEl = document.getElementById('sbKeyV2');
+  const saveBtn = document.getElementById('sbSaveBtnV2');
+  const unlockBtn = document.getElementById('sbUnlockBtnV2');
+  if (urlEl) urlEl.disabled = locked;
+  if (keyEl) keyEl.disabled = locked;
+  if (saveBtn) saveBtn.style.display = locked ? 'none' : 'inline-block';
+  if (unlockBtn) unlockBtn.textContent = locked ? '🔒 変更する' : 'キャンセル';
+}
+function appvSbToggleLock() {
+  const urlEl = document.getElementById('sbUrlV2');
+  const nowLocked = !!(urlEl && urlEl.disabled);
+  if (nowLocked) {
+    if (!confirm('Supabase接続設定を変更しますか？\n（間違った値を保存するとクラウド同期が止まります。普段は変更不要です）')) return;
+    appvSbSetLocked(false);
+  } else {
+    appvRenderSupabaseCard(); // 編集を破棄して保存済みの値に戻す
+    appvSbSetLocked(true);
+  }
 }
 async function appvCheckSupabase() {
   const statusEl = document.getElementById('sbStatusV2');
@@ -3828,6 +3851,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (acctSignOutBtn) acctSignOutBtn.addEventListener('click', appvSignOut);
   const sbSaveBtnV2 = document.getElementById('sbSaveBtnV2');
   if (sbSaveBtnV2) sbSaveBtnV2.addEventListener('click', appvSaveSupabase);
+  const sbUnlockBtnV2 = document.getElementById('sbUnlockBtnV2');
+  if (sbUnlockBtnV2) sbUnlockBtnV2.addEventListener('click', appvSbToggleLock);
   const sbCheckBtnV2 = document.getElementById('sbCheckBtnV2');
   if (sbCheckBtnV2) sbCheckBtnV2.addEventListener('click', appvCheckSupabase);
   const regSubmitBtnV2 = document.getElementById('regSubmitBtnV2');
