@@ -45,7 +45,10 @@
         <h1 id="greeting">ホーム</h1>
         <input type="month" id="homeMonthFilter" title="表示する月を切り替え">
       </div>
-      <div class="muted section-gap" id="todayDate"></div>
+      <div class="muted section-gap">
+        <span id="todayDate"></span>
+        <span id="homeClosedBadge" style="display:none" class="closed-badge">🔒締め済み</span>
+      </div>
 
       <div class="grid4 section-gap">
         <div class="card">
@@ -353,10 +356,59 @@
         <div class="muted">古物台帳の表示・CSV出力・印刷は既存の台帳ページで行います。</div>
         <div style="margin-top:14px"><a href="/kobutsu-ledger?from=app" class="btn primary">電子古物台帳を開く →</a></div>
       </div>
+
+      <!-- 月締めチェックリスト（旧: services/app-main-v2.js closeMonth と同一処理をappv版として移植） -->
+      <div class="card section-gap">
+        <div class="flex-between">
+          <h2 style="margin:0">月締めチェックリスト</h2>
+          <input type="month" id="closeMonthSel" class="prov-input" style="width:160px">
+        </div>
+        <div id="closeChecklist" class="section-gap"></div>
+        <div class="flex-between" style="margin-top:12px">
+          <span class="muted" id="closeMonthStatus" style="font-size:12.5px"></span>
+          <div style="display:flex;gap:8px">
+            <button class="btn danger" id="reopenMonthBtn" style="display:none">締めを解除</button>
+            <button class="btn primary" id="closeMonthBtn" disabled>月締めを完了する</button>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <h2>設定</h2>
         <div class="muted">Supabase接続・連携設定などは従来の画面から行えます。</div>
         <div style="margin-top:14px"><a href="/" class="btn">従来の画面を開く</a></div>
+      </div>
+
+      <!-- 連携状態（Phase D） -->
+      <div class="card section-gap">
+        <h2>連携状態</h2>
+        <div class="status-row"><span>MF連携</span><span id="statusMfConn" class="badge gray">確認中…</span></div>
+        <div class="status-row"><span>メール自動取込</span><span id="statusMailImport" class="muted">読込中...</span></div>
+        <div class="status-row"><span>クラウド同期</span><span id="statusCloudSync" class="muted">読込中...</span></div>
+      </div>
+
+      <!-- バックアップ（Phase D。旧UI smpFullBackup/smpFullRestore と同一形式・同一キー） -->
+      <div class="card section-gap">
+        <h2>バックアップ</h2>
+        <div class="muted" style="font-size:12.5px;margin-bottom:10px">EC売上・仕入・粗利明細・仮入力・登録先・ロック済み月を1つのJSONにまとめて書き出し／読み込みできます（旧UIと同一形式）。</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button class="btn primary" id="backupExportBtn">書き出す</button>
+          <label class="btn" style="margin:0">
+            読み込む
+            <input type="file" id="backupImportFile" accept=".json,application/json" style="display:none">
+          </label>
+        </div>
+        <div class="muted" id="backupStatus" style="font-size:12.5px;margin-top:10px"></div>
+      </div>
+
+      <!-- 手動同期（Phase D） -->
+      <div class="card">
+        <h2>手動同期</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn primary" id="manualPushBtn">今すぐクラウドと同期</button>
+          <button class="btn" id="manualHydrateBtn">クラウドから最新を取得</button>
+        </div>
+        <div class="muted" id="manualSyncStatus" style="font-size:12.5px;margin-top:10px"></div>
       </div>
     </section>
   </main>

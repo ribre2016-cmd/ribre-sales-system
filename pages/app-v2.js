@@ -115,7 +115,10 @@ function appvGotoPage(page) {
   if (page === 'import' && typeof appvRenderMailImportStatus === 'function') appvRenderMailImportStatus();
   if (page === 'analysis' && typeof appvRenderProvPanel === 'function') appvRenderProvPanel();
   if (page === 'analysis' && typeof appvRenderAnalysisPage === 'function') appvRenderAnalysisPage();
-  if (page === 'settings' && typeof appvRenderSettingsPage === 'function') appvRenderSettingsPage();
+  if (page === 'settings') {
+    if (typeof appvRenderCloseChecklist === 'function') appvRenderCloseChecklist();
+    if (typeof appvRenderSettingsPage === 'function') appvRenderSettingsPage();
+  }
 }
 
 /* ==================== 明細(profit_meisai)・経費仮入力(profit_prov) の取得 ====================
@@ -1953,6 +1956,166 @@ function appvConfirmClosedMonthsOrCancel(rowsWithMonth) {
   return !confirm('締め済みの月（' + closedMonths.join(', ') + '）へのデータが含まれています。取り込みを続行しますか？');
 }
 
+/* =====================================================================
+ * 月締めチェックリスト（Phase D。台帳・設定ページ）
+ * 「月締めを完了する」の実処理は旧UI services/app-main-v2.js closeMonth（19-35行目）と
+ * 同一（対象月のsales行のmemoへ[LOCK]タグを付与）。appvIsMonthClosedが判定に使う
+ * ロジックと表裏一体。実行前に必ずcreateLocalSnapshotでスナップショットを取る。
+ * ===================================================================== */
+function appvCloseChecklistMonth() {
+  const sel = document.getElementById('closeMonthSel');
+  if (sel && sel.value) return sel.value;
+  return appvPrevMonth(appvCurrentMonth());
+}
+/* 対象月のCSV取込行（appvYRows/sales）からitemIdを集め、配送照合結果(ribre_shipping_results230)の
+ * 該当行のうちstatus==='未一致'を数える（旧: appvShipUnmatchCount 409-414行目を月フィルタ付きに拡張）。 */
+function appvShipUnmatchCountForMonth(month) {
+  try {
+    const salesAll = get(LS.sales, []);
+    const idsInMonth = new Set((Array.isArray(salesAll) ? salesAll : [])
+      .filter((r) => appvMonthOfLocal(r) === month && r.itemId)
+      .map((r) => String(r.itemId)));
+    if (!idsInMonth.size) return 0;
+    const rows = JSON.parse(localStorage.getItem('ribre_shipping_results230') || '[]') || [];
+    return (Array.isArray(rows) ? rows : []).filter((r) => r.status === '未一致' && idsInMonth.has(String(r.itemId))).length;
+  } catch (e) { return 0; }
+}
+/* mf_evidenceのcreated_atが対象月内かで絞り込んで件数を数える（coverageと違い月内の証憑件数を見る用途）。 */
+async function appvFetchEvidenceCountInMonth(query, month) {
+  const from = month + '-01T00:00:00';
+  const to = appvMonthLastDay(month) + 'T23:59:59';
+  return appvFetchEvidenceCount(query + '&created_at=gte.' + encodeURIComponent(from) + '&created_at=lte.' + encodeURIComponent(to));
+}
+async function appvFetchCoveragePct(month) {
+  try {
+    const cr = appvCreds();
+    if (!cr) return null;
+    const r = await fetch('/api/mf/coverage?month=' + encodeURIComponent(month), { headers: { Authorization: 'Bearer ' + (cr.tok || '') } });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return (d && d.ok) ? d.coverage_pct : null;
+  } catch (e) { return null; }
+}
+function appvChecklistRow(icon, ok, label, actionLabel, onAction) {
+  const row = document.createElement('div');
+  row.className = 'check-row';
+  const left = document.createElement('div');
+  left.className = 'check-left';
+  const ic = document.createElement('span');
+  ic.className = 'check-ic';
+  ic.textContent = ok == null ? '…' : (ok ? '✅' : '⚠️');
+  const txt = document.createElement('span');
+  txt.textContent = label;
+  left.appendChild(ic);
+  left.appendChild(txt);
+  row.appendChild(left);
+  if (!ok && actionLabel && onAction) {
+    const btn = document.createElement('button');
+    btn.className = 'btn sm';
+    btn.textContent = actionLabel;
+    btn.addEventListener('click', onAction);
+    row.appendChild(btn);
+  } else if (ok != null) {
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + (ok ? 'ok' : 'warn');
+    badge.textContent = ok ? '✓' : '未完了';
+    row.appendChild(badge);
+  }
+  return row;
+}
+async function appvRenderCloseChecklist() {
+  const wrap = document.getElementById('closeChecklist');
+  const closeBtn = document.getElementById('closeMonthBtn');
+  const reopenBtn = document.getElementById('reopenMonthBtn');
+  const statusEl = document.getElementById('closeMonthStatus');
+  if (!wrap) return;
+  const sel = document.getElementById('closeMonthSel');
+  if (sel && !sel.value) sel.value = appvCloseChecklistMonth();
+  const month = appvCloseChecklistMonth();
+  appvClear(wrap);
+
+  const coveragePct = await appvFetchCoveragePct(month);
+  const coverageOk = coveragePct == null ? null : coveragePct >= 100;
+  const matchingPending = await appvFetchEvidenceCountInMonth('?select=id&status=eq.box_saved', month);
+  const boxTodo = await appvFetchEvidenceCountInMonth('?select=id&box_meta_done=is.false&status=in.(box_saved,attached)', month);
+  const shipUnmatch = appvShipUnmatchCountForMonth(month);
+  const closed = appvIsMonthClosed(month);
+
+  wrap.appendChild(appvChecklistRow('📎', coverageOk, '証憑カバー率' + (coveragePct != null ? '（' + coveragePct + '%）' : '（取得不可）'), '証憑ページへ', () => { window.location.href = '/mf-evidence?from=app'; }));
+  wrap.appendChild(appvChecklistRow('🔗', matchingPending === 0, 'マッチング未処理（' + (matchingPending == null ? '?' : matchingPending) + '件）', '証憑ページへ', () => { window.location.href = '/mf-evidence?from=app'; }));
+  wrap.appendChild(appvChecklistRow('📋', boxTodo === 0, 'Box入力待ち（' + (boxTodo == null ? '?' : boxTodo) + '件）', '証憑ページへ', () => { window.location.href = '/mf-evidence?from=app'; }));
+  wrap.appendChild(appvChecklistRow('🚚', shipUnmatch === 0, '配送照合の不一致（' + shipUnmatch + '件）', '取込ページへ', () => appvGotoPage('import')));
+  wrap.appendChild(appvChecklistRow('🔒', closed, '締め状態: ' + (closed ? '締め済み' : '未締め'), null, null));
+
+  const allOk = coverageOk !== false && matchingPending === 0 && boxTodo === 0 && shipUnmatch === 0;
+  if (closeBtn) {
+    closeBtn.disabled = closed || !allOk;
+    closeBtn.style.display = closed ? 'none' : 'inline-block';
+  }
+  if (reopenBtn) reopenBtn.style.display = closed ? 'inline-block' : 'none';
+  if (statusEl) statusEl.textContent = closed ? '✅ ' + appvMonthLabel(month) + 'は締め済みです' : (allOk ? '全項目クリア。月締めを完了できます' : '未完了の項目があります');
+}
+/* 月締め実行（旧: services/app-main-v2.js closeMonth 19-35行目と同一処理）。
+ * 対象月のsales行のmemoへ[LOCK]を付与。実行前にcreateLocalSnapshotでスナップショットを取る。 */
+function appvCloseMonth() {
+  const month = appvCloseChecklistMonth();
+  const p = month.split('-');
+  const label = p[0] + '年' + Number(p[1]) + '月';
+  if (!confirm(label + 'のデータをすべてロックします。よろしいですか？')) return;
+  try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv closeMonth ' + month); } catch (e) {}
+  const s = sales();
+  let changed = 0;
+  s.forEach((x, idx) => {
+    if ((x.month || String(x.date || '').slice(0, 7)) !== month) return;
+    const memo = String(x.memo || '').trim();
+    if (memo.includes('[LOCK]')) return;
+    s[idx].memo = memo ? memo + ' / [LOCK]' : '[LOCK]';
+    changed++;
+  });
+  if (changed > 0) {
+    setLS(LS.sales, s);
+    appvToast('✅ ' + label + 'を月締めしました（' + changed + '件）');
+    appvRenderCloseChecklist();
+    appvRenderHomeClosedBadge();
+    if (window.ribreStore && window.ribreStore.pushSafe) window.ribreStore.pushSafe();
+  } else {
+    appvToast('対象行がないか、すでにすべてロック済みです');
+  }
+}
+/* 締め解除（旧: services/app-main-v2.js openMonth 36-52行目と同一処理。[LOCK]タグ除去）。 */
+function appvReopenMonth() {
+  const month = appvCloseChecklistMonth();
+  const p = month.split('-');
+  const label = p[0] + '年' + Number(p[1]) + '月';
+  if (!confirm(label + 'の締めを解除します。よろしいですか？')) return;
+  try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv reopenMonth ' + month); } catch (e) {}
+  const s = sales();
+  let changed = 0;
+  s.forEach((x, idx) => {
+    if ((x.month || String(x.date || '').slice(0, 7)) !== month) return;
+    const memo = String(x.memo || '');
+    if (!memo.includes('[LOCK]')) return;
+    s[idx].memo = memo.replace(/\s*\/\s*\[LOCK\]/g, '').replace(/\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim();
+    changed++;
+  });
+  if (changed > 0) {
+    setLS(LS.sales, s);
+    appvToast('✅ ' + label + 'の締めを解除しました（' + changed + '件）');
+    appvRenderCloseChecklist();
+    appvRenderHomeClosedBadge();
+    if (window.ribreStore && window.ribreStore.pushSafe) window.ribreStore.pushSafe();
+  } else {
+    appvToast('ロック済みの行がありません');
+  }
+}
+/* ホームKPIに現在表示中の月が締め済みなら🔒バッジを出す */
+function appvRenderHomeClosedBadge() {
+  const badge = document.getElementById('homeClosedBadge');
+  if (!badge) return;
+  const month = appvViewMonth || appvCurrentMonth();
+  badge.style.display = appvIsMonthClosed(month) ? 'inline-flex' : 'none';
+}
+
 /* ---- 売上CSV取込（旧: importYahooSalesCsv と同一ロジック。DOM依存部分のみ引数化） ----
  * 戻り値: { added, patched, skipped, total } */
 function appvImportYahooCsv(file, csvText, account, forceMonth) {
@@ -2419,6 +2582,7 @@ async function appvOnHomeMonthChange(value) {
   await appvRenderKpi();
   appvRenderRecent();
   appvRenderLedger();
+  appvRenderHomeClosedBadge();
   const ledgerActive = document.querySelector('#ledgerTabs .tab.active');
   if (ledgerActive && ledgerActive.dataset.type === 'profit') await appvRenderProfit();
 }
@@ -2442,6 +2606,7 @@ async function appvBoot() {
   appvRenderRecent();
   appvRenderLedger();
   appvRenderTodos();
+  appvRenderHomeClosedBadge();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2562,6 +2727,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   const channelMixMonthSel = document.getElementById('channelMixMonthSel');
   if (channelMixMonthSel) channelMixMonthSel.addEventListener('change', appvRenderChannelMix);
+
+  /* Phase D: 月締めチェックリスト */
+  const closeMonthSel = document.getElementById('closeMonthSel');
+  if (closeMonthSel) closeMonthSel.addEventListener('change', appvRenderCloseChecklist);
+  const closeMonthBtn = document.getElementById('closeMonthBtn');
+  if (closeMonthBtn) closeMonthBtn.addEventListener('click', appvCloseMonth);
+  const reopenMonthBtn = document.getElementById('reopenMonthBtn');
+  if (reopenMonthBtn) reopenMonthBtn.addEventListener('click', appvReopenMonth);
 
   appvBoot();
 });
