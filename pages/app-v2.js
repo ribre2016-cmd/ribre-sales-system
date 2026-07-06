@@ -1366,6 +1366,254 @@ async function appvRenderProfit() {
   })();
 }
 
+/* ==================== 取引: 経費タブ（項目×月の手入力表） ==================== */
+let appvExpenseYear = null;
+let appvExpPulledOnce = false;
+function appvExpenseDefaultYear() { return (new Date()).getFullYear(); }
+/* 年セレクタ用の年一覧：データが存在する年＋現在年±1程度を列挙（profitYearSelの実装を参考にシンプルに）。 */
+function appvExpenseYearsPresent(o) {
+  const set = {};
+  Object.keys(o).forEach((k) => {
+    if (k === '_m' || k === '_items') return;
+    const y = parseInt(String(k).slice(0, 4), 10);
+    if (y) set[y] = 1;
+  });
+  return Object.keys(set).map((y) => parseInt(y, 10));
+}
+async function appvRenderExpense() {
+  if (!appvExpPulledOnce) {
+    appvExpPulledOnce = true;
+    try { await appvExpPullCloud(); } catch (e) {}
+  }
+  const o = appvExpSeedIfEmpty();
+  const head = document.getElementById('expenseGridHead');
+  const body = document.getElementById('expenseGridBody');
+  if (!head || !body) return;
+
+  if (appvExpenseYear == null) appvExpenseYear = appvExpenseDefaultYear();
+  const sel = document.getElementById('expenseYearSel');
+  if (sel) {
+    const present = appvExpenseYearsPresent(o);
+    const cur = appvExpenseDefaultYear();
+    const years = {};
+    present.forEach((y) => { years[y] = 1; });
+    years[cur] = 1; years[cur - 1] = 1; years[cur + 1] = 1;
+    years[appvExpenseYear] = 1;
+    const list = Object.keys(years).map((y) => parseInt(y, 10)).sort((a, b) => b - a);
+    appvClear(sel);
+    list.forEach((y) => {
+      const opt = document.createElement('option');
+      opt.value = String(y);
+      opt.textContent = y + '年';
+      if (y === appvExpenseYear) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  const year = appvExpenseYear;
+  const months = [];
+  for (let m = 1; m <= 12; m++) months.push(year + '-' + String(m).padStart(2, '0'));
+  const curMonth = appvCurrentMonth();
+  const items = Array.isArray(o._items) ? o._items : [];
+
+  // ---- ヘッダー行 ----
+  appvClear(head);
+  const thLabel = document.createElement('th');
+  thLabel.className = 'pg-label';
+  thLabel.textContent = '項目';
+  head.appendChild(thLabel);
+  months.forEach((mk) => {
+    const th = document.createElement('th');
+    th.className = 'pg-num' + (mk === curMonth ? ' pg-cur' : '');
+    th.textContent = Number(mk.slice(5, 7)) + '月';
+    head.appendChild(th);
+  });
+  const thYear = document.createElement('th');
+  thYear.className = 'pg-num';
+  thYear.textContent = '年計';
+  head.appendChild(thYear);
+  const thDel = document.createElement('th');
+  thDel.className = 'exp-del-cell';
+  head.appendChild(thDel);
+
+  appvClear(body);
+  const ncols = months.length + 3;
+
+  async function saveAndSync() {
+    try { localStorage.setItem('ribre_smp_expenses_v1', JSON.stringify(o)); } catch (e) {}
+    appvExpTsSet(Date.now());
+    try { await appvExpPushCloud(); } catch (e) { try { appvToast('⚠️ 経費の同期に失敗しました'); } catch (e2) {} }
+  }
+
+  /* セル入力後の合計更新：全再描画するとTab移動先のフォーカスが奪われて連続入力できないため、
+   * data属性を付けた合計セル（行の年計・月合計・年間総計）だけをその場で書き換える */
+  function updateTotals() {
+    const totals = {};
+    months.forEach((mk) => { totals[mk] = 0; });
+    let grand = 0;
+    items.forEach((nm) => {
+      let rowT = 0;
+      months.forEach((mk) => { const v = (o[mk] && o[mk][nm]) || 0; rowT += v; totals[mk] += v; });
+      grand += rowT;
+      const cell = body.querySelector('td[data-exp-row="' + CSS.escape(nm) + '"]');
+      if (cell) cell.textContent = rowT ? appvProfitFmt(rowT) : '';
+    });
+    months.forEach((mk) => {
+      const cell = body.querySelector('td[data-exp-col="' + mk + '"]');
+      if (cell) cell.textContent = appvProfitFmt(totals[mk]);
+    });
+    const gcell = body.querySelector('td[data-exp-grand]');
+    if (gcell) gcell.textContent = appvProfitFmt(grand);
+  }
+
+  function renameItem(oldName) {
+    const next = prompt('項目名を変更', oldName);
+    if (next == null) return;
+    const name = next.trim();
+    if (!name || name === oldName) return;
+    if (items.indexOf(name) >= 0) { alert('同じ名前の項目が既にあります'); return; }
+    const idx = items.indexOf(oldName);
+    if (idx >= 0) items[idx] = name;
+    // 全期間（表示中の年に限らずストア全体）を走査して旧名のセルを新名へ引き継ぐ
+    Object.keys(o).forEach((mk) => {
+      if (mk === '_m' || mk === '_items') return;
+      const row = o[mk];
+      if (row && Object.prototype.hasOwnProperty.call(row, oldName)) {
+        row[name] = row[oldName];
+        delete row[oldName];
+        o._m[mk + '|' + name] = Date.now();
+        o._m[mk + '|' + oldName] = Date.now();
+      }
+    });
+    o._items = items;
+    o._m.__items__ = Date.now();
+    saveAndSync();
+    appvRenderExpense();
+  }
+
+  function deleteItem(name) {
+    if (!confirm('項目「' + name + '」を削除します。全月の金額も削除されます。よろしいですか？')) return;
+    const idx = items.indexOf(name);
+    if (idx >= 0) items.splice(idx, 1);
+    Object.keys(o).forEach((mk) => {
+      if (mk === '_m' || mk === '_items') return;
+      const row = o[mk];
+      if (row && Object.prototype.hasOwnProperty.call(row, name)) {
+        delete row[name];
+        o._m[mk + '|' + name] = Date.now();
+      }
+    });
+    o._items = items;
+    o._m.__items__ = Date.now();
+    saveAndSync();
+    appvRenderExpense();
+  }
+
+  const monthTotals = {};
+  months.forEach((mk) => { monthTotals[mk] = 0; });
+  let grandTotal = 0;
+
+  items.forEach((name) => {
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td');
+    tdName.className = 'pg-label exp-item-name';
+    tdName.textContent = name;
+    tdName.title = 'クリックで項目名を変更';
+    tdName.addEventListener('click', () => renameItem(name));
+    tr.appendChild(tdName);
+
+    let rowTotal = 0;
+    months.forEach((mk) => {
+      const td = document.createElement('td');
+      td.className = 'pg-num' + (mk === curMonth ? ' pg-cur' : '');
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.inputMode = 'numeric';
+      const v = (o[mk] && o[mk][name]) || 0;
+      rowTotal += v;
+      monthTotals[mk] += v;
+      input.value = v ? v.toLocaleString() : '';
+      input.addEventListener('change', () => {
+        appvExpSetOne(o, mk, name, input.value);
+        const nv = (o[mk] && o[mk][name]) || 0;
+        input.value = nv ? nv.toLocaleString() : '';
+        updateTotals();
+        saveAndSync();
+      });
+      td.appendChild(input);
+      tr.appendChild(td);
+    });
+    grandTotal += rowTotal;
+    const tdRowTotal = appvProfitTd(rowTotal ? appvProfitFmt(rowTotal) : '', { className: 'pg-num pg-year' });
+    tdRowTotal.dataset.expRow = name;
+    tr.appendChild(tdRowTotal);
+
+    const tdDel = document.createElement('td');
+    tdDel.className = 'pg-num exp-del-cell';
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'exp-del-btn';
+    delBtn.textContent = '×';
+    delBtn.title = '項目を削除';
+    delBtn.addEventListener('click', () => deleteItem(name));
+    tdDel.appendChild(delBtn);
+    tr.appendChild(tdDel);
+    body.appendChild(tr);
+  });
+
+  if (!items.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = ncols;
+    td.className = 'muted';
+    td.textContent = '項目がありません。「＋ 項目を追加」から追加してください。';
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+
+  // 最下行「合計」（赤字表示）
+  (function () {
+    const tr = document.createElement('tr');
+    tr.className = 'pg-total';
+    const tdName = document.createElement('td');
+    tdName.className = 'pg-label';
+    tdName.textContent = '合計';
+    tr.appendChild(tdName);
+    months.forEach((mk) => {
+      const td = document.createElement('td');
+      td.className = 'pg-num' + (mk === curMonth ? ' pg-cur' : '');
+      td.style.color = 'var(--err)';
+      td.dataset.expCol = mk;
+      td.textContent = appvProfitFmt(monthTotals[mk]);
+      tr.appendChild(td);
+    });
+    const tdYear = document.createElement('td');
+    tdYear.className = 'pg-num pg-year';
+    tdYear.style.color = 'var(--err)';
+    tdYear.dataset.expGrand = '1';
+    tdYear.textContent = appvProfitFmt(grandTotal);
+    tr.appendChild(tdYear);
+    body.appendChild(tr);
+  })();
+}
+function appvExpenseAddItem() {
+  const name = prompt('追加する項目名');
+  if (name == null) return;
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const o = appvExpSeedIfEmpty();
+  const items = Array.isArray(o._items) ? o._items : [];
+  if (items.indexOf(trimmed) >= 0) { alert('同じ名前の項目が既にあります'); return; }
+  items.push(trimmed);
+  o._items = items;
+  o._m = (o._m && typeof o._m === 'object') ? o._m : {};
+  o._m.__items__ = Date.now();
+  try { localStorage.setItem('ribre_smp_expenses_v1', JSON.stringify(o)); } catch (e) {}
+  appvExpTsSet(Date.now());
+  (async () => { try { await appvExpPushCloud(); } catch (e) {} })();
+  appvRenderExpense();
+}
+
 /* =====================================================================
  * 分析ページ本実装（Phase D）
  * 月次推移グラフ・年度累計・目標進捗・チャネル構成比。
@@ -2424,6 +2672,123 @@ function appvProvSetOne(o, month, chan, val) {
   const n = Number(String(val == null ? '' : val).replace(/[^0-9.-]/g, '')) || 0;
   if (n) o[month][chan] = n; else if (o[month]) delete o[month][chan];
   o._m[month + '|' + chan] = Date.now();
+}
+
+/* ==================== 経費（取引ページ「経費」タブ）====================
+ * ストア構造: { [YYYY-MM]: { [項目名]: 金額 }, _items: [項目名の配列(表示順)],
+ *   _m: { 'YYYY-MM|項目名': 更新時刻ms, '__items__': 更新時刻ms } }
+ * appvProvGet/appvProvMerge等（上記）と同一パターンで移植。KPI・粗利・分析の既存集計には混ぜない独立の管理表。 */
+function appvExpGet() {
+  try { return JSON.parse(localStorage.getItem('ribre_smp_expenses_v1') || '{}') || {}; } catch (e) { return {}; }
+}
+function appvExpTsGet() { return Number(localStorage.getItem('ribre_smp_expenses_ts') || 0) || 0; }
+function appvExpTsSet(t) { try { localStorage.setItem('ribre_smp_expenses_ts', String(t || Date.now())); } catch (e) {} }
+/* appvProvMergeと同一規則。ただし _items は '_m'['__items__'] が新しい側の配列を丸ごと採用（片方にしか無ければそちら）。
+ * セル走査(collect)では '_m' に加えて '_items' も除外する（experProvMergeは'_m'しか除外していないため経費版で追加）。 */
+function appvExpMerge(aData, aTs, bData, bTs) {
+  const a = aData || {}, b = bData || {};
+  const am = (a._m && typeof a._m === 'object') ? a._m : {};
+  const bm = (b._m && typeof b._m === 'object') ? b._m : {};
+  const keys = {};
+  const collect = (o, m) => {
+    Object.keys(o).forEach((mo) => {
+      if (mo === '_m' || mo === '_items') return;
+      const row = o[mo];
+      if (row && typeof row === 'object') Object.keys(row).forEach((ch) => { keys[mo + '|' + ch] = 1; });
+    });
+    Object.keys(m).forEach((k) => { if (k !== '__items__') keys[k] = 1; });
+  };
+  collect(a, am); collect(b, bm);
+  const out = { _m: {} };
+  Object.keys(keys).forEach((k) => {
+    const i = k.indexOf('|'); if (i < 0) return;
+    const mo = k.slice(0, i), ch = k.slice(i + 1);
+    const hasA = a[mo] && a[mo][ch] != null, hasB = b[mo] && b[mo][ch] != null;
+    const ta = Number(am[k] || (hasA ? (aTs || 0) : 0)) || 0;
+    const tb = Number(bm[k] || (hasB ? (bTs || 0) : 0)) || 0;
+    const useA = ta >= tb; // 同時刻はローカル優先（merge(local, cloud)で呼ぶ）
+    const val = useA ? (hasA ? a[mo][ch] : undefined) : (hasB ? b[mo][ch] : undefined);
+    out._m[k] = Math.max(ta, tb);
+    if (val != null) { out[mo] = out[mo] || {}; out[mo][ch] = val; }
+  });
+  const lim = Date.now() - 180 * 24 * 3600 * 1000;
+  Object.keys(out._m).forEach((k) => { const i = k.indexOf('|'); const mo = k.slice(0, i); const ch = k.slice(i + 1); if (out._m[k] < lim && !(out[mo] && out[mo][ch] != null)) delete out._m[k]; });
+  // _items: _m['__items__']が新しい側を丸ごと採用
+  const aItemsTs = Number(am.__items__ || 0) || 0;
+  const bItemsTs = Number(bm.__items__ || 0) || 0;
+  const aHasItems = Array.isArray(a._items);
+  const bHasItems = Array.isArray(b._items);
+  if (aHasItems && bHasItems) {
+    out._items = (aItemsTs >= bItemsTs) ? a._items : b._items;
+    out._m.__items__ = Math.max(aItemsTs, bItemsTs);
+  } else if (aHasItems) {
+    out._items = a._items;
+    if (aItemsTs) out._m.__items__ = aItemsTs;
+  } else if (bHasItems) {
+    out._items = b._items;
+    if (bItemsTs) out._m.__items__ = bItemsTs;
+  }
+  return out;
+}
+async function appvExpFetchCloud(cr) {
+  try {
+    const r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.expenses&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const cloud = data && data[0] && data[0].value;
+    return (cloud && typeof cloud === 'object' && cloud.data) ? cloud : null;
+  } catch (e) { return null; }
+}
+/* appvProvPushCloudと完全同型：先にクラウド取得→マージ→ローカル保存→upsert。 */
+async function appvExpPushCloud() {
+  const cr = appvCreds(); if (!cr) return { ok: false, reason: 'no-login' };
+  try {
+    let body = appvExpGet();
+    const cloud = await appvExpFetchCloud(cr);
+    if (cloud) {
+      body = appvExpMerge(appvExpGet(), appvExpTsGet(), cloud.data, cloud.ts || 0);
+      try { localStorage.setItem('ribre_smp_expenses_v1', JSON.stringify(body)); } catch (e) {}
+    }
+    const now = Date.now();
+    appvExpTsSet(now);
+    const r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
+      method: 'POST',
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ user_email: cr.em, skey: 'expenses', value: { data: body, ts: now } }])
+    });
+    return { ok: r.ok, status: r.status };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+async function appvExpPullCloud() {
+  const cr = appvCreds(); if (!cr) return false;
+  const cloud = await appvExpFetchCloud(cr);
+  if (!cloud) return false;
+  const local = appvExpGet();
+  const merged = appvExpMerge(local, appvExpTsGet(), cloud.data, cloud.ts || 0);
+  const changed = JSON.stringify(merged) !== JSON.stringify(local);
+  try { localStorage.setItem('ribre_smp_expenses_v1', JSON.stringify(merged)); } catch (e) {}
+  appvExpTsSet(Math.max(appvExpTsGet(), Number(cloud.ts || 0)));
+  if (JSON.stringify(merged) !== JSON.stringify(cloud.data)) { try { await appvExpPushCloud(); } catch (e) {} }
+  return changed;
+}
+function appvExpSetOne(o, month, item, val) {
+  o[month] = o[month] || {};
+  o._m = (o._m && typeof o._m === 'object') ? o._m : {};
+  const n = Number(String(val == null ? '' : val).replace(/[^0-9.-]/g, '')) || 0;
+  if (n) o[month][item] = n; else if (o[month]) delete o[month][item];
+  o._m[month + '|' + item] = Date.now();
+}
+/* 初期項目シード（ストアが空 = _items が無いとき一度だけ）。金額はシードせず項目名のみ。
+ * ローカル保存のみ行いpushはしない（次回の何らかの保存操作でpushされる）。 */
+const APPV_EXPENSE_SEED_ITEMS = ['保険', 'タイミー', 'NET', 'HP', 'セコム', '倉庫', 'AMEX', 'JCB', '佐渡', '香菜子', '公庫/青木', '室谷秀正', '恵', 'ガス 水道', '社会保険', 'VS税', 'VS社', '仕入れ', '電気', '電気（動力）', '電子ブレーカー'];
+function appvExpSeedIfEmpty() {
+  const o = appvExpGet();
+  if (Array.isArray(o._items)) return o;
+  o._items = APPV_EXPENSE_SEED_ITEMS.slice();
+  o._m = (o._m && typeof o._m === 'object') ? o._m : {};
+  o._m.__items__ = Date.now();
+  try { localStorage.setItem('ribre_smp_expenses_v1', JSON.stringify(o)); } catch (e) {}
+  return o;
 }
 /* 分析ページのカードを描画：実数(>0)があるチャネルはバッジ表示・入力不可、実数0のチャネルは入力欄。 */
 async function appvRenderProvPanel() {
@@ -4265,7 +4630,8 @@ function appvFullBackupSnapshot() {
     meisai: pick('ribre_smp_profit_meisai_v1'),
     prov: pick('ribre_smp_profit_prov_v1'),
     partners: pick('ribre_smp_partners_v1'),
-    lockedMonths: pick('ribre_smp_locked_months')
+    lockedMonths: pick('ribre_smp_locked_months'),
+    expenses: pick('ribre_smp_expenses_v1')
   };
 }
 function appvBackupExport() {
@@ -4288,7 +4654,7 @@ function appvBackupExport() {
 function appvBackupImport(file) {
   const statusEl = document.getElementById('backupStatus');
   if (!file) return;
-  if (!confirm('全データ（EC売上・仕入・粗利明細・仮入力・登録先・ロック）を復元します。今の内容は置き換わります。よろしいですか？')) return;
+  if (!confirm('全データ（EC売上・仕入・粗利明細・仮入力・登録先・ロック・経費）を復元します。今の内容は置き換わります。よろしいですか？')) return;
   try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv backup import'); } catch (e) {}
   const rd = new FileReader();
   rd.onload = () => {
@@ -4302,6 +4668,7 @@ function appvBackupImport(file) {
       if (d.prov) put('ribre_smp_profit_prov_v1', d.prov);
       if (d.partners) put('ribre_smp_partners_v1', d.partners);
       if (d.lockedMonths) put('ribre_smp_locked_months', d.lockedMonths);
+      if (d.expenses) put('ribre_smp_expenses_v1', d.expenses);
       try { refreshAll(); } catch (e) {}
       const li = (typeof email === 'function' && email());
       if (li && window.ribreStore && window.ribreStore.replaceCloudWithLocal) {
@@ -4313,6 +4680,7 @@ function appvBackupImport(file) {
           try { const r = await appvMeiPushCloud(); if (!r || !r.ok) warnings.push('売上・仕入明細'); } catch (e) { warnings.push('売上・仕入明細'); }
           try { const r = await appvProvPushCloud(); if (!r || !r.ok) warnings.push('仮入力'); } catch (e) { warnings.push('仮入力'); }
           try { const r = await appvLockedPushCloud(); if (!r || !r.ok) warnings.push('月ロック'); } catch (e) { warnings.push('月ロック'); }
+          try { const r = await appvExpPushCloud(); if (!r || !r.ok) warnings.push('経費'); } catch (e) { warnings.push('経費'); }
           if (warnings.length) {
             if (statusEl) statusEl.textContent = '⚠️ 一部クラウド反映に失敗: ' + warnings.join('・');
             appvToast('⚠️ クラウド反映に失敗した項目があります: ' + warnings.join('・'));
@@ -4536,17 +4904,20 @@ document.addEventListener('DOMContentLoaded', () => {
       tab.classList.add('active');
       appvLedgerTab = tab.dataset.type;
       const isProfit = appvLedgerTab === 'profit';
+      const isExpense = appvLedgerTab === 'expense';
       const filterRow = document.getElementById('ledgerFilterRow');
       const tableCard = document.getElementById('ledgerTableCard');
       const profitCard = document.getElementById('profitCard');
-      if (filterRow) filterRow.style.display = isProfit ? 'none' : 'flex';
-      if (tableCard) tableCard.style.display = isProfit ? 'none' : 'block';
+      const expenseCard = document.getElementById('expenseCard');
+      if (filterRow) filterRow.style.display = (isProfit || isExpense) ? 'none' : 'flex';
+      if (tableCard) tableCard.style.display = (isProfit || isExpense) ? 'none' : 'block';
       if (profitCard) profitCard.style.display = isProfit ? 'block' : 'none';
-      // 粗利タブ中はコンテンツ幅の上限を解除（12ヶ月+年計を横スクロール無しで収める）
+      if (expenseCard) expenseCard.style.display = isExpense ? 'block' : 'none';
+      // 粗利／経費タブ中はコンテンツ幅の上限を解除（12ヶ月+年計を横スクロール無しで収める）
       const mainEl = document.querySelector('.main');
-      if (mainEl) mainEl.classList.toggle('profit-wide', isProfit);
+      if (mainEl) mainEl.classList.toggle('profit-wide', isProfit || isExpense);
       appvUpdateLedgerSalesToolsVisibility();
-      if (isProfit) appvRenderProfit(); else appvRenderLedger();
+      if (isProfit) appvRenderProfit(); else if (isExpense) appvRenderExpense(); else appvRenderLedger();
     });
   });
   appvUpdateLedgerSalesToolsVisibility();
@@ -4569,6 +4940,23 @@ document.addEventListener('DOMContentLoaded', () => {
     appvProfitStartYear = (appvProfitStartYear == null ? appvProfitDefaultStartYear() : appvProfitStartYear) + 1;
     appvRenderProfit();
   });
+  const expenseYearSel = document.getElementById('expenseYearSel');
+  if (expenseYearSel) expenseYearSel.addEventListener('change', () => {
+    appvExpenseYear = parseInt(expenseYearSel.value, 10) || appvExpenseDefaultYear();
+    appvRenderExpense();
+  });
+  const expenseYearPrev = document.getElementById('expenseYearPrev');
+  if (expenseYearPrev) expenseYearPrev.addEventListener('click', () => {
+    appvExpenseYear = (appvExpenseYear == null ? appvExpenseDefaultYear() : appvExpenseYear) - 1;
+    appvRenderExpense();
+  });
+  const expenseYearNext = document.getElementById('expenseYearNext');
+  if (expenseYearNext) expenseYearNext.addEventListener('click', () => {
+    appvExpenseYear = (appvExpenseYear == null ? appvExpenseDefaultYear() : appvExpenseYear) + 1;
+    appvRenderExpense();
+  });
+  const expenseAddItemBtn = document.getElementById('expenseAddItemBtn');
+  if (expenseAddItemBtn) expenseAddItemBtn.addEventListener('click', appvExpenseAddItem);
   const searchFilter = document.getElementById('searchFilter');
   if (searchFilter) searchFilter.addEventListener('input', appvRenderLedger);
   const monthFilterEl = document.getElementById('monthFilter');

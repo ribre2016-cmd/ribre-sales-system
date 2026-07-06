@@ -323,3 +323,29 @@ table.profit-grid .pg-placeholder{color:#B7BDB6;}
 
 /* Supabase接続カードのロック中表示（背景トーンダウン＋入力欄をロック風に） */
 .card.sb-locked input{background:#F1F3EF; color:#8B948C; border-style:dashed; letter-spacing:1px;}
+
+/* ---------- 取引: 経費タブ（項目×月の手入力表） ---------- */
+#expenseYearSel{padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--text); font-size:13px;}
+table.expense-grid td.exp-item-name{cursor:pointer; text-align:left; white-space:nowrap;}
+table.expense-grid td.exp-item-name:hover{text-decoration:underline;}
+table.expense-grid input{
+  width:100%; box-sizing:border-box; text-align:right; font-variant-numeric:tabular-nums;
+  border:none; background:transparent; color:var(--text); font-size:11.5px; padding:1px 3px;
+}
+table.expense-grid input:focus{outline:none; border-bottom:1px solid var(--accent); background:#FBFDFB;}
+table.expense-grid td.exp-del-cell{text-align:center; min-width:24px;}
+table.expense-grid .exp-del-btn{
+  border:none; background:transparent; color:#B7BDB6; cursor:pointer; font-size:13px; line-height:1;
+  padding:2px 4px; border-radius:4px;
+}
+table.expense-grid .exp-del-btn:hover{color:var(--err); background:var(--err-light);}
+
+/* 900px以上での圧縮表示は粗利グリッドの.profit-wide/.pg-*ルールをそのまま継承（expense-gridもprofit-gridクラスを併用） */
+@media (min-width:900px){
+  #expenseCard table.profit-grid{width:100%; table-layout:fixed; font-size:9.5px; line-height:1.25;}
+  #expenseCard table.profit-grid th, #expenseCard table.profit-grid td{padding:1px 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #expenseCard table.profit-grid td.pg-label, #expenseCard table.profit-grid th.pg-label{width:84px; min-width:0; max-width:none; font-size:9.5px;}
+  #expenseCard table.profit-grid td.pg-num{min-width:0;}
+  #expenseCard table.profit-grid input{font-size:9.5px; width:100%; box-sizing:border-box; padding:0 2px;}
+  #expenseCard .table-scroll{overflow-x:visible;}
+}

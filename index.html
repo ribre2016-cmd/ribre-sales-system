@@ -115,6 +115,7 @@
         <button class="tab" data-type="sale">売上</button>
         <button class="tab" data-type="purchase">仕入</button>
         <button class="tab" data-type="profit">粗利</button>
+        <button class="tab" data-type="expense">経費</button>
       </div>
 
       <div class="filter-row" id="ledgerFilterRow">
@@ -157,6 +158,24 @@
             <tbody id="profitGridBody"></tbody>
           </table>
         </div>
+      </div>
+
+      <div class="card" id="expenseCard" style="display:none">
+        <div class="flex-between section-gap" style="flex-wrap:wrap; gap:10px">
+          <div class="muted">経費を項目×月で手入力できます（自動保存・クラウド同期）</div>
+          <div style="display:flex; align-items:center; gap:6px">
+            <button class="btn sm" id="expenseYearPrev" type="button">◀</button>
+            <select id="expenseYearSel"></select>
+            <button class="btn sm" id="expenseYearNext" type="button">▶</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="profit-grid expense-grid" id="expenseGridTable">
+            <thead><tr id="expenseGridHead"></tr></thead>
+            <tbody id="expenseGridBody"></tbody>
+          </table>
+        </div>
+        <button class="btn sm" id="expenseAddItemBtn" style="margin-top:12px">＋ 項目を追加</button>
       </div>
     </section>
 
