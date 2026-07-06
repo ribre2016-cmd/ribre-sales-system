@@ -4101,6 +4101,7 @@ async function appvRenderSettingsPage() {
   appvRenderCloudSyncStatus();
   appvRenderAccountCard();
   appvRenderSupabaseCard();
+  appvCheckSupabase(true); // 開いた時に接続状態を自動確認（トーストは出さない）
 }
 
 /* ---- アカウント（ログイン中メール表示・ログアウト） ---- */
@@ -4125,12 +4126,20 @@ function appvSignOut() {
 }
 
 /* ---- Supabase接続設定（旧UI pages/settings.js の saveSupabase/checkSupabase と同一の保存先・検証方法） ---- */
+/* ロック中は値をマスク表示（先頭と末尾だけ見せる）。解除時のみ実値を表示 */
+function appvMaskSecret(v) {
+  const s = String(v || '');
+  if (!s) return '';
+  if (s.length <= 12) return '••••••••';
+  return s.slice(0, 8) + '••••••••' + s.slice(-4);
+}
 function appvRenderSupabaseCard() {
   const cfg = (typeof sb === 'function') ? sb() : {};
   const urlEl = document.getElementById('sbUrlV2');
   const keyEl = document.getElementById('sbKeyV2');
-  if (urlEl && !urlEl.matches(':focus')) urlEl.value = (cfg && cfg.url) || '';
-  if (keyEl && !keyEl.matches(':focus')) keyEl.value = (cfg && cfg.key) || '';
+  const locked = !!(urlEl && urlEl.disabled);
+  if (urlEl && !urlEl.matches(':focus')) urlEl.value = locked ? appvMaskSecret(cfg && cfg.url) : ((cfg && cfg.url) || '');
+  if (keyEl && !keyEl.matches(':focus')) keyEl.value = locked ? appvMaskSecret(cfg && cfg.key) : ((cfg && cfg.key) || '');
 }
 function appvSaveSupabase() {
   const urlEl = document.getElementById('sbUrlV2');
@@ -4157,6 +4166,12 @@ function appvSbSetLocked(locked) {
   if (keyEl) keyEl.disabled = locked;
   if (saveBtn) saveBtn.style.display = locked ? 'none' : 'inline-block';
   if (unlockBtn) unlockBtn.textContent = locked ? '🔒 変更する' : 'キャンセル';
+  // ロック状態を見た目で分かるように（カード背景・バッジ・マスク表示の切替）
+  const card = urlEl ? urlEl.closest('.card') : null;
+  if (card) card.classList.toggle('sb-locked', locked);
+  const badge = document.getElementById('sbLockBadge');
+  if (badge) badge.style.display = locked ? 'inline-block' : 'none';
+  appvRenderSupabaseCard(); // マスク⇔実値の表示切替
 }
 function appvSbToggleLock() {
   const urlEl = document.getElementById('sbUrlV2');
@@ -4169,12 +4184,15 @@ function appvSbToggleLock() {
     appvSbSetLocked(true);
   }
 }
-async function appvCheckSupabase() {
+async function appvCheckSupabase(silent) {
   const statusEl = document.getElementById('sbStatusV2');
   if (statusEl) statusEl.textContent = '確認中…';
   const r = await rest('sales', { query: '?select=id&limit=1' });
-  if (statusEl) statusEl.textContent = r.error ? 'エラー' : 'OK';
-  appvToast(r.error ? ('接続エラー: ' + r.error.message) : 'Supabase接続OK');
+  if (statusEl) {
+    statusEl.textContent = r.error ? '⚠ エラー' : '✓ 接続OK';
+    statusEl.style.color = r.error ? 'var(--err)' : 'var(--accent)';
+  }
+  if (!silent) appvToast(r.error ? ('接続エラー: ' + r.error.message) : 'Supabase接続OK');
 }
 
 /* ---- ユーザー登録（旧UI services/supabase-auth.js の signUp と同一フロー。隠しinput #email/#password/#role へ転記して呼ぶ） ---- */

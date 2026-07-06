@@ -320,3 +320,6 @@ table.profit-grid .pg-placeholder{color:#B7BDB6;}
   #profitCard table.profit-grid input{font-size:9.5px; width:100%; box-sizing:border-box; padding:0 2px;}
   #profitCard .table-scroll{overflow-x:visible;}
 }
+
+/* Supabase接続カードのロック中表示（背景トーンダウン＋入力欄をロック風に） */
+.card.sb-locked input{background:#F1F3EF; color:#8B948C; border-style:dashed; letter-spacing:1px;}
