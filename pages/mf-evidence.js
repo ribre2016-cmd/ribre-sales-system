@@ -108,6 +108,12 @@ window.addEventListener('DOMContentLoaded', () => {
 /* 保管庫(Supabase Storage tax-docsバケット)からファイルを取得し、通常の貼り付けと同じ経路(mfIngestFile)へ流す */
 async function mfImportFromTaxDocs(key, name) {
   try {
+    // 送信済みチェック（再送防止）。インデックスは新UI(app-v2.js)と同じlocalStorageキーを共有している
+    try {
+      const idx = JSON.parse(localStorage.getItem('ribre_tax_docs_index_v1') || '{}') || {};
+      const ent = idx.files && idx.files[key];
+      if (ent && ent.ev) { mfToast('このファイルは既に証憑へ送信済みです（' + (ent.name || key) + '）', 'error'); return; }
+    } catch (e) {}
     const c = (typeof sb === 'function') ? sb() : {};
     const s = (typeof sess === 'function') ? sess() : {};
     const tok = s.access_token || (s.session && s.session.access_token) || '';
@@ -121,9 +127,22 @@ async function mfImportFromTaxDocs(key, name) {
     const fileName = name || key.split('/').pop() || 'evidence';
     const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
     await mfIngestFile(file);
+    // MF送信成功時に送信済みマークを付けるため、取り込み元のキーを覚えておく
+    if (mfCurrentFile) mfCurrentFile.taxDocsKey = key;
   } catch (e) {
     mfToast('保管庫からの取り込みに失敗しました: ' + e.message, 'error');
   }
+}
+/* 保管庫インデックスの該当ファイルに送信済み(ev)を記録する。tsも進めて他端末とのマージで勝たせる。
+ * クラウドへの反映は新UI側の次回Pull/Push時に伝播する */
+function mfMarkTaxDocSent(key) {
+  try {
+    const idx = JSON.parse(localStorage.getItem('ribre_tax_docs_index_v1') || '{}') || {};
+    if (!idx.files || !idx.files[key]) return;
+    idx.files[key].ev = Date.now();
+    idx.files[key].ts = Date.now();
+    localStorage.setItem('ribre_tax_docs_index_v1', JSON.stringify(idx));
+  } catch (e) {}
 }
 
 /* ---------------- プレビュー / フォーム ---------------- */
@@ -314,6 +333,8 @@ async function mfSendToMf() {
     }
     mfRenderOcrStatus([{ type: '送信', msg: 'MFへ送信しました（evidence_id: ' + (d.evidence_id || '-') + '）' }]);
     mfToast('MFへ送信しました', 'ok');
+    // 保管庫（税理士送付ファイル）から取り込んだ場合は送信済みマークを付ける（再送防止）
+    if (mfCurrentFile && mfCurrentFile.taxDocsKey) mfMarkTaxDocSent(mfCurrentFile.taxDocsKey);
     mfResetForm();
     mfLoadLedger();
   } catch (e) {

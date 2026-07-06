@@ -3047,8 +3047,15 @@ async function appvRenderTaxDocs() {
     dlBtn.textContent = '⬇DL';
     dlBtn.onclick = () => appvTaxDocsDownload(f.key);
     opTd.appendChild(dlBtn);
-    // 証憑インボックスが対応する形式(PNG/JPG/PDF)のみ「証憑へ」を出す（二重アップロード不要でMF証憑登録へ流せる）
-    if (/\.(pdf|png|jpe?g)$/i.test(f.key)) {
+    // 証憑インボックスが対応する形式(PNG/JPG/PDF)のみ「証憑へ」を出す（二重アップロード不要でMF証憑登録へ流せる）。
+    // MF送信済み(ev)のファイルはボタンの代わりに済バッジを出し、再送できないようにする。
+    if (f.ev) {
+      const evDone = document.createElement('span');
+      evDone.textContent = '✓証憑済';
+      evDone.title = 'MF証憑へ送信済み（' + new Date(f.ev).toLocaleString('ja-JP') + '）';
+      evDone.style.cssText = 'color:var(--accent); font-size:12px; font-weight:700; margin:0 2px; white-space:nowrap';
+      opTd.appendChild(evDone);
+    } else if (/\.(pdf|png|jpe?g)$/i.test(f.key)) {
       const evBtn = document.createElement('button');
       evBtn.className = 'tax-docs-btn';
       evBtn.textContent = '証憑へ';
