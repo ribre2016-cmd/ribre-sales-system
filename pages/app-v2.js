@@ -2800,6 +2800,282 @@ function appvExpSetOne(o, month, item, val) {
   if (n) o[month][item] = n; else if (o[month]) delete o[month][item];
   o._m[month + '|' + item] = Date.now();
 }
+/* ==================== 台帳・設定: 税理士送付ファイル（Supabase Storage `tax-docs` バケット） ====================
+ * オブジェクトキーはASCIIのみ: 'YYYY-MM/<Date.now()>_<rand4>.<ext>'。表示用の元ファイル名はキーに入れず、
+ * インデックス（localStorage + app_settings skey='tax_docs_index'）で管理する。
+ * ストア構造: { files: { [objectKey]: { name, size, ts, del? } } }
+ * appvExpGet/appvExpMerge等（上記）と同じ「クラウド取得→マージ→ローカル保存→upsert」パターンで実装するが、
+ * マージ対象がマス目(月×チャネル)ではなくオブジェクトキー単位のため、より単純な規則にしている。 */
+const APPV_TAX_DOCS_BUCKET = 'tax-docs';
+function appvTaxDocsIndexGet() {
+  try { return JSON.parse(localStorage.getItem('ribre_tax_docs_index_v1') || '{}') || {}; } catch (e) { return {}; }
+}
+function appvTaxDocsIndexSet(idx) {
+  try { localStorage.setItem('ribre_tax_docs_index_v1', JSON.stringify(idx)); } catch (e) {}
+}
+function appvTaxDocsTsGet() { return Number(localStorage.getItem('ribre_tax_docs_index_ts') || 0) || 0; }
+function appvTaxDocsTsSet(t) { try { localStorage.setItem('ribre_tax_docs_index_ts', String(t || Date.now())); } catch (e) {} }
+/* objectKeyごとに ts（delがあればdelの方が新しければ削除扱い）の新しい方を採用。delから180日超のエントリは掃除。 */
+function appvTaxDocsMerge(aData, bData) {
+  const aFiles = (aData && aData.files && typeof aData.files === 'object') ? aData.files : {};
+  const bFiles = (bData && bData.files && typeof bData.files === 'object') ? bData.files : {};
+  const keys = {};
+  Object.keys(aFiles).forEach((k) => { keys[k] = 1; });
+  Object.keys(bFiles).forEach((k) => { keys[k] = 1; });
+  const out = { files: {} };
+  Object.keys(keys).forEach((k) => {
+    const a = aFiles[k], b = bFiles[k];
+    const ta = a ? Math.max(Number(a.del || 0) || 0, Number(a.ts || 0) || 0) : -1;
+    const tb = b ? Math.max(Number(b.del || 0) || 0, Number(b.ts || 0) || 0) : -1;
+    const winner = ta >= tb ? a : b;
+    if (winner) out.files[k] = winner;
+  });
+  const lim = Date.now() - 180 * 24 * 3600 * 1000;
+  Object.keys(out.files).forEach((k) => {
+    const f = out.files[k];
+    if (f && f.del && f.del < lim) delete out.files[k];
+  });
+  return out;
+}
+async function appvTaxDocsFetchCloud(cr) {
+  try {
+    const r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.tax_docs_index&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const cloud = data && data[0] && data[0].value;
+    return (cloud && typeof cloud === 'object' && cloud.data) ? cloud : null;
+  } catch (e) { return null; }
+}
+/* appvExpPushCloudと同型：先にクラウド取得→マージ→ローカル保存→upsert。 */
+async function appvTaxDocsPushCloud() {
+  const cr = appvCreds(); if (!cr) return { ok: false, reason: 'no-login' };
+  try {
+    let body = appvTaxDocsIndexGet();
+    const cloud = await appvTaxDocsFetchCloud(cr);
+    if (cloud) {
+      body = appvTaxDocsMerge(body, cloud.data);
+      appvTaxDocsIndexSet(body);
+    }
+    const now = Date.now();
+    appvTaxDocsTsSet(now);
+    const r = await fetch(cr.url + '/rest/v1/app_settings?on_conflict=user_email,skey', {
+      method: 'POST',
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ user_email: cr.em, skey: 'tax_docs_index', value: { data: body, ts: now } }])
+    });
+    return { ok: r.ok, status: r.status };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+async function appvTaxDocsPullCloud() {
+  const cr = appvCreds(); if (!cr) return false;
+  const cloud = await appvTaxDocsFetchCloud(cr);
+  if (!cloud) return false;
+  const local = appvTaxDocsIndexGet();
+  const merged = appvTaxDocsMerge(local, cloud.data);
+  const changed = JSON.stringify(merged) !== JSON.stringify(local);
+  appvTaxDocsIndexSet(merged);
+  appvTaxDocsTsSet(Math.max(appvTaxDocsTsGet(), Number(cloud.ts || 0)));
+  if (JSON.stringify(merged) !== JSON.stringify(cloud.data)) { try { await appvTaxDocsPushCloud(); } catch (e) {} }
+  return changed;
+}
+/* 元ファイル名から拡張子（小文字英数字のみ）を抽出。無ければ'bin'。 */
+function appvTaxDocsExtOf(fileName) {
+  const m = /\.([a-zA-Z0-9]+)$/.exec(String(fileName || ''));
+  const ext = m ? m[1].toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+  return ext || 'bin';
+}
+function appvTaxDocsRandKey() {
+  return Math.random().toString(36).slice(2, 6);
+}
+function appvTaxDocsBuildKey(month, fileName) {
+  return month + '/' + Date.now() + '_' + appvTaxDocsRandKey() + '.' + appvTaxDocsExtOf(fileName);
+}
+function appvTaxDocsFmtSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + 'MB';
+  if (n >= 1024) return Math.round(n / 1024) + 'KB';
+  return n + 'B';
+}
+/* ファイルをStorageへアップロードし、インデックスへ登録してクラウドへpushする。複数ファイルを順番に処理する。 */
+async function appvTaxDocsUpload(files) {
+  const cr = appvCreds();
+  if (!cr) { appvToast('ログインすると使えます'); return; }
+  const list = Array.isArray(files) ? files : Array.prototype.slice.call(files || []);
+  if (!list.length) return;
+  const monthEl = document.getElementById('taxDocsMonth');
+  const month = (monthEl && monthEl.value) || appvCurrentMonth();
+  const statusEl = document.getElementById('taxDocsStatus');
+  let okCount = 0, ngCount = 0;
+  for (let i = 0; i < list.length; i++) {
+    const file = list[i];
+    if (statusEl) statusEl.textContent = 'アップロード中 (' + (i + 1) + '/' + list.length + ') ' + (file.name || '');
+    const key = appvTaxDocsBuildKey(month, file.name);
+    try {
+      const r = await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_DOCS_BUCKET + '/' + key, {
+        method: 'POST',
+        headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': file.type || 'application/octet-stream' },
+        body: file
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const idx = appvTaxDocsIndexGet();
+      idx.files = idx.files || {};
+      idx.files[key] = { name: file.name || key, size: file.size || 0, ts: Date.now() };
+      appvTaxDocsIndexSet(idx);
+      okCount++;
+    } catch (e) {
+      ngCount++;
+    }
+  }
+  try { await appvTaxDocsPushCloud(); } catch (e) {}
+  if (statusEl) statusEl.textContent = okCount ? (okCount + '件アップロードしました' + (ngCount ? '（' + ngCount + '件失敗）' : '')) : 'アップロードに失敗しました';
+  appvToast(okCount ? okCount + '件アップロードしました' : 'アップロードに失敗しました');
+  appvRenderTaxDocs();
+}
+async function appvTaxDocsDownload(key) {
+  const cr = appvCreds();
+  if (!cr) { appvToast('ログインすると使えます'); return; }
+  const idx = appvTaxDocsIndexGet();
+  const meta = idx.files && idx.files[key];
+  try {
+    const r = await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_DOCS_BUCKET + '/' + key, {
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok }
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (meta && meta.name) || key;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  } catch (e) {
+    appvToast('ダウンロードに失敗しました: ' + e.message);
+  }
+}
+async function appvTaxDocsDelete(key) {
+  const cr = appvCreds();
+  if (!cr) { appvToast('ログインすると使えます'); return; }
+  const idx = appvTaxDocsIndexGet();
+  const meta = idx.files && idx.files[key];
+  if (!confirm('「' + ((meta && meta.name) || key) + '」を削除しますか？')) return;
+  try {
+    await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_DOCS_BUCKET + '/' + key, {
+      method: 'DELETE',
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok }
+    });
+    // Storage削除が404でもインデックスは削除扱いにしてよい
+  } catch (e) {}
+  idx.files = idx.files || {};
+  idx.files[key] = Object.assign({}, meta, { del: Date.now() });
+  appvTaxDocsIndexSet(idx);
+  try { await appvTaxDocsPushCloud(); } catch (e) {}
+  appvToast('削除しました');
+  appvRenderTaxDocs();
+}
+let appvTaxDocsPulledOnce = false;
+/* 台帳・設定ページの「税理士送付ファイル」カードを描画する。初回のみクラウドをPullし、以後はローカルのインデックスを表示する。 */
+async function appvRenderTaxDocs() {
+  const listEl = document.getElementById('taxDocsList');
+  if (!listEl) return;
+  const cr = appvCreds();
+  const bodyEl = document.getElementById('taxDocsBody');
+  const noteEl = document.getElementById('taxDocsLoginNote');
+  if (!cr) {
+    if (bodyEl) bodyEl.style.display = 'none';
+    if (noteEl) noteEl.style.display = 'block';
+    return;
+  }
+  if (bodyEl) bodyEl.style.display = '';
+  if (noteEl) noteEl.style.display = 'none';
+
+  if (!appvTaxDocsPulledOnce) {
+    appvTaxDocsPulledOnce = true;
+    try { await appvTaxDocsPullCloud(); } catch (e) {}
+  }
+
+  const monthEl = document.getElementById('taxDocsMonth');
+  if (monthEl && !monthEl.value) monthEl.value = appvCurrentMonth();
+  const month = (monthEl && monthEl.value) || appvCurrentMonth();
+  const showAllEl = document.getElementById('taxDocsShowAll');
+  const showAll = !!(showAllEl && showAllEl.checked);
+
+  const idx = appvTaxDocsIndexGet();
+  const files = (idx && idx.files && typeof idx.files === 'object') ? idx.files : {};
+  const rows = Object.keys(files)
+    .map((key) => Object.assign({ key: key }, files[key]))
+    .filter((f) => !f.del)
+    .filter((f) => showAll || f.key.indexOf(month + '/') === 0)
+    .sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+
+  appvClear(listEl);
+  if (!rows.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4;
+    td.className = 'muted tax-docs-empty';
+    td.textContent = 'ファイルはありません';
+    tr.appendChild(td);
+    listEl.appendChild(tr);
+    return;
+  }
+  rows.forEach((f) => {
+    const tr = document.createElement('tr');
+    const nameTd = document.createElement('td');
+    nameTd.textContent = f.name || f.key; // XSS対策: textContentのみ使用
+    const dateTd = document.createElement('td');
+    dateTd.textContent = f.ts ? new Date(f.ts).toLocaleString('ja-JP') : '-';
+    const sizeTd = document.createElement('td');
+    sizeTd.style.textAlign = 'right';
+    sizeTd.textContent = appvTaxDocsFmtSize(f.size);
+    const opTd = document.createElement('td');
+    opTd.style.textAlign = 'center';
+    const dlBtn = document.createElement('button');
+    dlBtn.className = 'tax-docs-btn';
+    dlBtn.textContent = '⬇DL';
+    dlBtn.onclick = () => appvTaxDocsDownload(f.key);
+    const delBtn = document.createElement('button');
+    delBtn.className = 'tax-docs-btn tax-docs-del';
+    delBtn.textContent = '削除';
+    delBtn.onclick = () => appvTaxDocsDelete(f.key);
+    opTd.appendChild(dlBtn);
+    opTd.appendChild(delBtn);
+    tr.appendChild(nameTd);
+    tr.appendChild(dateTd);
+    tr.appendChild(sizeTd);
+    tr.appendChild(opTd);
+    listEl.appendChild(tr);
+  });
+}
+/* 貼り付け画像の表示名。pages/mf-evidence.jsの貼り付けUIを参考にした命名規則 */
+function appvTaxDocsPasteName() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return 'スクショ_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.png';
+}
+/* 設定ページ表示中のみ動作するようガード（他ページでのCtrl+Vを誤爆させない） */
+document.addEventListener('paste', (ev) => {
+  const settingsPage = document.getElementById('page-settings');
+  if (!settingsPage || !settingsPage.classList.contains('active')) return;
+  const items = (ev.clipboardData && ev.clipboardData.items) || [];
+  const found = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (it.kind === 'file') {
+      let f = it.getAsFile();
+      if (f) {
+        // Chromeの貼り付け画像は常に'image.png'という名前になるため、日時入りの名前へ付け替える
+        if (f.type && f.type.indexOf('image/') === 0 && (!f.name || /^image\.\w+$/i.test(f.name))) {
+          try { f = new File([f], appvTaxDocsPasteName(), { type: f.type }); } catch (e) {}
+        }
+        found.push(f);
+      }
+    }
+  }
+  if (found.length) appvTaxDocsUpload(found);
+});
+
 /* 経費タブの月合計。KPIの経費・粗利タブの「経費（経費タブ）」行に連携する */
 function appvExpMonthTotal(month) {
   const o = appvExpGet();
@@ -4522,6 +4798,7 @@ async function appvRenderSettingsPage() {
   appvRenderAccountCard();
   appvRenderSupabaseCard();
   appvCheckSupabase(true); // 開いた時に接続状態を自動確認（トーストは出さない）
+  appvRenderTaxDocs();
 }
 
 /* ---- アカウント（ログイン中メール表示・ログアウト） ---- */
@@ -5083,6 +5360,28 @@ document.addEventListener('DOMContentLoaded', () => {
   if (manualPushBtn) manualPushBtn.addEventListener('click', appvManualPush);
   const manualHydrateBtn = document.getElementById('manualHydrateBtn');
   if (manualHydrateBtn) manualHydrateBtn.addEventListener('click', appvManualHydrate);
+
+  /* Phase D: 台帳・設定ページ（税理士送付ファイル） */
+  const taxDocsMonth = document.getElementById('taxDocsMonth');
+  if (taxDocsMonth) taxDocsMonth.addEventListener('change', appvRenderTaxDocs);
+  const taxDocsShowAll = document.getElementById('taxDocsShowAll');
+  if (taxDocsShowAll) taxDocsShowAll.addEventListener('change', appvRenderTaxDocs);
+  const taxDocsFile = document.getElementById('taxDocsFile');
+  if (taxDocsFile) taxDocsFile.addEventListener('change', () => {
+    if (taxDocsFile.files && taxDocsFile.files.length) appvTaxDocsUpload(taxDocsFile.files);
+    taxDocsFile.value = '';
+  });
+  const taxDocsDrop = document.getElementById('taxDocsDrop');
+  if (taxDocsDrop) {
+    taxDocsDrop.addEventListener('click', () => { if (taxDocsFile) taxDocsFile.click(); });
+    taxDocsDrop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (taxDocsFile) taxDocsFile.click(); } });
+    ['dragenter', 'dragover'].forEach((evt) => taxDocsDrop.addEventListener(evt, (e) => { e.preventDefault(); taxDocsDrop.classList.add('drag-over'); }));
+    ['dragleave', 'drop'].forEach((evt) => taxDocsDrop.addEventListener(evt, (e) => { e.preventDefault(); taxDocsDrop.classList.remove('drag-over'); }));
+    taxDocsDrop.addEventListener('drop', (e) => {
+      const dropped = e.dataTransfer && e.dataTransfer.files;
+      if (dropped && dropped.length) appvTaxDocsUpload(dropped);
+    });
+  }
 
   appvBoot();
 });

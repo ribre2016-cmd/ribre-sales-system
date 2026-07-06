@@ -349,3 +349,19 @@ table.expense-grid .exp-del-btn:hover{color:var(--err); background:var(--err-lig
   #expenseCard table.profit-grid input{font-size:9.5px; width:100%; box-sizing:border-box; padding:0 2px;}
   #expenseCard .table-scroll{overflow-x:visible;}
 }
+
+/* ---------- 台帳・設定: 税理士送付ファイル（ドロップ/貼り付けゾーン・一覧） ---------- */
+.tax-docs-drop{
+  border:2px dashed var(--border); border-radius:12px; background:#FAFBFA;
+  padding:28px 14px; text-align:center; color:var(--sub); font-weight:700;
+  font-size:13px; cursor:pointer; transition:all .15s ease;
+}
+.tax-docs-drop.drag-over{border-color:var(--accent); background:var(--accent-light); color:var(--accent);}
+.tax-docs-drop:focus{outline:none; border-color:var(--accent);}
+#taxDocsList .tax-docs-empty{color:var(--sub); text-align:center;}
+#taxDocsList button.tax-docs-btn{
+  border:none; background:transparent; color:var(--sub); cursor:pointer; font-size:12.5px;
+  padding:3px 7px; border-radius:6px; margin:0 2px;
+}
+#taxDocsList button.tax-docs-btn:hover{background:var(--accent-light); color:var(--accent);}
+#taxDocsList button.tax-docs-btn.tax-docs-del:hover{background:var(--err-light); color:var(--err);}

@@ -481,10 +481,31 @@
     <!-- ============ 6. 台帳・設定 ============ -->
     <section class="page" id="page-settings">
       <h1>台帳・設定</h1>
-      <div class="card section-gap">
-        <h2>電子古物台帳</h2>
-        <div class="muted">古物台帳の表示・CSV出力・印刷は既存の台帳ページで行います。</div>
-        <div style="margin-top:14px"><a href="/kobutsu-ledger?from=app" class="btn primary">電子古物台帳を開く →</a></div>
+      <div class="card section-gap" id="taxDocsCard">
+        <h2>税理士送付ファイル</h2>
+        <div class="muted">Chatworkで税理士に送るPDF・スクショ・Excelなどをここに保管できます（クラウド保存・端末をまたいで共有）。</div>
+        <div id="taxDocsLoginNote" class="muted" style="display:none;margin-top:10px">ログインすると使えます</div>
+        <div id="taxDocsBody">
+          <div class="tx-field" style="margin-top:12px">
+            <label>対象月</label>
+            <input type="month" id="taxDocsMonth">
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-bottom:10px;cursor:pointer">
+            <input type="checkbox" id="taxDocsShowAll">
+            すべての月を表示
+          </label>
+          <div id="taxDocsDrop" class="tax-docs-drop" tabindex="0">
+            ここにドラッグ＆ドロップ / クリックでファイル選択 / Ctrl+Vで貼り付け
+          </div>
+          <input type="file" id="taxDocsFile" multiple style="display:none">
+          <div id="taxDocsStatus" class="muted" style="margin-top:8px;font-size:12.5px"></div>
+          <div class="table-scroll section-gap">
+            <table>
+              <thead><tr><th>ファイル名</th><th>追加日</th><th style="text-align:right">サイズ</th><th style="text-align:center">操作</th></tr></thead>
+              <tbody id="taxDocsList"><tr><td colspan="4" class="muted">読込中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- 月締めチェックリスト（旧: services/app-main-v2.js closeMonth と同一処理をappv版として移植） -->
