@@ -353,8 +353,10 @@ async function appvMonthTotals(month) {
 
   const sale = chanSale + meiSaleSum;
   const pur = purSum + meiPurSum;
-  const exp = shipSum + feeSum;
-  return { sale: sale, pur: pur, exp: exp, profit: sale - pur - exp, ship: shipSum, fee: feeSum };
+  // 経費＝送料＋手数料＋経費タブ（取引ページで手入力した固定費等）の月合計
+  const fixed = appvExpMonthTotal(month);
+  const exp = shipSum + feeSum + fixed;
+  return { sale: sale, pur: pur, exp: exp, profit: sale - pur - exp, ship: shipSum, fee: feeSum, fixed: fixed };
 }
 
 /* ==================== KPI（選択月・前月比） ==================== */
@@ -376,7 +378,7 @@ async function appvRenderKpi() {
   appvRenderKpiFoot('kpiExpensesFoot', appvPctBadge(cur.exp, prev.exp));
   appvRenderKpiFoot('kpiProfitFoot', appvPctBadge(cur.profit, prev.profit));
 
-  appvSetText('kpiScopeNote', '対象: EC＋ヤフオク＋メルカリ＋明細（' + month + '）');
+  appvSetText('kpiScopeNote', '対象: EC＋ヤフオク＋メルカリ＋明細＋経費タブ（' + month + '）');
 }
 function appvRenderKpiFoot(id, badge) {
   const el = document.getElementById(id);
@@ -1099,7 +1101,7 @@ function appvProfitTd(text, opts) {
 }
 async function appvRenderProfit() {
   try { appvMigrateFromSales(); } catch (e) {}
-  appvSetText('profitNote', '売上・仕入・経費は旧UI（かんたんモード）「粗利」タブと同じ集計（EC＋ヤフオク＋メルカリ＋明細の合算）です。黄色＝当月。チャネル・送料・手数料の当月空欄は仮の数字を入力できます。');
+  appvSetText('profitNote', '売上・仕入は旧UI（かんたんモード）「粗利」タブと同じ集計（EC＋ヤフオク＋メルカリ＋明細の合算）です。黄色＝当月。チャネル・送料・手数料の当月空欄は仮の数字を入力できます。最下段に経費タブの月合計と、それを引いた利益を表示します。');
   const head = document.getElementById('profitGridHead');
   const body = document.getElementById('profitGridBody');
   if (!head || !body) return;
@@ -1364,6 +1366,25 @@ async function appvRenderProfit() {
     tr.appendChild(appvProfitTd(appvProfitFmt(gTotal), { className: 'pg-num pg-year pg-profit ' + (gTotal >= 0 ? 'pos' : 'neg') }));
     body.appendChild(tr);
   })();
+  // 経費（経費タブ連携）と利益（粗利−経費）
+  dataRow('経費（経費タブ）', (mk) => appvExpMonthTotal(mk), true);
+  (function () {
+    const tr = document.createElement('tr');
+    tr.className = 'pg-total';
+    const tdName = document.createElement('td');
+    tdName.className = 'pg-label';
+    tdName.textContent = '利益（粗利−経費）';
+    tr.appendChild(tdName);
+    let gTotal = 0;
+    months.forEach((m) => {
+      const mk = m.key;
+      const v = saleByM(mk) - purByM(mk) - (d.shipByM[mk] || 0) - (d.feeByM[mk] || 0) - appvExpMonthTotal(mk);
+      gTotal += v;
+      tr.appendChild(appvProfitTd(appvProfitFmt(v), { className: 'pg-num pg-profit ' + (v >= 0 ? 'pos' : 'neg') }));
+    });
+    tr.appendChild(appvProfitTd(appvProfitFmt(gTotal), { className: 'pg-num pg-year pg-profit ' + (gTotal >= 0 ? 'pos' : 'neg') }));
+    body.appendChild(tr);
+  })();
 }
 
 /* ==================== 取引: 経費タブ（項目×月の手入力表） ==================== */
@@ -1442,6 +1463,7 @@ async function appvRenderExpense() {
   async function saveAndSync() {
     try { localStorage.setItem('ribre_smp_expenses_v1', JSON.stringify(o)); } catch (e) {}
     appvExpTsSet(Date.now());
+    try { appvRenderKpi(); } catch (e) {} // 経費はKPI・粗利連携しているためホームの数字も更新
     try { await appvExpPushCloud(); } catch (e) { try { appvToast('⚠️ 経費の同期に失敗しました'); } catch (e2) {} }
   }
 
@@ -2777,6 +2799,13 @@ function appvExpSetOne(o, month, item, val) {
   const n = Number(String(val == null ? '' : val).replace(/[^0-9.-]/g, '')) || 0;
   if (n) o[month][item] = n; else if (o[month]) delete o[month][item];
   o._m[month + '|' + item] = Date.now();
+}
+/* 経費タブの月合計。KPIの経費・粗利タブの「経費（経費タブ）」行に連携する */
+function appvExpMonthTotal(month) {
+  const o = appvExpGet();
+  const row = o[month];
+  if (!row || typeof row !== 'object') return 0;
+  return Object.keys(row).reduce((s, k) => s + (Number(row[k]) || 0), 0);
 }
 /* 初期項目シード（ストアが空 = _items が無いとき一度だけ）。金額はシードせず項目名のみ。
  * ローカル保存のみ行いpushはしない（次回の何らかの保存操作でpushされる）。 */
