@@ -791,52 +791,50 @@ function appvXlsxBuildSheetXml(rows) {
     '<sheetData>' + rowXmls + '</sheetData>' +
     '</worksheet>';
 }
-const APPV_XLSX_CONTENT_TYPES_XML =
-  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-  '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
-  '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
-  '<Default Extension="xml" ContentType="application/xml"/>' +
-  '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
-  '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
-  '</Types>';
 const APPV_XLSX_RELS_XML =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
   '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
   '</Relationships>';
-const APPV_XLSX_WORKBOOK_XML =
-  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-  '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
-  'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
-  '<sheets><sheet name="レポート" sheetId="1" r:id="rId1"/></sheets>' +
-  '</workbook>';
-const APPV_XLSX_WORKBOOK_RELS_XML =
-  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-  '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
-  '</Relationships>';
-/* rows(2次元配列) -> Uint8Array(.xlsxバイト列)。ブラウザ非依存の純関数（Node動作検証済み）。 */
-function appvBuildXlsx(rows) {
-  const sheetXml = appvXlsxBuildSheetXml(rows);
+/* sheets([{name, rows}] or 後方互換で2次元配列=単一シート) -> Uint8Array(.xlsxバイト列)。
+ * ブラウザ非依存の純関数（Node動作検証済み）。開いたとき最後のシート(=最新月)がアクティブ。 */
+function appvBuildXlsx(sheets) {
+  if (!Array.isArray(sheets)) sheets = [];
+  if (sheets.length === 0 || Array.isArray(sheets[0])) sheets = [{ name: 'レポート', rows: sheets }];
+  const contentTypes =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+    '<Default Extension="xml" ContentType="application/xml"/>' +
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+    sheets.map((s, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') +
+    '</Types>';
+  const workbookXml =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+    '<bookViews><workbookView activeTab="' + (sheets.length - 1) + '"/></bookViews>' +
+    '<sheets>' + sheets.map((s, i) => '<sheet name="' + appvXlsxEscape(s.name) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join('') + '</sheets>' +
+    '</workbook>';
+  const workbookRels =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    sheets.map((s, i) => '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+    '</Relationships>';
   const files = [
-    { name: '[Content_Types].xml', data: appvXlsxUtf8Bytes(APPV_XLSX_CONTENT_TYPES_XML) },
+    { name: '[Content_Types].xml', data: appvXlsxUtf8Bytes(contentTypes) },
     { name: '_rels/.rels', data: appvXlsxUtf8Bytes(APPV_XLSX_RELS_XML) },
-    { name: 'xl/workbook.xml', data: appvXlsxUtf8Bytes(APPV_XLSX_WORKBOOK_XML) },
-    { name: 'xl/_rels/workbook.xml.rels', data: appvXlsxUtf8Bytes(APPV_XLSX_WORKBOOK_RELS_XML) },
-    { name: 'xl/worksheets/sheet1.xml', data: appvXlsxUtf8Bytes(sheetXml) }
-  ];
+    { name: 'xl/workbook.xml', data: appvXlsxUtf8Bytes(workbookXml) },
+    { name: 'xl/_rels/workbook.xml.rels', data: appvXlsxUtf8Bytes(workbookRels) }
+  ].concat(sheets.map((s, i) => ({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: appvXlsxUtf8Bytes(appvXlsxBuildSheetXml(s.rows)) })));
   return appvXlsxMakeZip(files);
 }
 
 /* 旧: smpExportReportExcel(app-simple.js 2752-2791行目)相当の集計ロジックはそのまま踏襲しつつ、
  * 出力自体は上記xlsx生成エンジンで本物の.xlsxファイルとして書き出す（HTML-as-.xls方式は廃止）。
  * 対象期間のみ、旧の#smpSummaryMonth(月選択select)の代わりに新UIの#monthFilter(空なら全期間)を使う。 */
-function appvExportReportExcel() {
-  const monthEl = document.getElementById('monthFilter');
-  const month = (monthEl && monthEl.value) || 'all';
+function appvBuildReportSheetRows(month, salesAll, purchasesAll) {
   const all = month === 'all';
-  const salesAll = get(LS.sales, []);
-  const purchasesAll = get(LS.purchases, []);
   const inMonth = (r) => all || (r.month || String(r.date || '').slice(0, 7)) === month;
   const sRows = appvSortReportSalesRows((Array.isArray(salesAll) ? salesAll : []).filter(inMonth));
   const pRows = (Array.isArray(purchasesAll) ? purchasesAll : []).filter(inMonth);
@@ -864,7 +862,7 @@ function appvExportReportExcel() {
   const purRows = [['No', '日付', '仕入れ先', '金額', '消費税', '手数料', '種別', 'メモ']]
     .concat(pRows.map((r, i) => [i + 1, r.date || '', r.vendor || '', num(r.total || r.amount), appvPurchaseTax(r), num(r.fee), r.type || '', r.memo || '']));
   // シート内容: サマリ表 → 空行 → 「売上明細」見出し+ヘッダ+行 → 空行 → 「仕入明細」…（旧HTML版と同一の並び）
-  const sheetRows = []
+  return []
     .concat(summary)
     .concat([[]])
     .concat([['売上明細']])
@@ -872,7 +870,35 @@ function appvExportReportExcel() {
     .concat([[]])
     .concat([['仕入明細']])
     .concat(purRows);
-  const xlsxBytes = appvBuildXlsx(sheetRows);
+}
+/* 決算月=2月 → 年度は3月開始。選択月が属する年度の3月から選択月までのYYYY-MMリストを返す */
+function appvFiscalMonthsUpTo(month) {
+  const y = +month.slice(0, 4), m = +month.slice(5, 7);
+  if (!y || !m) return [month];
+  const startY = m >= 3 ? y : y - 1;
+  const list = [];
+  for (let i = 0; i < 12; i++) {
+    const yy = startY + Math.floor((2 + i) / 12);
+    const mo = ((2 + i) % 12) + 1;
+    const key = yy + '-' + String(mo).padStart(2, '0');
+    list.push(key);
+    if (key === month) break;
+  }
+  return list;
+}
+function appvExportReportExcel() {
+  const monthEl = document.getElementById('monthFilter');
+  const month = (monthEl && monthEl.value) || 'all';
+  const all = month === 'all';
+  const salesAll = get(LS.sales, []);
+  const purchasesAll = get(LS.purchases, []);
+  // 月選択時は年度開始(3月)から選択月まで1ヶ月=1シートで出力（最新月がアクティブ）。全期間は1シート。
+  const months = all ? ['all'] : appvFiscalMonthsUpTo(month);
+  const sheets = months.map((mo) => ({
+    name: mo === 'all' ? '全期間' : (+mo.slice(5, 7)) + '月',
+    rows: appvBuildReportSheetRows(mo, salesAll, purchasesAll)
+  }));
+  const xlsxBytes = appvBuildXlsx(sheets);
   const blob = new Blob([xlsxBytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
