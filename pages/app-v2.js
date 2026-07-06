@@ -2815,7 +2815,8 @@ function appvTaxDocsIndexSet(idx) {
 }
 function appvTaxDocsTsGet() { return Number(localStorage.getItem('ribre_tax_docs_index_ts') || 0) || 0; }
 function appvTaxDocsTsSet(t) { try { localStorage.setItem('ribre_tax_docs_index_ts', String(t || Date.now())); } catch (e) {} }
-/* objectKeyごとに ts（delがあればdelの方が新しければ削除扱い）の新しい方を採用。delから180日超のエントリは掃除。 */
+/* objectKeyごとに ts（delがあればdelの方が新しければ削除扱い）の新しい方を採用。delから180日超のエントリは掃除。
+ * files以外に share（共有リンク情報: {token, ts}。解除時は token:null で墓標化）も ts の新しい方を採用して保持する。 */
 function appvTaxDocsMerge(aData, bData) {
   const aFiles = (aData && aData.files && typeof aData.files === 'object') ? aData.files : {};
   const bFiles = (bData && bData.files && typeof bData.files === 'object') ? bData.files : {};
@@ -2835,6 +2836,13 @@ function appvTaxDocsMerge(aData, bData) {
     const f = out.files[k];
     if (f && f.del && f.del < lim) delete out.files[k];
   });
+  const aShare = (aData && aData.share && typeof aData.share === 'object') ? aData.share : null;
+  const bShare = (bData && bData.share && typeof bData.share === 'object') ? bData.share : null;
+  if (aShare || bShare) {
+    const ta = aShare ? (Number(aShare.ts || 0) || 0) : -1;
+    const tb = bShare ? (Number(bShare.ts || 0) || 0) : -1;
+    out.share = ta >= tb ? aShare : bShare;
+  }
   return out;
 }
 async function appvTaxDocsFetchCloud(cr) {
@@ -2930,6 +2938,7 @@ async function appvTaxDocsUpload(files) {
   if (statusEl) statusEl.textContent = okCount ? (okCount + '件アップロードしました' + (ngCount ? '（' + ngCount + '件失敗）' : '')) : 'アップロードに失敗しました';
   appvToast(okCount ? okCount + '件アップロードしました' : 'アップロードに失敗しました');
   appvRenderTaxDocs();
+  if (okCount && appvTaxShareUrl()) { appvTaxShareUpdate(true); }
 }
 async function appvTaxDocsDownload(key) {
   const cr = appvCreds();
@@ -2973,6 +2982,7 @@ async function appvTaxDocsDelete(key) {
   try { await appvTaxDocsPushCloud(); } catch (e) {}
   appvToast('削除しました');
   appvRenderTaxDocs();
+  if (appvTaxShareUrl()) { appvTaxShareUpdate(true); }
 }
 let appvTaxDocsPulledOnce = false;
 /* 台帳・設定ページの「税理士送付ファイル」カードを描画する。初回のみクラウドをPullし、以後はローカルのインデックスを表示する。 */
@@ -3018,6 +3028,7 @@ async function appvRenderTaxDocs() {
     td.textContent = 'ファイルはありません';
     tr.appendChild(td);
     listEl.appendChild(tr);
+    appvRenderTaxShare();
     return;
   }
   rows.forEach((f) => {
@@ -3047,6 +3058,180 @@ async function appvRenderTaxDocs() {
     tr.appendChild(opTd);
     listEl.appendChild(tr);
   });
+  appvRenderTaxShare();
+}
+/* ==================== 税理士向け共有ページ（ログイン不要・URL1本） ====================
+ * 公開バケット `tax-share` に share/<token>.json としてマニフェスト（ファイル一覧＋署名付きURL）を置く。
+ * token は appvTaxDocsIndexGet().share.token（一度生成したら不変。app_settings経由でクラウド同期・端末間共有される）。
+ * 解除時は share = { token: null, ts } で墓標化する（appvTaxDocsMergeが ts の新しい方を採用するため）。 */
+const APPV_TAX_SHARE_BUCKET = 'tax-share';
+function appvTaxShareRandToken() {
+  try {
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    return Array.prototype.map.call(arr, (b) => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) {
+    // フォールバック（crypto.getRandomValues非対応環境向け。通常は到達しない）
+    let s = '';
+    for (let i = 0; i < 32; i++) s += Math.floor(Math.random() * 16).toString(16);
+    return s;
+  }
+}
+/* 現在の共有URLを返す。token未作成ならnull。 */
+function appvTaxShareUrl() {
+  const cr = appvCreds();
+  if (!cr) return null;
+  const idx = appvTaxDocsIndexGet();
+  const token = idx.share && idx.share.token;
+  if (!token) return null;
+  const host = String(cr.url || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+  return location.origin + '/tax-share#u=' + encodeURIComponent(host) + '&t=' + encodeURIComponent(token);
+}
+/* 1ファイル分の署名付きURL（1年間有効）を生成し、ダウンロード時ファイル名に月プレフィックスを付けて返す。失敗時はnull。 */
+async function appvTaxShareSignOne(cr, key, month, name) {
+  try {
+    const r = await fetch(cr.url + '/storage/v1/object/sign/' + APPV_TAX_DOCS_BUCKET + '/' + key, {
+      method: 'POST',
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiresIn: 31536000 })
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data || !data.signedURL) return null;
+    const dlName = month + '_' + (name || key);
+    return cr.url + '/storage/v1' + data.signedURL + '&download=' + encodeURIComponent(dlName);
+  } catch (e) { return null; }
+}
+/* 共有マニフェストを作り直して tax-share バケットへupsertする。token未作成なら生成して保存。
+ * silent=falseなら完了時にappvToastで通知する。fire-and-forgetで呼ばれることが多い。 */
+async function appvTaxShareUpdate(silent) {
+  const cr = appvCreds();
+  if (!cr) { if (!silent) appvToast('ログインすると使えます'); return { ok: false, reason: 'no-login' }; }
+  try {
+    let idx = appvTaxDocsIndexGet();
+    let token = idx.share && idx.share.token;
+    if (!token) {
+      token = appvTaxShareRandToken();
+      idx.share = { token: token, ts: Date.now() };
+      appvTaxDocsIndexSet(idx);
+      try { await appvTaxDocsPushCloud(); } catch (e) {}
+      idx = appvTaxDocsIndexGet();
+    }
+    const files = (idx && idx.files && typeof idx.files === 'object') ? idx.files : {};
+    const rows = Object.keys(files)
+      .map((key) => Object.assign({ key: key }, files[key]))
+      .filter((f) => !f.del)
+      .sort((a, b) => {
+        const ma = a.key.slice(0, 7), mb = b.key.slice(0, 7);
+        if (ma !== mb) return ma < mb ? 1 : -1;
+        return (Number(b.ts) || 0) - (Number(a.ts) || 0);
+      });
+    const manifestFiles = [];
+    for (let i = 0; i < rows.length; i++) {
+      const f = rows[i];
+      const month = f.key.slice(0, 7);
+      const url = await appvTaxShareSignOne(cr, f.key, month, f.name);
+      if (url) manifestFiles.push({ name: f.name || f.key, size: f.size || 0, ts: f.ts || 0, month: month, url: url });
+    }
+    const manifest = { v: 1, updatedAt: Date.now(), files: manifestFiles };
+    const r = await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_SHARE_BUCKET + '/share/' + token + '.json', {
+      method: 'POST',
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', 'x-upsert': 'true' },
+      body: JSON.stringify(manifest)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!silent) appvToast('共有ページを更新しました');
+    appvRenderTaxShare();
+    return { ok: true };
+  } catch (e) {
+    if (!silent) appvToast('共有ページの更新に失敗しました: ' + e.message);
+    return { ok: false, reason: e.message };
+  }
+}
+/* 共有を解除する。マニフェストを削除し、shareを墓標化（token:null）して以後の自動更新を止める。 */
+async function appvTaxShareRevoke() {
+  const cr = appvCreds();
+  if (!cr) { appvToast('ログインすると使えます'); return; }
+  if (!confirm('共有リンクを解除しますか？（既存のURLは無効になります）')) return;
+  const idx = appvTaxDocsIndexGet();
+  const token = idx.share && idx.share.token;
+  if (token) {
+    try {
+      await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_SHARE_BUCKET + '/share/' + token + '.json', {
+        method: 'DELETE',
+        headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok }
+      });
+    } catch (e) {}
+  }
+  idx.share = { token: null, ts: Date.now() };
+  appvTaxDocsIndexSet(idx);
+  try { await appvTaxDocsPushCloud(); } catch (e) {}
+  appvToast('共有を解除しました');
+  appvRenderTaxShare();
+}
+/* #taxDocsCard内の共有セクション(#taxShareSec)を描画する。未作成ならボタンのみ、作成済みならURL+コピー/更新/解除。 */
+function appvRenderTaxShare() {
+  const sec = document.getElementById('taxShareSec');
+  if (!sec) return;
+  const cr = appvCreds();
+  appvClear(sec);
+  if (!cr) return;
+  const url = appvTaxShareUrl();
+  const title = document.createElement('div');
+  title.style.fontWeight = '700';
+  title.style.marginBottom = '8px';
+  title.textContent = '🔗 税理士向け共有ページ';
+  sec.appendChild(title);
+  if (!url) {
+    const desc = document.createElement('div');
+    desc.className = 'muted';
+    desc.style.marginBottom = '10px';
+    desc.style.fontSize = '12.5px';
+    desc.textContent = 'ログイン不要のURLを1本発行し、税理士にファイル一覧を共有できます。';
+    sec.appendChild(desc);
+    const btn = document.createElement('button');
+    btn.className = 'btn primary';
+    btn.textContent = '🔗 共有リンクを作成';
+    btn.onclick = () => appvTaxShareUpdate(false);
+    sec.appendChild(btn);
+    return;
+  }
+  const row = document.createElement('div');
+  row.style.display = 'flex';
+  row.style.gap = '6px';
+  row.style.flexWrap = 'wrap';
+  row.style.marginBottom = '8px';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.readOnly = true;
+  input.value = url;
+  input.style.flex = '1';
+  input.style.minWidth = '200px';
+  input.onclick = () => input.select();
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'tax-docs-btn';
+  copyBtn.textContent = 'コピー';
+  copyBtn.onclick = async () => {
+    const ok = await appvWriteClipboardText(url);
+    appvToast(ok ? '共有URLをコピーしました' : 'コピーできませんでした。ブラウザの権限を確認してください');
+  };
+  row.appendChild(input);
+  row.appendChild(copyBtn);
+  sec.appendChild(row);
+  const btnRow = document.createElement('div');
+  btnRow.style.display = 'flex';
+  btnRow.style.gap = '6px';
+  const updateBtn = document.createElement('button');
+  updateBtn.className = 'tax-docs-btn';
+  updateBtn.textContent = '更新';
+  updateBtn.onclick = () => appvTaxShareUpdate(false);
+  const revokeBtn = document.createElement('button');
+  revokeBtn.className = 'tax-docs-btn tax-docs-del';
+  revokeBtn.textContent = '共有を解除';
+  revokeBtn.onclick = () => appvTaxShareRevoke();
+  btnRow.appendChild(updateBtn);
+  btnRow.appendChild(revokeBtn);
+  sec.appendChild(btnRow);
 }
 /* 貼り付け画像の表示名。pages/mf-evidence.jsの貼り付けUIを参考にした命名規則 */
 function appvTaxDocsPasteName() {
