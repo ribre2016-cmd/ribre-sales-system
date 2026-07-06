@@ -2843,6 +2843,22 @@ function appvTaxDocsMerge(aData, bData) {
     const tb = bShare ? (Number(bShare.ts || 0) || 0) : -1;
     out.share = ta >= tb ? aShare : bShare;
   }
+  // names: 取引先→書類名の学習辞書。キー単位でts（更新時刻）の新しい方を採用する（files/shareと同じ規則）。
+  const aNames = (aData && aData.names && typeof aData.names === 'object') ? aData.names : {};
+  const bNames = (bData && bData.names && typeof bData.names === 'object') ? bData.names : {};
+  const nameKeys = {};
+  Object.keys(aNames).forEach((k) => { nameKeys[k] = 1; });
+  Object.keys(bNames).forEach((k) => { nameKeys[k] = 1; });
+  if (Object.keys(nameKeys).length) {
+    out.names = {};
+    Object.keys(nameKeys).forEach((k) => {
+      const a = aNames[k], b = bNames[k];
+      const ta = a ? (Number(a.ts || 0) || 0) : -1;
+      const tb = b ? (Number(b.ts || 0) || 0) : -1;
+      const winner = ta >= tb ? a : b;
+      if (winner) out.names[k] = winner;
+    });
+  }
   return out;
 }
 async function appvTaxDocsFetchCloud(cr) {
@@ -2904,7 +2920,168 @@ function appvTaxDocsFmtSize(bytes) {
   if (n >= 1024) return Math.round(n / 1024) + 'KB';
   return n + 'B';
 }
-/* ファイルをStorageへアップロードし、インデックスへ登録してクラウドへpushする。複数ファイルを順番に処理する。 */
+
+/* ==================== 税理士送付ファイル: OCR自動リネーム＋学習辞書 ====================
+ * idx.names = { [取引先の正規化キー]: { base: 書類名, ts } }。appvTaxDocsMergeがキー単位でts最新を採用する。
+ * 正規化キー: trim + 空白除去程度（全角/半角スペースを除去し小文字化）。 */
+function appvTaxDocsNameKey(vendor) {
+  return String(vendor || '').trim().replace(/[\s　]+/g, '').toLowerCase();
+}
+function appvTaxDocsDictGet(vendor) {
+  const key = appvTaxDocsNameKey(vendor);
+  if (!key) return null;
+  const idx = appvTaxDocsIndexGet();
+  const names = (idx && idx.names && typeof idx.names === 'object') ? idx.names : {};
+  return names[key] || null;
+}
+function appvTaxDocsDictSet(vendor, base) {
+  const key = appvTaxDocsNameKey(vendor);
+  if (!key || !base) return;
+  const idx = appvTaxDocsIndexGet();
+  idx.names = idx.names || {};
+  idx.names[key] = { base: base, ts: Date.now() };
+  appvTaxDocsIndexSet(idx);
+}
+/* JSONコードフェンス除去等。services/openai-ocr.js の ribreCleanJsonText/extractJson と同じ方式（このページはopenai-ocr.jsを読み込んでいないため同等ロジックをここに複製）。 */
+function appvTaxDocsExtractJson(text) {
+  let t = String(text || '').trim();
+  t = t.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if (start >= 0 && end > start) t = t.slice(start, end + 1);
+  t = t.replace(/,\s*([}\]])/g, '$1');
+  try { return JSON.parse(t); } catch (e) { return null; }
+}
+/* FileをdataURLへ変換 */
+function appvTaxDocsFileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('読込に失敗しました'));
+    reader.readAsDataURL(file);
+  });
+}
+/* 画像1枚をOCRし、{vendor,date,kind}を返す。失敗時はnull（呼び出し側でモーダルへフォールバックする）。
+ * mf-evidence.js mfRunOcr と同じ形式で /api/openai/responses を呼ぶ（Authorization/model 'gpt-4.1'/input_image）。 */
+async function appvTaxDocsRunOcr(file) {
+  try {
+    const dataUrl = await appvTaxDocsFileToDataUrl(file);
+    const prompt =
+      'これは領収書・請求書・明細等のスクリーンショットです。JSONのみで' +
+      ' {"vendor":"発行元の会社名・サービス名(簡潔に)","date":"YYYY-MM-DD","kind":"書類の種類(領収書/請求書/明細など)"} を返す。' +
+      '読み取れない項目は空文字。年が2桁(例: 26.7.3)なら20XX年として解釈(2026-07-03)。';
+    const content = [
+      { type: 'input_text', text: prompt },
+      { type: 'input_image', image_url: dataUrl }
+    ];
+    const cr = appvCreds();
+    const tok = (cr && cr.tok) || (typeof sess === 'function' ? (sess().access_token || '') : '');
+    const res = await fetch('/api/openai/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok },
+      body: JSON.stringify({ model: 'gpt-4.1', input: [{ role: 'user', content: content }], temperature: 0 })
+    });
+    const d = await res.json();
+    if (!res.ok) return null;
+    let text = d.output_text || '';
+    if (!text && d.output) {
+      text = d.output.map((o) => (o.content || []).map((c) => c.text || '').join('\n')).join('\n');
+    }
+    const parsed = appvTaxDocsExtractJson(text);
+    if (!parsed) return null;
+    let date = String(parsed.date || '').slice(0, 10);
+    if (date) {
+      const y = Number(date.slice(0, 4));
+      const nowY = new Date().getFullYear();
+      if (!(y >= 2020 && y <= nowY + 1)) date = '';
+    }
+    return { vendor: String(parsed.vendor || ''), date: date, kind: String(parsed.kind || '') };
+  } catch (e) {
+    return null;
+  }
+}
+/* 「この名前で保存」/「そのまま保存」を選ばせる入力モーダル。Promiseで解決し、呼び出し側はawaitで直列化する。
+ * 解決値: { base, date, useOriginal } または useOriginal:true のみ。Esc/背景クリックでは閉じない（誤操作防止）。 */
+function appvTaxDocsNamePrompt(file, ocr) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay show';
+    const drawer = document.createElement('div');
+    drawer.className = 'drawer';
+    drawer.style.cssText = 'right:auto; left:50%; top:50%; transform:translate(-50%,-50%); width:420px; max-width:92vw; max-height:88vh;';
+
+    const head = document.createElement('div');
+    head.className = 'drawer-head';
+    const h = document.createElement('h3');
+    h.style.margin = '0';
+    h.textContent = 'ファイル名を決めてください';
+    head.appendChild(h);
+    drawer.appendChild(head);
+
+    const previewWrap = document.createElement('div');
+    previewWrap.style.cssText = 'text-align:center; margin-bottom:14px;';
+    const img = document.createElement('img');
+    img.style.cssText = 'max-width:100%; max-height:300px; border-radius:8px; border:1px solid var(--border);';
+    const objUrl = URL.createObjectURL(file);
+    img.src = objUrl;
+    previewWrap.appendChild(img);
+    drawer.appendChild(previewWrap);
+
+    const nameField = document.createElement('div');
+    nameField.className = 'tx-field';
+    const nameLabel = document.createElement('label');
+    nameLabel.textContent = '書類名';
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    const vendor = (ocr && ocr.vendor) || '';
+    const kind = (ocr && ocr.kind) || '';
+    nameInput.value = vendor + kind;
+    nameField.appendChild(nameLabel);
+    nameField.appendChild(nameInput);
+    drawer.appendChild(nameField);
+
+    const dateField = document.createElement('div');
+    dateField.className = 'tx-field';
+    const dateLabel = document.createElement('label');
+    dateLabel.textContent = '日付';
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.value = (ocr && ocr.date) || today();
+    dateField.appendChild(dateLabel);
+    dateField.appendChild(dateInput);
+    drawer.appendChild(dateField);
+
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const origBtn = document.createElement('button');
+    origBtn.className = 'tax-docs-btn';
+    origBtn.textContent = 'そのまま保存';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'tax-docs-btn';
+    saveBtn.textContent = 'この名前で保存';
+    actions.appendChild(origBtn);
+    actions.appendChild(saveBtn);
+    drawer.appendChild(actions);
+
+    overlay.appendChild(drawer);
+    document.body.appendChild(overlay);
+
+    const close = () => {
+      overlay.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+    };
+    origBtn.onclick = () => { close(); resolve({ useOriginal: true }); };
+    saveBtn.onclick = () => {
+      const base = nameInput.value.trim();
+      const date = dateInput.value || today();
+      close();
+      if (!base) { resolve({ useOriginal: true }); return; }
+      resolve({ base: base, date: date, vendor: vendor });
+    };
+  });
+}
+/* ファイルをStorageへアップロードし、インデックスへ登録してクラウドへpushする。複数ファイルを順番に処理する。
+ * 画像(image/*)はアップロード前にOCRし、学習辞書に一致すれば自動リネーム、無ければ入力モーダルでユーザーに確認する。 */
 async function appvTaxDocsUpload(files) {
   const cr = appvCreds();
   if (!cr) { appvToast('ログインすると使えます'); return; }
@@ -2914,10 +3091,29 @@ async function appvTaxDocsUpload(files) {
   const month = (monthEl && monthEl.value) || appvCurrentMonth();
   const statusEl = document.getElementById('taxDocsStatus');
   let okCount = 0, ngCount = 0;
+  let lastSavedName = '';
   for (let i = 0; i < list.length; i++) {
     const file = list[i];
     if (statusEl) statusEl.textContent = 'アップロード中 (' + (i + 1) + '/' + list.length + ') ' + (file.name || '');
-    const key = appvTaxDocsBuildKey(month, file.name);
+    let finalName = file.name || 'file';
+    const isImage = file.type && file.type.indexOf('image/') === 0;
+    if (isImage) {
+      const ext = appvTaxDocsExtOf(file.name);
+      let ocr = null;
+      try { ocr = await appvTaxDocsRunOcr(file); } catch (e) { ocr = null; }
+      const dict = ocr ? appvTaxDocsDictGet(ocr.vendor) : null;
+      if (ocr && ocr.vendor && dict) {
+        const date = ocr.date || today();
+        finalName = dict.base + '_' + date + '.' + ext;
+      } else {
+        const choice = await appvTaxDocsNamePrompt(file, ocr);
+        if (choice && !choice.useOriginal) {
+          finalName = choice.base + '_' + choice.date + '.' + ext;
+          if (choice.vendor) appvTaxDocsDictSet(choice.vendor, choice.base);
+        }
+      }
+    }
+    const key = appvTaxDocsBuildKey(month, finalName);
     try {
       const r = await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_DOCS_BUCKET + '/' + key, {
         method: 'POST',
@@ -2927,16 +3123,19 @@ async function appvTaxDocsUpload(files) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const idx = appvTaxDocsIndexGet();
       idx.files = idx.files || {};
-      idx.files[key] = { name: file.name || key, size: file.size || 0, ts: Date.now() };
+      idx.files[key] = { name: finalName || key, size: file.size || 0, ts: Date.now() };
       appvTaxDocsIndexSet(idx);
+      lastSavedName = finalName || key;
       okCount++;
     } catch (e) {
       ngCount++;
     }
   }
   try { await appvTaxDocsPushCloud(); } catch (e) {}
-  if (statusEl) statusEl.textContent = okCount ? (okCount + '件アップロードしました' + (ngCount ? '（' + ngCount + '件失敗）' : '')) : 'アップロードに失敗しました';
-  appvToast(okCount ? okCount + '件アップロードしました' : 'アップロードに失敗しました');
+  // 1件のみ保存できた場合は確定したファイル名をトーストに含める（自動/手動リネーム後の名前を確認できるように）
+  const okMsg = okCount ? (okCount === 1 ? '「' + lastSavedName + '」を保存しました' : okCount + '件アップロードしました') : 'アップロードに失敗しました';
+  if (statusEl) statusEl.textContent = okMsg + (ngCount ? '（' + ngCount + '件失敗）' : '');
+  appvToast(okMsg);
   appvRenderTaxDocs();
   if (okCount && appvTaxShareUrl()) { appvTaxShareUpdate(true); }
 }
@@ -2962,6 +3161,24 @@ async function appvTaxDocsDownload(key) {
   } catch (e) {
     appvToast('ダウンロードに失敗しました: ' + e.message);
   }
+}
+/* 一覧のファイル名クリックでリネームする（おまけ機能）。保存後はクラウドpush・共有マニフェスト更新・再描画を行う。 */
+async function appvTaxDocsRename(key) {
+  const cr = appvCreds();
+  if (!cr) { appvToast('ログインすると使えます'); return; }
+  const idx = appvTaxDocsIndexGet();
+  idx.files = idx.files || {};
+  const meta = idx.files[key];
+  if (!meta) return;
+  const next = prompt('ファイル名を変更', meta.name || key);
+  if (next === null) return;
+  const trimmed = next.trim();
+  if (!trimmed || trimmed === meta.name) return;
+  idx.files[key] = Object.assign({}, meta, { name: trimmed, ts: Date.now() });
+  appvTaxDocsIndexSet(idx);
+  try { await appvTaxDocsPushCloud(); } catch (e) {}
+  if (appvTaxShareUrl()) { appvTaxShareUpdate(true); }
+  appvRenderTaxDocs();
 }
 async function appvTaxDocsDelete(key) {
   const cr = appvCreds();
@@ -3035,6 +3252,9 @@ async function appvRenderTaxDocs() {
     const tr = document.createElement('tr');
     const nameTd = document.createElement('td');
     nameTd.textContent = f.name || f.key; // XSS対策: textContentのみ使用
+    nameTd.title = 'クリックで名前を変更';
+    nameTd.style.cursor = 'pointer';
+    nameTd.onclick = () => appvTaxDocsRename(f.key);
     const dateTd = document.createElement('td');
     dateTd.textContent = f.ts ? new Date(f.ts).toLocaleString('ja-JP') : '-';
     const sizeTd = document.createElement('td');
