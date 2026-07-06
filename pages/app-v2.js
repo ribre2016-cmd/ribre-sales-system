@@ -2961,11 +2961,18 @@ function appvTaxDocsFileToDataUrl(file) {
     reader.readAsDataURL(file);
   });
 }
-/* 画像1枚をOCRし、{vendor,date,kind}を返す。失敗時はnull（呼び出し側でモーダルへフォールバックする）。
- * mf-evidence.js mfRunOcr と同じ形式で /api/openai/responses を呼ぶ（Authorization/model 'gpt-4.1'/input_image）。 */
+/* 画像1枚をOCRし、{vendor,date,kind}を返す。失敗時は {err: 理由}（呼び出し側でモーダルへフォールバックし理由を表示）。
+ * mf-evidence.js mfRunOcr と同じ形式で /api/openai/responses を呼ぶ（Authorization/model 'gpt-4.1'/input_image）。
+ * 画像は証憑OCRと同じ ribreOptimizeOcrImage（services/openai-ocr.js）で縮小・最適化してから送る。 */
 async function appvTaxDocsRunOcr(file) {
   try {
-    const dataUrl = await appvTaxDocsFileToDataUrl(file);
+    let dataUrl = await appvTaxDocsFileToDataUrl(file);
+    if (typeof window.ribreOptimizeOcrImage === 'function') {
+      try {
+        const optimized = await window.ribreOptimizeOcrImage(dataUrl);
+        if (optimized && optimized.imageUrl) dataUrl = optimized.imageUrl;
+      } catch (e) {}
+    }
     const prompt =
       'これは領収書・請求書・明細等のスクリーンショットです。JSONのみで' +
       ' {"vendor":"発行元の会社名・サービス名(簡潔に)","date":"YYYY-MM-DD","kind":"書類の種類(領収書/請求書/明細など)"} を返す。' +
@@ -2981,14 +2988,21 @@ async function appvTaxDocsRunOcr(file) {
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok },
       body: JSON.stringify({ model: 'gpt-4.1', input: [{ role: 'user', content: content }], temperature: 0 })
     });
-    const d = await res.json();
-    if (!res.ok) return null;
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (d && d.error && (d.error.message || d.error)) || ('HTTP ' + res.status);
+      console.warn('taxDocs OCR failed:', msg, d);
+      return { err: String(msg) };
+    }
     let text = d.output_text || '';
     if (!text && d.output) {
       text = d.output.map((o) => (o.content || []).map((c) => c.text || '').join('\n')).join('\n');
     }
     const parsed = appvTaxDocsExtractJson(text);
-    if (!parsed) return null;
+    if (!parsed) {
+      console.warn('taxDocs OCR parse failed:', text);
+      return { err: 'AIの応答を解析できませんでした' };
+    }
     let date = String(parsed.date || '').slice(0, 10);
     if (date) {
       const y = Number(date.slice(0, 4));
@@ -2997,7 +3011,8 @@ async function appvTaxDocsRunOcr(file) {
     }
     return { vendor: String(parsed.vendor || ''), date: date, kind: String(parsed.kind || '') };
   } catch (e) {
-    return null;
+    console.warn('taxDocs OCR error:', e);
+    return { err: e.message || String(e) };
   }
 }
 /* 「この名前で保存」/「そのまま保存」を選ばせる入力モーダル。Promiseで解決し、呼び出し側はawaitで直列化する。
@@ -3026,6 +3041,14 @@ function appvTaxDocsNamePrompt(file, ocr) {
     img.src = objUrl;
     previewWrap.appendChild(img);
     drawer.appendChild(previewWrap);
+
+    // OCRが失敗したときは理由を赤字で表示（原因切り分け用）。成功時は候補が自動プレフィルされる。
+    if (ocr && ocr.err) {
+      const errNote = document.createElement('div');
+      errNote.style.cssText = 'color:var(--err); font-size:12px; margin-bottom:10px;';
+      errNote.textContent = 'AI読取に失敗: ' + ocr.err + '（書類名を手入力してください）';
+      drawer.appendChild(errNote);
+    }
 
     const nameField = document.createElement('div');
     nameField.className = 'tx-field';
@@ -3101,8 +3124,8 @@ async function appvTaxDocsUpload(files) {
       const ext = appvTaxDocsExtOf(file.name);
       let ocr = null;
       try { ocr = await appvTaxDocsRunOcr(file); } catch (e) { ocr = null; }
-      const dict = ocr ? appvTaxDocsDictGet(ocr.vendor) : null;
-      if (ocr && ocr.vendor && dict) {
+      const dict = (ocr && !ocr.err) ? appvTaxDocsDictGet(ocr.vendor) : null;
+      if (ocr && !ocr.err && ocr.vendor && dict) {
         const date = ocr.date || today();
         finalName = dict.base + '_' + date + '.' + ext;
       } else {
