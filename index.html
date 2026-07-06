@@ -493,7 +493,7 @@
 
       <!-- Supabase接続設定 -->
       <div class="card section-gap">
-        <h2>Supabase接続</h2>
+        <h2>Supabase接続 <span id="sbLockBadge" style="font-size:11px;font-weight:700;color:#8a7a3a;background:#F6EEDF;border-radius:10px;padding:2px 9px;vertical-align:middle">🔒 ロック中</span></h2>
         <div class="muted" style="font-size:12.5px;margin-bottom:10px">クラウド保存先のSupabaseプロジェクトURL・公開キー（旧UIと同じ保存先・同じ形式）</div>
         <div style="display:flex;flex-direction:column;gap:8px;max-width:480px">
           <input id="sbUrlV2" class="prov-input" style="width:100%;text-align:left" placeholder="Supabase Project URL" disabled>
@@ -504,7 +504,7 @@
           <button class="btn primary" id="sbSaveBtnV2" style="display:none">保存</button>
           <button class="btn" id="sbCheckBtnV2">接続確認</button>
         </div>
-        <div class="status-row"><span>接続状態</span><span id="sbStatusV2" class="muted">未設定</span></div>
+        <div class="status-row"><span>接続状態</span><span id="sbStatusV2" class="muted">確認中…</span></div>
       </div>
 
       <!-- ユーザー登録（スタッフ追加） -->
