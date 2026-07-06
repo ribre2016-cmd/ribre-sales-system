@@ -96,7 +96,35 @@ window.addEventListener('DOMContentLoaded', () => {
   if (monthInput) monthInput.value = today().slice(0, 7);
   mfCheckMfStatus();
   mfLoadLedger();
+  // 税理士送付ファイル保管庫（新UI 台帳・設定）の「証憑へ」ボタンからの取り込み
+  // /mf-evidence?import=<tax-docsのobjectKey>&n=<表示名> で開くと該当ファイルを取得して通常の取り込みフローへ流す
+  try {
+    const q = new URLSearchParams(location.search);
+    const imp = q.get('import');
+    if (imp) mfImportFromTaxDocs(imp, q.get('n') || '');
+  } catch (e) {}
 });
+
+/* 保管庫(Supabase Storage tax-docsバケット)からファイルを取得し、通常の貼り付けと同じ経路(mfIngestFile)へ流す */
+async function mfImportFromTaxDocs(key, name) {
+  try {
+    const c = (typeof sb === 'function') ? sb() : {};
+    const s = (typeof sess === 'function') ? sess() : {};
+    const tok = s.access_token || (s.session && s.session.access_token) || '';
+    if (!c.url || !c.key || !tok) { mfToast('ログイン情報が見つかりません。ログイン後にもう一度お試しください', 'error'); return; }
+    mfToast('保管庫からファイルを取り込んでいます…');
+    const r = await fetch(c.url.replace(/\/$/, '') + '/storage/v1/object/tax-docs/' + key, {
+      headers: { apikey: c.key, Authorization: 'Bearer ' + tok }
+    });
+    if (!r.ok) { mfToast('保管庫からの読込に失敗しました (HTTP ' + r.status + ')', 'error'); return; }
+    const blob = await r.blob();
+    const fileName = name || key.split('/').pop() || 'evidence';
+    const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
+    await mfIngestFile(file);
+  } catch (e) {
+    mfToast('保管庫からの取り込みに失敗しました: ' + e.message, 'error');
+  }
+}
 
 /* ---------------- プレビュー / フォーム ---------------- */
 

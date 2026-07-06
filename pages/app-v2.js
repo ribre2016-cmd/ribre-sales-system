@@ -3046,11 +3046,22 @@ async function appvRenderTaxDocs() {
     dlBtn.className = 'tax-docs-btn';
     dlBtn.textContent = '⬇DL';
     dlBtn.onclick = () => appvTaxDocsDownload(f.key);
+    opTd.appendChild(dlBtn);
+    // 証憑インボックスが対応する形式(PNG/JPG/PDF)のみ「証憑へ」を出す（二重アップロード不要でMF証憑登録へ流せる）
+    if (/\.(pdf|png|jpe?g)$/i.test(f.key)) {
+      const evBtn = document.createElement('button');
+      evBtn.className = 'tax-docs-btn';
+      evBtn.textContent = '証憑へ';
+      evBtn.title = '証憑インボックスに取り込んでMFへ登録';
+      evBtn.onclick = () => {
+        location.href = '/mf-evidence?from=app&import=' + encodeURIComponent(f.key) + '&n=' + encodeURIComponent(f.name || '');
+      };
+      opTd.appendChild(evBtn);
+    }
     const delBtn = document.createElement('button');
     delBtn.className = 'tax-docs-btn tax-docs-del';
     delBtn.textContent = '削除';
     delBtn.onclick = () => appvTaxDocsDelete(f.key);
-    opTd.appendChild(dlBtn);
     opTd.appendChild(delBtn);
     tr.appendChild(nameTd);
     tr.appendChild(dateTd);
