@@ -307,6 +307,7 @@ table.profit-grid td.pg-editable input{
   padding:1px 3px; font-size:11px;
 }
 table.profit-grid .pg-placeholder{color:#B7BDB6;}
+table.profit-grid td.pg-mei-active{outline:2px solid #3b82f6; outline-offset:-2px;}
 
 /* ===== 粗利グリッドの全幅・圧縮表示（横スクロール無しで12ヶ月+年計を収める） ===== */
 /* 粗利タブ表示中はコンテンツ幅の上限を解除して画面いっぱい使う */

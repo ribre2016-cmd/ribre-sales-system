@@ -1039,6 +1039,7 @@ function appvRenderLedger() {
  * 「売上明細=1件ごとに個別行」「売上チャネル=ヤフオク1〜8・メルカリ・メルカリShops・ラクマ固定＋その他」。
  * 年計列＝当該年度(3月〜翌2月)12ヶ月分の単純合計（旧UIのdataRow/salesRowのtと同一）。 */
 let appvProfitStartYear = null;
+let _appvMeiInfoTd = null; // 明細セルクリックで内訳を表示中のtd（再描画時にリセット）
 /* 旧: smpProfitMonthsPresent（app-simple.js 1759-1764行目）と同一。sales/purchasesに実際に
  * 登場する月(YYYY-MM)の一覧を昇順で返す。 */
 function appvProfitMonthsPresent() {
@@ -1105,6 +1106,10 @@ async function appvRenderProfit() {
   const head = document.getElementById('profitGridHead');
   const body = document.getElementById('profitGridBody');
   if (!head || !body) return;
+  // 再描画で明細セルは作り直されるため、内訳バナー(前回クリック分)を必ずリセットする
+  _appvMeiInfoTd = null;
+  const meiInfoBox = document.getElementById('profitMeiInfo');
+  if (meiInfoBox) meiInfoBox.style.display = 'none';
 
   if (appvProfitStartYear == null) appvProfitStartYear = appvProfitDefaultStartYear();
   const sel = document.getElementById('profitYearSel');
@@ -1258,7 +1263,9 @@ async function appvRenderProfit() {
     return total;
   }
   // 明細グリッド：月ごとのN件目を同じ行に並べる（旧: meiGridRows 2104-2127行目と同一方式）
-  function meiGridRows(entries) {
+  // 金額セルはクリックで内訳（仕入先/販売先・日付）を上部バナーに表示する（旧UIの明細一覧では
+  // 常に隣の列に表示されていたが、月ごとの列を横に並べる都合上ここでは列を割けないため）。
+  function meiGridRows(entries, kindLabel) {
     const byM = {};
     entries.forEach((e) => { (byM[e.mk] = byM[e.mk] || []).push(e); });
     let maxN = 0;
@@ -1281,12 +1288,31 @@ async function appvRenderProfit() {
           const md = dp.length === 3 ? (Number(dp[1]) + '/' + Number(dp[2])) : (e.date || '');
           td.title = (e.name || '') + (md ? ' ' + md : '');
           td.textContent = appvProfitFmt(e.amount);
+          td.style.cursor = 'pointer';
+          td.addEventListener('click', () => appvShowMeiInfo(td, kindLabel, e.name, md, e.amount));
         }
         tr.appendChild(td);
       });
       tr.appendChild(appvProfitTd(rowSum ? appvProfitFmt(rowSum) : '', { className: 'pg-num pg-year' }));
       body.appendChild(tr);
     }
+  }
+  // クリックしたセルの内訳(仕入先/販売先・日付・金額)を上部バナーに表示。同じセルを
+  // 再クリックすると閉じる。表示中セルは枠線でハイライトする。
+  function appvShowMeiInfo(td, kindLabel, name, md, amount) {
+    const box = document.getElementById('profitMeiInfo');
+    if (!box) return;
+    if (_appvMeiInfoTd === td) {
+      box.style.display = 'none';
+      td.classList.remove('pg-mei-active');
+      _appvMeiInfoTd = null;
+      return;
+    }
+    if (_appvMeiInfoTd) _appvMeiInfoTd.classList.remove('pg-mei-active');
+    _appvMeiInfoTd = td;
+    td.classList.add('pg-mei-active');
+    box.style.display = 'block';
+    box.textContent = '🧾 ' + kindLabel + '：' + (name || '（名称なし）') + (md ? '　' + md : '') + '　' + appvProfitFmt(amount) + '円';
   }
   function emptyNote(text) {
     const tr = document.createElement('tr');
@@ -1300,13 +1326,13 @@ async function appvRenderProfit() {
 
   // 仕入（明細）
   sectionRow('仕入（明細）');
-  meiGridRows(d.meiPur);
+  meiGridRows(d.meiPur, '仕入先');
   vendors.forEach((v) => dataRow(v, (mk) => (d.venReal[v] && d.venReal[v][mk]) || 0));
   if (!d.meiPur.length && !vendors.length) emptyNote('仕入データがありません');
   dataRow('仕入 合計', purByM, true);
   // 売上明細（追加分）
   sectionRow('売上明細（追加分）');
-  meiGridRows(d.meiSales);
+  meiGridRows(d.meiSales, '販売先');
   if (!d.meiSales.length) emptyNote('明細はまだありません');
   dataRow('売上明細 合計', meiSaleByM, true);
   // 売上（チャネル別）
