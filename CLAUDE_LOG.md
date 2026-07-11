@@ -22,6 +22,10 @@
 
 **要Supabase SQL実行**: `supabase_mf_currency.sql`（`mf_evidence.ocr_currency`列追加。冪等）
 
+**追記(同日): マッチング日付ウィンドウの拡張（api/mf/_lib/mf-match-core.js）**:
+- ブックオフの実例（購入日と仕訳計上日にズレがある疑い）を受け、クレジットカード購入は「利用日」と「仕訳計上日」が数週間〜1ヶ月以上ずれうるため、`VENDOR_DATE_MARGIN_DAYS`（取引先名+日付マッチ。金額不問・自動添付なし・提案のみ）を7日→**45日**に拡張。`MARGIN_DAYS`（仕訳取得ウィンドウ全体）も45日に合わせて拡張（狭いままだと拡張した45日ぶんの仕訳がそもそも取得されないため）。`FUZZY_MARGIN_DAYS`（完全一致0件時の日付緩和・金額は厳密一致のまま）も3日→14日に拡張。
+- テスト: 領収書日付から30日後に計上された同一取引先の仕訳が、拡張後は候補(ambiguous)として拾われることを確認（拡張前の7日設定では該当なしになっていたケース）。全29assertion（15グループ）でパス。
+
 ## 2026-07-08 セキュリティ修正: MF OAuth保護／Storage RLS所有者照合／削除・同期の誤表示修正／大量削除ガードの追跡保持
 
 **MF OAuth（api/mf/auth/start.js・callback.js・status.js・pages/mf-evidence.js・pages/app-v2.js）**:

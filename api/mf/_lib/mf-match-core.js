@@ -7,10 +7,13 @@ const { getAccessToken, postVoucher, NotConnectedError, MF_ACCOUNTING_API_BASE }
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const MF_STORAGE_BUCKET = 'mf-evidence';
-const MARGIN_DAYS = 7; // 仕訳取得ウィンドウ（取引先マッチの±7日をカバー）
+// クレジットカード購入は「利用日」と「仕訳計上日（カード会社の締め日・支払日基準で
+// 記帳されることがある）」が数週間〜1ヶ月以上ずれることがあるため、日付ウィンドウは
+// 広めに取る（2026-07: ブックオフの実例でズレが疑われたため7日→45日に拡張）。
+const VENDOR_DATE_MARGIN_DAYS = 45; // 取引先名＋日付近接マッチ（外貨建て・計上日ズレ向け。金額不問・自動添付なし）
+const MARGIN_DAYS = VENDOR_DATE_MARGIN_DAYS; // 仕訳取得ウィンドウはVENDOR_DATE_MARGIN_DAYSを包含する必要がある
 const MAX_VOUCHER_FILES_PER_JOURNAL = 5;
-const FUZZY_MARGIN_DAYS = 3;
-const VENDOR_DATE_MARGIN_DAYS = 7; // 取引先名＋日付近接マッチ（外貨建て等の金額不一致向け）
+const FUZZY_MARGIN_DAYS = 14; // 完全一致0件時の日付緩和マッチ（金額は厳密一致のまま）
 
 function supabaseHeaders() {
   return {
