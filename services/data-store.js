@@ -197,7 +197,8 @@
     note('クラウド保存エラー: ' + msg, 'danger');
   }
 
-  async function reconcile(kind) {
+  async function reconcile(kind, opts) {
+    opts = opts || {};
     if (__hydrating || pushing[kind] || !loggedIn()) return { ok: false, reason: 'busy' };
     if (!__hydratedOnce) return { ok: false, reason: 'not-hydrated' }; // クラウド未読込のうちは保存しない（古いローカルでクラウドを上書き/重複させない）
     if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' }; // 別端末にログインされ無効化された端末は保存しない
@@ -209,13 +210,14 @@
       cids.forEach(function (cid) { if (last[cid] !== cur[cid].hash) ups.push(cur[cid].out); });
       var dels = Object.keys(last).filter(function (cid) { return !cur[cid]; });
       // 大量削除ガード：壊れた/部分的/古いローカルキャッシュがクラウドの行を縮小させる事故を防ぐ。
-      // 5件超 かつ 既存の20%超 の一括削除は異常とみなしスキップ（upsertは実施）。意図的な一括削除は seed で対応。
-      var delsSkipped = false;
-      if (dels.length > 5 && dels.length > Object.keys(last).length * 0.2) {
-        note('安全のためクラウドの大量削除(' + dels.length + '件)を中止しました。正しいデータなら「クラウドから最新を取得」で読み直してください。', 'warn');
-        dels = []; delsSkipped = true;
+      // 5件超 かつ 既存の20%超 の一括削除は異常とみなしスキップ（upsertは実施）。
+      // 意図的な一括削除は opts.allowMassDelete=true（保存ボタン側でユーザー承認後に再実行）で通す。
+      var delsSkipped = false, skippedDelCids = [];
+      if (!opts.allowMassDelete && dels.length > 5 && dels.length > Object.keys(last).length * 0.2) {
+        note('安全のためクラウドの大量削除(' + dels.length + '件)を保留しました。意図した削除なら「保存」ボタンから承認できます。', 'warn');
+        skippedDelCids = dels; dels = []; delsSkipped = true;
       }
-      if (!ups.length && !dels.length) return { ok: true, upserted: 0, deleted: 0, delsSkipped: delsSkipped };
+      if (!ups.length && !dels.length && !delsSkipped) return { ok: true, upserted: 0, deleted: 0, delsSkipped: false, pendingDeletes: 0 };
       if (ups.length) for (var i = 0; i < ups.length; i += 500) {
         var r = await upsert(kind, ups.slice(i, i + 500));
         if (!r.ok) { handleErr(r); return { ok: false, status: r.status }; }
@@ -225,10 +227,15 @@
         if (!rd.ok) { handleErr(rd); return { ok: false, status: rd.status }; }
       }
       var fresh = {}; cids.forEach(function (cid) { fresh[cid] = cur[cid].hash; });
+      // 保留した削除は同期基準に残す（消すと追跡が失われ、次回から削除候補にすら挙がらず
+      // hydrateで黙って復活する）。残しておけば次回のreconcileでも削除候補として再検出される。
+      skippedDelCids.forEach(function (cid) { fresh[cid] = last[cid]; });
       synced[kind] = fresh; saveSynced(synced);
       __setupNeeded = false; __authNeeded = false;
-      setStatus('保存OK（クラウド同期）' + (lastSkipped ? '／異常値' + lastSkipped + '件は除外' : ''));
-      return { ok: true, upserted: ups.length, deleted: dels.length, delsSkipped: delsSkipped };
+      setStatus(delsSkipped
+        ? '保存OK（ただし削除' + skippedDelCids.length + '件は安全のため保留中。意図した削除なら「保存」から承認してください）'
+        : '保存OK（クラウド同期）' + (lastSkipped ? '／異常値' + lastSkipped + '件は除外' : ''));
+      return { ok: true, upserted: ups.length, deleted: dels.length, delsSkipped: delsSkipped, pendingDeletes: skippedDelCids.length };
     } catch (e) { note('クラウド保存に失敗: ' + e.message, 'danger'); return { ok: false, error: e.message }; }
     finally { pushing[kind] = false; }
   }
@@ -245,21 +252,24 @@
   //  hydrate前ガードを必ず通すため、replaceCloudWithLocal（無条件の完全置換・
   //  バックアップ復元専用）より安全。呼び出し側が結果を待って表示できるよう
   //  Promiseで返す。
-  async function pushSafe() {
+  async function pushSafe(opts) {
+    opts = opts || {};
     if (!loggedIn()) return { ok: false, reason: 'not-logged-in' };
     if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' };
     if (!__hydratedOnce) return { ok: false, reason: 'not-hydrated' };
     var out = {};
+    var pendingDeletes = 0;
     for (var ki = 0; ki < 2; ki++) {
       var kind = ki === 0 ? 'sales' : 'purchases';
       for (var w = 0; w < 20 && pushing[kind]; w++) { await new Promise(function (r) { setTimeout(r, 200); }); }
-      var r = await reconcile(kind);
+      var r = await reconcile(kind, { allowMassDelete: !!opts.allowMassDelete });
       out[kind] = r;
       if (r && r.ok === false && r.reason !== 'busy') {
         return { ok: false, status: r.status, error: r.error, reason: r.reason, kind: kind, result: out };
       }
+      if (r && r.pendingDeletes) pendingDeletes += r.pendingDeletes;
     }
-    return { ok: true, result: out };
+    return { ok: true, result: out, pendingDeletes: pendingDeletes };
   }
 
   // ---- hydrate: Supabase → キャッシュ（空クラウドでは上書きしない） ----

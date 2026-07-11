@@ -108,6 +108,21 @@
     });
   }
 
+  /* APIモード: 共有トークンを提示して同一オリジンのAPIから短期署名URL付き一覧を受け取る。
+   * リンクを解除された場合は404が返り、その時点で新しいアクセスは止まる。 */
+  async function fetchViaApi(t) {
+    var r = await fetch('/api/mf/evidence-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'tax_share_list', share_token: t }),
+      cache: 'no-store'
+    });
+    if (!r.ok) return null;
+    var d = await r.json().catch(function () { return null; });
+    if (!d || !d.ok || !Array.isArray(d.files)) return null;
+    return { files: d.files };
+  }
+
   async function main() {
     var params;
     try {
@@ -118,27 +133,39 @@
     }
     var u = params.get('u');
     var t = params.get('t');
-    if (!u || !t) {
+    if (!t) {
       showError('リンクが正しくありません');
       return;
     }
-    // uはSupabaseプロジェクトのホスト名のみを許容（余分なプロトコル混入時は除去）
-    var host = String(u).replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    if (!host) {
-      showError('リンクが正しくありません');
-      return;
-    }
-    var manifestUrl = 'https://' + host + '/storage/v1/object/public/tax-share/share/' + encodeURIComponent(t) + '.json';
     try {
-      var r = await fetch(manifestUrl, { cache: 'no-store' });
-      if (!r.ok) {
-        showError('共有が見つかりません（削除された可能性があります）');
+      // 旧形式リンク（u=Supabaseホスト付き）はまず旧マニフェストを見る。
+      // {v:2}ポインタ（APIモードへ移行済み）や取得失敗時はAPIへフォールバックする。
+      if (u) {
+        var host = String(u).replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+        if (host) {
+          var manifestUrl = 'https://' + host + '/storage/v1/object/public/tax-share/share/' + encodeURIComponent(t) + '.json';
+          try {
+            var r = await fetch(manifestUrl, { cache: 'no-store' });
+            if (r.ok) {
+              var manifest = await r.json();
+              if (manifest && manifest.v === 2) {
+                // APIモードへ移行済み（署名URLはその場で発行される）
+              } else if (manifest && Array.isArray(manifest.files)) {
+                render(manifest);
+                return;
+              }
+            }
+          } catch (e) {}
+        }
+      }
+      var data = await fetchViaApi(t);
+      if (!data) {
+        showError('共有が見つかりません（解除された可能性があります）');
         return;
       }
-      var manifest = await r.json();
-      render(manifest);
+      render(data);
     } catch (e) {
-      showError('共有が見つかりません（削除された可能性があります）');
+      showError('共有が見つかりません（解除された可能性があります）');
     }
   }
 

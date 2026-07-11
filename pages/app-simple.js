@@ -821,14 +821,29 @@ async function smpCloudSave(opt) {
   }
   if (!silent) smpAuthStatus('クラウドに保存中...', 'info');
   try {
-    const rr = await window.ribreStore.pushSafe();
+    let rr = await window.ribreStore.pushSafe();
+    // 大量削除ガードで保留された削除がある場合、手動保存（silent=false）なら
+    // ユーザーに件数を示して承認をとり、承認されたときだけ削除込みで再実行する。
+    // 自動保存では黙って保留のまま（誤削除の伝播を防ぐ安全側）。
+    if (rr && rr.ok && rr.pendingDeletes > 0 && !silent) {
+      const approve = confirm(
+        'クラウドから ' + rr.pendingDeletes + ' 件の削除が保留されています。\n\n' +
+        '本当にこの端末に無い ' + rr.pendingDeletes + ' 件をクラウドからも削除しますか？\n' +
+        '（心当たりがない場合は「キャンセル」を押し、「☁ クラウドから最新を取得」で読み直してください）'
+      );
+      if (approve) rr = await window.ribreStore.pushSafe({ allowMassDelete: true });
+    }
     if (rr && rr.ok) {
       const res = rr.result || {};
       const upS = (res.sales && res.sales.upserted) || 0;
       const upP = (res.purchases && res.purchases.upserted) || 0;
       smpMarkSaveComplete();
-      if (!silent) smpAuthStatus('✅ 保存しました（売上' + upS + '・仕入' + upP + '）', 'ok');
-      return { ok: true, sales: upS, purchases: upP };
+      if (!silent) {
+        smpAuthStatus(rr.pendingDeletes > 0
+          ? '✅ 保存しました（売上' + upS + '・仕入' + upP + '）※削除' + rr.pendingDeletes + '件は保留中'
+          : '✅ 保存しました（売上' + upS + '・仕入' + upP + '）', 'ok');
+      }
+      return { ok: true, sales: upS, purchases: upP, pendingDeletes: rr.pendingDeletes || 0 };
     }
     if (rr && (rr.reason === 'session-lost' || rr.status === 401 || rr.status === 403)) {
       smpHandleExpiredSession(silent);

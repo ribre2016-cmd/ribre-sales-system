@@ -131,9 +131,23 @@ function appvCreds() {
     const s = (typeof sess === 'function') ? sess() : {};
     const tok = s.access_token || (s.session && s.session.access_token) || '';
     const em = (typeof email === 'function') ? email() : '';
-    if (c.url && c.key && tok && em) return { url: c.url.replace(/\/$/, ''), key: c.key, tok: tok, em: em };
+    if (c.url && c.key && tok && em) return { url: c.url.replace(/\/$/, ''), key: c.key, tok: tok, em: em, uid: appvUid(s, tok) };
   } catch (e) {}
   return null;
+}
+/* ログイン中ユーザーのSupabase uid。session.userに無ければJWTのsubから取る。
+ * Storageの所有者スコープ付きパス（<uid>/YYYY-MM/...）の生成に使う。 */
+function appvUid(s, tok) {
+  try {
+    const u = (s && (s.user || (s.session && s.session.user))) || null;
+    if (u && u.id) return String(u.id);
+    const seg = String(tok || '').split('.')[1];
+    if (seg) {
+      const payload = JSON.parse(atob(seg.replace(/-/g, '+').replace(/_/g, '/')));
+      if (payload && payload.sub) return String(payload.sub);
+    }
+  } catch (e) {}
+  return '';
 }
 async function appvFetchAppSetting(skey) {
   const cr = appvCreds();
@@ -2925,8 +2939,32 @@ async function appvTaxDocsPullCloud() {
   const changed = JSON.stringify(merged) !== JSON.stringify(local);
   appvTaxDocsIndexSet(merged);
   appvTaxDocsTsSet(Math.max(appvTaxDocsTsGet(), Number(cloud.ts || 0)));
-  if (JSON.stringify(merged) !== JSON.stringify(cloud.data)) { try { await appvTaxDocsPushCloud(); } catch (e) {} }
+  if (JSON.stringify(merged) !== JSON.stringify(cloud.data)) { try { await appvTaxDocsPushTracked(); } catch (e) {} }
   return changed;
+}
+/* ---- インデックスのクラウド同期を結果つきで実行し、失敗を「同期待ち」として記録する ----
+ * Storageへのファイル保存は成功したのに app_settings への一覧同期だけが失敗すると、
+ * 他端末から見えない「孤立ファイル」になる。dirtyフラグに残して次の描画/Pullで自動再試行する。
+ * インデックスはオブジェクトキー単位で管理されるため、再試行しても重複登録は起きない。 */
+const APPV_TAX_DOCS_DIRTY_KEY = 'ribre_tax_docs_dirty_v1';
+function appvTaxDocsSyncPending() { try { return !!localStorage.getItem(APPV_TAX_DOCS_DIRTY_KEY); } catch (e) { return false; } }
+async function appvTaxDocsPushTracked() {
+  const r = await appvTaxDocsPushCloud();
+  try {
+    if (r && r.ok) localStorage.removeItem(APPV_TAX_DOCS_DIRTY_KEY);
+    else localStorage.setItem(APPV_TAX_DOCS_DIRTY_KEY, String(Date.now()));
+  } catch (e) {}
+  return r;
+}
+/* 同期待ちが残っていれば再試行する（appvRenderTaxDocsから毎回呼ばれる） */
+async function appvTaxDocsSyncRetry() {
+  if (!appvTaxDocsSyncPending()) return;
+  const cr = appvCreds(); if (!cr) return;
+  const r = await appvTaxDocsPushTracked();
+  if (r && r.ok) {
+    const st = document.getElementById('taxDocsStatus');
+    if (st) st.textContent = '✅ 保留していたクラウド同期が完了しました';
+  }
 }
 /* 元ファイル名から拡張子（小文字英数字のみ）を抽出。無ければ'bin'。 */
 function appvTaxDocsExtOf(fileName) {
@@ -2938,7 +2976,18 @@ function appvTaxDocsRandKey() {
   return Math.random().toString(36).slice(2, 6);
 }
 function appvTaxDocsBuildKey(month, fileName) {
-  return month + '/' + Date.now() + '_' + appvTaxDocsRandKey() + '.' + appvTaxDocsExtOf(fileName);
+  // 新規アップロードは <uid>/YYYY-MM/... （RLSがパス先頭のuidで所有者照合する）。
+  // 旧形式 YYYY-MM/... のファイルは owner 列の照合でこれまで通り扱える。
+  const cr = appvCreds();
+  const prefix = (cr && cr.uid) ? (cr.uid + '/') : '';
+  return prefix + month + '/' + Date.now() + '_' + appvTaxDocsRandKey() + '.' + appvTaxDocsExtOf(fileName);
+}
+/* オブジェクトキーから月(YYYY-MM)を取り出す（新形式 <uid>/YYYY-MM/... と旧形式 YYYY-MM/... の両対応） */
+function appvTaxDocsMonthOfKey(key) {
+  const segs = String(key || '').split('/');
+  if (/^\d{4}-\d{2}$/.test(segs[0])) return segs[0];
+  if (segs.length > 1 && /^\d{4}-\d{2}$/.test(segs[1])) return segs[1];
+  return '';
 }
 function appvTaxDocsFmtSize(bytes) {
   const n = Number(bytes) || 0;
@@ -3180,9 +3229,16 @@ async function appvTaxDocsUpload(files) {
       ngCount++;
     }
   }
-  try { await appvTaxDocsPushCloud(); } catch (e) {}
+  // インデックスのクラウド同期結果を必ず評価する（Storage保存成功＋同期失敗は
+  // 「他端末から見えない孤立ファイル」になるため、同期待ちとして区別して表示・記録する）
+  let pushOk = true;
+  if (okCount) {
+    const pr = await appvTaxDocsPushTracked().catch(() => ({ ok: false }));
+    pushOk = !!(pr && pr.ok);
+  }
   // 1件のみ保存できた場合は確定したファイル名をトーストに含める（自動/手動リネーム後の名前を確認できるように）
-  const okMsg = okCount ? (okCount === 1 ? '「' + lastSavedName + '」を保存しました' : okCount + '件アップロードしました') : 'アップロードに失敗しました';
+  let okMsg = okCount ? (okCount === 1 ? '「' + lastSavedName + '」を保存しました' : okCount + '件アップロードしました') : 'アップロードに失敗しました';
+  if (okCount && !pushOk) okMsg += '（クラウド同期は失敗：この端末には保存済み。あとで自動再試行します）';
   if (statusEl) statusEl.textContent = okMsg + (ngCount ? '（' + ngCount + '件失敗）' : '');
   appvToast(okMsg);
   appvRenderTaxDocs();
@@ -3225,7 +3281,7 @@ async function appvTaxDocsRename(key) {
   if (!trimmed || trimmed === meta.name) return;
   idx.files[key] = Object.assign({}, meta, { name: trimmed, ts: Date.now() });
   appvTaxDocsIndexSet(idx);
-  try { await appvTaxDocsPushCloud(); } catch (e) {}
+  try { await appvTaxDocsPushTracked(); } catch (e) {}
   if (appvTaxShareUrl()) { appvTaxShareUpdate(true); }
   appvRenderTaxDocs();
 }
@@ -3235,20 +3291,34 @@ async function appvTaxDocsDelete(key) {
   const idx = appvTaxDocsIndexGet();
   const meta = idx.files && idx.files[key];
   if (!confirm('「' + ((meta && meta.name) || key) + '」を削除しますか？')) return;
+  // Storage削除の結果を必ず確認する。403/401/5xxで「削除しました」と表示すると、
+  // 実ファイルが残ったままインデックスだけ消えて取り出せなくなる。
+  // 404（既に無い）だけは削除済みとして扱ってよい。
+  let delOk = false, delWhy = '';
   try {
-    await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_DOCS_BUCKET + '/' + key, {
+    const r = await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_DOCS_BUCKET + '/' + key, {
       method: 'DELETE',
       headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok }
     });
-    // Storage削除が404でもインデックスは削除扱いにしてよい
-  } catch (e) {}
+    if (r.ok || r.status === 404) delOk = true;
+    else delWhy = (r.status === 401 || r.status === 403) ? '権限がありません（HTTP ' + r.status + '）。再ログインしてください' : 'HTTP ' + r.status;
+  } catch (e) {
+    delWhy = '通信エラー: ' + e.message;
+  }
+  if (!delOk) {
+    appvToast('削除に失敗しました: ' + delWhy);
+    return; // インデックスは変更しない
+  }
   idx.files = idx.files || {};
   idx.files[key] = Object.assign({}, meta, { del: Date.now() });
   appvTaxDocsIndexSet(idx);
-  try { await appvTaxDocsPushCloud(); } catch (e) {}
-  appvToast('削除しました');
+  const pr = await appvTaxDocsPushTracked().catch(() => ({ ok: false }));
+  appvToast((pr && pr.ok) ? '削除しました' : '削除しました（クラウド同期は失敗：あとで自動再試行します）');
   appvRenderTaxDocs();
-  if (appvTaxShareUrl()) { appvTaxShareUpdate(true); }
+  if (appvTaxShareUrl()) {
+    const sr = await appvTaxShareUpdate(true);
+    if (!(sr && sr.ok)) appvToast('共有ページの更新に失敗しました。共有セクションの「更新」を押してください');
+  }
 }
 let appvTaxDocsPulledOnce = false;
 /* 台帳・設定ページの「税理士送付ファイル」カードを描画する。初回のみクラウドをPullし、以後はローカルのインデックスを表示する。 */
@@ -3270,6 +3340,8 @@ async function appvRenderTaxDocs() {
     appvTaxDocsPulledOnce = true;
     try { await appvTaxDocsPullCloud(); } catch (e) {}
   }
+  // 前回失敗したインデックス同期が残っていれば再試行（孤立ファイルの自動回復）
+  try { appvTaxDocsSyncRetry(); } catch (e) {}
 
   const monthEl = document.getElementById('taxDocsMonth');
   if (monthEl && !monthEl.value) monthEl.value = appvCurrentMonth();
@@ -3282,7 +3354,7 @@ async function appvRenderTaxDocs() {
   const rows = Object.keys(files)
     .map((key) => Object.assign({ key: key }, files[key]))
     .filter((f) => !f.del)
-    .filter((f) => showAll || f.key.indexOf(month + '/') === 0)
+    .filter((f) => showAll || appvTaxDocsMonthOfKey(f.key) === month)
     .sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
 
   appvClear(listEl);
@@ -3364,33 +3436,24 @@ function appvTaxShareRandToken() {
     return s;
   }
 }
-/* 現在の共有URLを返す。token未作成ならnull。 */
+/* 現在の共有URLを返す。token未作成ならnull。
+ * 2026-07以降の共有はAPI方式（#t=<token> のみ。公開ページが /api/mf/evidence-action の
+ * tax_share_list へトークンを提示し、24時間の署名URLをその場で受け取る）。
+ * 旧形式リンク（#u=<host>&t=<token>）も tax-share.js 側で互換対応する。 */
 function appvTaxShareUrl() {
   const cr = appvCreds();
   if (!cr) return null;
   const idx = appvTaxDocsIndexGet();
   const token = idx.share && idx.share.token;
   if (!token) return null;
-  const host = String(cr.url || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
-  return location.origin + '/tax-share#u=' + encodeURIComponent(host) + '&t=' + encodeURIComponent(token);
+  return location.origin + '/tax-share#t=' + encodeURIComponent(token);
 }
-/* 1ファイル分の署名付きURL（1年間有効）を生成し、ダウンロード時ファイル名に月プレフィックスを付けて返す。失敗時はnull。 */
-async function appvTaxShareSignOne(cr, key, month, name) {
-  try {
-    const r = await fetch(cr.url + '/storage/v1/object/sign/' + APPV_TAX_DOCS_BUCKET + '/' + key, {
-      method: 'POST',
-      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expiresIn: 31536000 })
-    });
-    if (!r.ok) return null;
-    const data = await r.json();
-    if (!data || !data.signedURL) return null;
-    const dlName = month + '_' + (name || key);
-    return cr.url + '/storage/v1' + data.signedURL + '&download=' + encodeURIComponent(dlName);
-  } catch (e) { return null; }
-}
-/* 共有マニフェストを作り直して tax-share バケットへupsertする。token未作成なら生成して保存。
- * silent=falseなら完了時にappvToastで通知する。fire-and-forgetで呼ばれることが多い。 */
+/* 共有情報を最新化する。
+ * - token未作成なら生成してクラウドへ同期（APIがapp_settingsのインデックスを参照するため、
+ *   同期成功が共有ページの表示条件になる）。
+ * - 旧方式で配布済みのマニフェスト share/<token>.json が残っている場合は
+ *   「APIモードへ誘導するポインタ({v:2})」で上書きし、1年有効の旧署名URL一覧を廃止する。
+ *   （新規tokenのマニフェストは作らない。RLS上も新規作成は share/<uid>/ 配下のみ） */
 async function appvTaxShareUpdate(silent) {
   const cr = appvCreds();
   if (!cr) { if (!silent) appvToast('ログインすると使えます'); return { ok: false, reason: 'no-login' }; }
@@ -3401,32 +3464,19 @@ async function appvTaxShareUpdate(silent) {
       token = appvTaxShareRandToken();
       idx.share = { token: token, ts: Date.now() };
       appvTaxDocsIndexSet(idx);
-      try { await appvTaxDocsPushCloud(); } catch (e) {}
-      idx = appvTaxDocsIndexGet();
     }
-    const files = (idx && idx.files && typeof idx.files === 'object') ? idx.files : {};
-    const rows = Object.keys(files)
-      .map((key) => Object.assign({ key: key }, files[key]))
-      .filter((f) => !f.del)
-      .sort((a, b) => {
-        const ma = a.key.slice(0, 7), mb = b.key.slice(0, 7);
-        if (ma !== mb) return ma < mb ? 1 : -1;
-        return (Number(b.ts) || 0) - (Number(a.ts) || 0);
+    // APIはapp_settings上のインデックスを見るため、クラウド同期の成否が実質「共有の更新」
+    const pr = await appvTaxDocsPushTracked();
+    if (!(pr && pr.ok)) throw new Error('クラウド同期に失敗しました（HTTP ' + ((pr && pr.status) || '?') + '）');
+    // 旧方式マニフェストが配布済みならAPIモードポインタで上書き（既存リンクを壊さず短期URL化）。
+    // 旧マニフェストが存在しない（＝新方式のみの）場合、このPOSTはRLSで拒否されるが問題ない。
+    try {
+      await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_SHARE_BUCKET + '/share/' + token + '.json', {
+        method: 'POST',
+        headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', 'x-upsert': 'true' },
+        body: JSON.stringify({ v: 2, api: true, updatedAt: Date.now() })
       });
-    const manifestFiles = [];
-    for (let i = 0; i < rows.length; i++) {
-      const f = rows[i];
-      const month = f.key.slice(0, 7);
-      const url = await appvTaxShareSignOne(cr, f.key, month, f.name);
-      if (url) manifestFiles.push({ name: f.name || f.key, size: f.size || 0, ts: f.ts || 0, month: month, url: url });
-    }
-    const manifest = { v: 1, updatedAt: Date.now(), files: manifestFiles };
-    const r = await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_SHARE_BUCKET + '/share/' + token + '.json', {
-      method: 'POST',
-      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok, 'Content-Type': 'application/json', 'x-upsert': 'true' },
-      body: JSON.stringify(manifest)
-    });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    } catch (e) {}
     if (!silent) appvToast('共有ページを更新しました');
     appvRenderTaxShare();
     return { ok: true };
@@ -3435,11 +3485,13 @@ async function appvTaxShareUpdate(silent) {
     return { ok: false, reason: e.message };
   }
 }
-/* 共有を解除する。マニフェストを削除し、shareを墓標化（token:null）して以後の自動更新を止める。 */
+/* 共有を解除する。旧マニフェストを削除し、shareを墓標化（token:null）してAPIの署名発行も止める。
+ * 注意: 税理士がすでに開いてブラウザに取得済みのダウンロードURLは、その署名の有効期限
+ * （新方式=最長24時間、旧方式で過去に発行した分=最長1年）までは使えてしまう。 */
 async function appvTaxShareRevoke() {
   const cr = appvCreds();
   if (!cr) { appvToast('ログインすると使えます'); return; }
-  if (!confirm('共有リンクを解除しますか？（既存のURLは無効になります）')) return;
+  if (!confirm('共有リンクを解除しますか？\n\n・共有ページは開けなくなります（新しいアクセスは即時停止）\n・相手がすでに取得済みのダウンロードURLは、有効期限（最長24時間。以前の方式で発行済みの分は最長1年）まで残ります')) return;
   const idx = appvTaxDocsIndexGet();
   const token = idx.share && idx.share.token;
   if (token) {
@@ -3452,8 +3504,10 @@ async function appvTaxShareRevoke() {
   }
   idx.share = { token: null, ts: Date.now() };
   appvTaxDocsIndexSet(idx);
-  try { await appvTaxDocsPushCloud(); } catch (e) {}
-  appvToast('共有を解除しました');
+  // 墓標のクラウド同期が完了して初めてAPIの署名発行が止まる。失敗したら明示する。
+  const pr = await appvTaxDocsPushTracked().catch(() => ({ ok: false }));
+  if (pr && pr.ok) appvToast('共有を解除しました（新しいアクセスは停止しました）');
+  else appvToast('⚠ 解除をクラウドへ反映できませんでした。通信を確認して、もう一度解除を押してください');
   appvRenderTaxShare();
 }
 /* #taxDocsCard内の共有セクション(#taxShareSec)を描画する。未作成ならボタンのみ、作成済みならURL+コピー/更新/解除。 */
@@ -5230,7 +5284,10 @@ async function appvRenderMfConnStatus() {
   const el = document.getElementById('statusMfConn');
   if (!el) return;
   try {
-    const r = await fetch('/api/mf/status');
+    const cr = appvCreds();
+    const r = await fetch('/api/mf/status', {
+      headers: { Authorization: 'Bearer ' + ((cr && cr.tok) || '') }
+    });
     if (!r.ok) { el.textContent = '確認失敗'; el.className = 'badge warn'; return; }
     const d = await r.json();
     if (d && d.connected) { el.textContent = '接続済み'; el.className = 'badge ok'; }

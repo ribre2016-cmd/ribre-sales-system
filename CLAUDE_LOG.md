@@ -3,6 +3,30 @@
 このファイルは、Claude（AIアシスタント）がこのプロジェクトに加えた変更の記録です。
 新しい変更は上に追記します。
 
+## 2026-07-08 セキュリティ修正: MF OAuth保護／Storage RLS所有者照合／削除・同期の誤表示修正／大量削除ガードの追跡保持
+
+**MF OAuth（api/mf/auth/start.js・callback.js・status.js・pages/mf-evidence.js・pages/app-v2.js）**:
+- start: GET限定＋ログイン必須（verifySupabaseToken）。任意の`MF_ADMIN_EMAILS`（カンマ区切り）で管理者限定可。stateはHMAC署名付き（鍵=MF_CLIENT_SECRET・有効10分・crypto.randomBytes）で、HttpOnly/Secure/SameSite=Lax Cookie（Path=/api/mf/auth）にも保存。
+- callback: GET限定。Cookie一致＋HMAC＋期限をtimingSafeEqualで検証し、不正stateではトークン交換・保存を行わない（`mf_error=state_invalid`）。Cookieは成功・失敗どちらでも削除。
+- status: GET限定＋ログイン必須。フロント2箇所（mf-evidence.js/app-v2.js）にAuthorizationヘッダー付与。
+
+**Storage RLS（supabase_tax_docs.sql・supabase_tax_share.sql — 要Supabase SQL Editor実行）**:
+- 共有Supabaseプロジェクト（SELKURA等が同居）のため「authenticated全開放」は他アプリのユーザーが税務書類を読める・消せる状態だった。`owner = auth.uid()` OR パス先頭`= auth.uid()` の所有者照合に変更。既存ファイルはStorageのowner列で互換（移行不要）。新規アップロードは `<uid>/YYYY-MM/...` パス（appvTaxDocsBuildKey）。tax-shareのマニフェストupdate/deleteも所有者限定。
+
+**税理士共有の再設計（pages/app-v2.js・pages/tax-share.js・api/mf/evidence-action.js）**:
+- 1年有効の署名URL一覧をマニフェストに置く方式を廃止。公開ページは `/api/mf/evidence-action` の `action='tax_share_list'`（ログイン不要・共有トークン照合・インデックスにあるキーのみ）から**24時間**署名URLをその場で受け取る。共有解除（token墓標化のクラウド同期）で新規アクセスは即停止。旧リンク（#u=&t=）は旧マニフェスト→v2ポインタ→API の順にフォールバックし互換維持。解除ダイアログに「取得済みURLは期限まで残る」旨を明記。
+
+**削除・同期の誤表示（pages/app-v2.js）**:
+- appvTaxDocsDelete: Storage DELETEの結果を確認（okまたは404のみ削除扱い。401/403/5xx/通信例外ではインデックス変更せず具体的エラー表示）。
+- appvTaxDocsUpload/Rename/Delete: インデックスのクラウド同期を`appvTaxDocsPushTracked`で評価。失敗時は`ribre_tax_docs_dirty_v1`に記録し「クラウド同期は失敗：あとで自動再試行します」を表示、描画時（appvRenderTaxDocs→appvTaxDocsSyncRetry）に自動再試行。キー単位のインデックスのため再試行で重複しない。
+
+**大量削除ガード（services/data-store.js・pages/app-simple.js）**:
+- reconcile: ガードでスキップした削除のclient_idを同期基準（ribre_store_synced_v1）に残す＝次回も削除候補として再検出される（従来は基準から消えて追跡が失われ、hydrateで復活していた）。ステータスは「保存OK（ただし削除N件は保留中）」と明示。
+- pushSafe({allowMassDelete})を追加し、手動保存（legacy.htmlの💾）でpendingDeletes>0のとき件数つきconfirmで承認→削除込み再実行。自動保存は常に保留のまま（安全側）。
+- 既知の限界: 承認前にhydrateすると削除対象がローカルに復活する（クラウド優先の既存設計。恒久対策はtombstone化が必要）。
+
+**テスト**: APIハンドラ14グループ（Node・fetchスタブ）＋ブラウザ検証（403削除・同期失敗・dirty再試行・ガード保留→承認削除・1件追加/削除回帰・共有更新/解除・新旧リンク互換）全パス。全JS `node --check` OK。主要HTML6枚 200・コンソールエラーなし。
+
 ## 2026-07-03 Phase3: ±3日緩和マッチ／証憑カバー率メーター／月次Slackレポート
 
 **追加ファイル**:

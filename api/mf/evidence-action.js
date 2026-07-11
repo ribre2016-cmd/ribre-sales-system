@@ -151,15 +151,71 @@ async function handleDelete(res, evidence) {
   }
 }
 
+/* ---- 税理士向け共有: トークン検証つき短期署名URL発行（ログイン不要） ----
+ * tax-share.html（税理士・未ログイン）が共有トークンを提示して呼ぶ。
+ * app_settings(skey='tax_docs_index') の share.token と照合し、一致した
+ * ユーザーのファイル一覧に対して24時間の署名URLをその場で発行して返す。
+ * - トークンは128bit乱数（推測不可）。不一致・解除済み(token:null)なら404。
+ * - 署名対象はそのユーザーのインデックスにあるキーのみ（任意ファイルへの署名は不可）。
+ * - 共有解除（トークン墓標化）後は即座に新規アクセスが止まる。 */
+const TAX_SHARE_SIGN_EXPIRES_SEC = 24 * 3600;
+
+async function handleTaxShareList(res, shareToken) {
+  const token = String(shareToken || '');
+  if (!/^[a-f0-9]{16,64}$/.test(token)) {
+    res.status(400).json({ ok: false, error: 'invalid_token' });
+    return;
+  }
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/app_settings?skey=eq.tax_docs_index&select=user_email,value&limit=50`,
+      { headers: supabaseHeaders() }
+    );
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const rows = await r.json();
+    const hit = (Array.isArray(rows) ? rows : []).find((row) => {
+      const share = row && row.value && row.value.data && row.value.data.share;
+      return share && share.token === token;
+    });
+    if (!hit) {
+      res.status(404).json({ ok: false, error: 'share_not_found' });
+      return;
+    }
+    const files = (hit.value.data.files && typeof hit.value.data.files === 'object') ? hit.value.data.files : {};
+    const keys = Object.keys(files).filter((k) => !files[k].del);
+    const out = [];
+    for (const key of keys) {
+      const meta = files[key] || {};
+      // 月はキーから取得（新形式 <uid>/YYYY-MM/... と旧形式 YYYY-MM/... の両対応）
+      const segs = key.split('/');
+      const month = /^\d{4}-\d{2}$/.test(segs[0]) ? segs[0] : (segs[1] || '');
+      const signRes = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/tax-docs/${key}`, {
+        method: 'POST',
+        headers: supabaseHeaders(),
+        body: JSON.stringify({ expiresIn: TAX_SHARE_SIGN_EXPIRES_SEC }),
+      });
+      if (!signRes.ok) continue;
+      const signData = await signRes.json().catch(() => null);
+      if (!signData || !signData.signedURL) continue;
+      const dlName = month + '_' + (meta.name || key);
+      out.push({
+        name: meta.name || key,
+        size: meta.size || 0,
+        ts: meta.ts || 0,
+        month,
+        url: `${SUPABASE_URL}/storage/v1${signData.signedURL}&download=${encodeURIComponent(dlName)}`,
+      });
+    }
+    out.sort((a, b) => (a.month !== b.month ? (a.month < b.month ? 1 : -1) : (b.ts || 0) - (a.ts || 0)));
+    res.status(200).json({ ok: true, v: 2, expiresInSec: TAX_SHARE_SIGN_EXPIRES_SEC, files: out });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'share_list_failed' });
+  }
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, error: 'method_not_allowed' });
-    return;
-  }
-
-  const user = await verifySupabaseToken(req);
-  if (!user) {
-    res.status(401).json({ ok: false, error: 'unauthorized' });
     return;
   }
 
@@ -168,6 +224,18 @@ module.exports = async (req, res) => {
     body = await readJsonBody(req);
   } catch (e) {
     res.status(400).json({ ok: false, error: 'invalid_json' });
+    return;
+  }
+
+  // 共有一覧はトークン自体が認可情報（ログイン不要）。先に処理する。
+  if (body && body.action === 'tax_share_list') {
+    await handleTaxShareList(res, body.share_token);
+    return;
+  }
+
+  const user = await verifySupabaseToken(req);
+  if (!user) {
+    res.status(401).json({ ok: false, error: 'unauthorized' });
     return;
   }
 

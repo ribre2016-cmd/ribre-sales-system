@@ -771,7 +771,9 @@ async function mfCheckMfStatus() {
   const label = document.getElementById('mfConnLabel');
   const btn = document.getElementById('mfConnBtn');
   try {
-    const res = await fetch('/api/mf/status');
+    const res = await fetch('/api/mf/status', {
+      headers: { Authorization: 'Bearer ' + (sess().access_token || '') }
+    });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     if (d && d.connected) {
@@ -789,8 +791,11 @@ async function mfCheckMfStatus() {
 
 async function mfConnect() {
   try {
-    const res = await fetch('/api/mf/auth/start');
+    const res = await fetch('/api/mf/auth/start', {
+      headers: { Authorization: 'Bearer ' + (sess().access_token || '') }
+    });
     const d = await res.json().catch(() => ({}));
+    if (res.status === 401) throw new Error('ログインし直してください');
     if (!res.ok || !d.url) throw new Error('接続開始に失敗しました');
     location.href = d.url;
   } catch (e) {
