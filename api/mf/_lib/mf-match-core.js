@@ -168,9 +168,18 @@ function journalPassesCommonFilters(j, evidence) {
   return true;
 }
 
+// 証憑の通貨が円かどうか（列が無い/空の既存データはJPY扱いにする＝後方互換）
+function isJpyEvidence(evidence) {
+  const c = evidence && evidence.ocr_currency;
+  return !c || c === 'JPY';
+}
+
 // 証憑1件に対する候補仕訳を絞り込む（完全一致）
 // 条件: transaction_date一致 かつ 金額一致。5件以上添付済み、または既にこの証憑を含む仕訳は除外。
+// 外貨建て（ocr_currency!=='JPY'）は金額が円と比較不能なため対象外
+// （findVendorDateCandidatesの取引先名+日付マッチに委ねる）。
 function findCandidates(journals, evidence) {
+  if (!isJpyEvidence(evidence)) return [];
   const dateStr = evidence.ocr_date;
   const amount = Number(evidence.ocr_amount);
   if (!dateStr || !Number.isFinite(amount)) return [];
@@ -182,8 +191,9 @@ function findCandidates(journals, evidence) {
 }
 
 // 完全一致が0件のときのみ使う緩和マッチ。ocr_dateの前後3日以内で金額一致の仕訳を探す。
-// 自動添付はしない（呼び出し側でambiguous扱いにすること）。
+// 自動添付はしない（呼び出し側でambiguous扱いにすること）。外貨建ては対象外（findCandidates同様）。
 function findFuzzyCandidates(journals, evidence) {
+  if (!isJpyEvidence(evidence)) return [];
   const dateStr = evidence.ocr_date;
   const amount = Number(evidence.ocr_amount);
   if (!dateStr || !Number.isFinite(amount)) return [];
@@ -272,6 +282,15 @@ async function runAutoMatch(accessToken) {
       skippedNoStorage.push(evidence.id);
       continue;
     }
+    // 「該当なし」の原因を後で画面表示できるよう、証憑側の情報を持たせておく
+    const evidenceInfo = () => ({
+      evidence_id: evidence.id,
+      file_name: evidence.file_name,
+      ocr_date: evidence.ocr_date,
+      ocr_amount: evidence.ocr_amount,
+      ocr_currency: evidence.ocr_currency || 'JPY',
+      ocr_vendor: evidence.ocr_vendor,
+    });
     const candidates = findCandidates(journals, evidence);
     if (candidates.length === 1) {
       try {
@@ -280,7 +299,7 @@ async function runAutoMatch(accessToken) {
         // 添付した仕訳は同一実行内で他の証憑候補から除外されるよう voucher_file_ids を仮更新
         candidates[0].voucher_file_ids = (candidates[0].voucher_file_ids || []).concat(['__attached_this_run__']);
       } catch (e) {
-        unmatched.push(evidence.id);
+        unmatched.push(Object.assign(evidenceInfo(), { reason: 'attach_failed' }));
       }
     } else if (candidates.length > 1) {
       // 摘要第二キー: ocr_vendorで1件に絞れるか試す
@@ -291,7 +310,7 @@ async function runAutoMatch(accessToken) {
           attached.push({ evidence_id: evidence.id, journal_id: vendorMatch.id, via: 'vendor' });
           vendorMatch.voucher_file_ids = (vendorMatch.voucher_file_ids || []).concat(['__attached_this_run__']);
         } catch (e) {
-          unmatched.push(evidence.id);
+          unmatched.push(Object.assign(evidenceInfo(), { reason: 'attach_failed' }));
         }
       } else {
         ambiguous.push({
@@ -322,7 +341,24 @@ async function runAutoMatch(accessToken) {
             candidates: vendorCandidates.map((j) => journalSummary(j, true)),
           });
         } else {
-          unmatched.push(evidence.id);
+          // 3段すべて空振り。日付±7日で仕訳自体は取得しているので、
+          // 「範囲内に仕訳が1件もない」のか「あるが日付/金額/取引先名が
+          // どれも合わない」のかを判別できるよう理由を分けておく。
+          const windowStart = addDays(evidence.ocr_date || startDate, -VENDOR_DATE_MARGIN_DAYS);
+          const windowEnd = addDays(evidence.ocr_date || endDate, VENDOR_DATE_MARGIN_DAYS);
+          const anyInWindow = journals.some((j) => j.transaction_date >= windowStart && j.transaction_date <= windowEnd);
+          unmatched.push(
+            Object.assign(evidenceInfo(), {
+              reason: !evidence.ocr_date
+                ? 'no_ocr_date'
+                : !anyInWindow
+                ? 'no_journal_in_window'
+                : !evidence.ocr_vendor
+                ? 'no_ocr_vendor'
+                : 'no_candidates',
+              search_window: windowStart + '〜' + windowEnd,
+            })
+          );
         }
       }
     }

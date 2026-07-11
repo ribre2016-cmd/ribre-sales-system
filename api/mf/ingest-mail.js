@@ -25,10 +25,18 @@ function buildOcrPrompt() {
   const todayStr = new Date().toISOString().slice(0, 10);
   return (
     'あなたは日本の証憑OCRです。必ずJSONのみ返してください。説明文は禁止。推測は禁止。存在しない値は null。' +
-    '出力schemaは次のみ: {"date":"","amount":0,"storeName":""}。' +
+    '出力schemaは次のみ: {"date":"","amount":0,"currency":"JPY","storeName":""}。' +
     'dateは西暦YYYY-MM-DD形式。年が2桁表記(例: 26.7.3、26/07/03)の場合は「20」を付けて2026年のように解釈する（平成・昭和とみなさない）。' +
-    '「令和」「平成」の元号表記が明記されている場合のみ和暦として西暦に変換する。参考: 今日は' + todayStr + '。'
+    '「令和」「平成」の元号表記が明記されている場合のみ和暦として西暦に変換する。参考: 今日は' + todayStr + '。' +
+    'amountは証憑に印字された数値をそのまま返す（円換算・為替換算は絶対にしない）。' +
+    'currencyはamountの通貨をISO4217の3文字コードで返す（日本円/¥/円 表記はJPY、$やUSD表記はUSD、EUR表記はEURなど）。' +
+    '通貨表記が無く判別できない場合はJPYとする。'
   );
+}
+// currencyは未知値・空値ならJPY扱いにする（3文字の英字コード以外は信用しない）
+function sanitizeCurrency(cur) {
+  const c = String(cur || '').trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(c) ? c : 'JPY';
 }
 
 // あり得ない年（大昔・未来）は誤読とみなしてnullにする（2桁年の元号誤解釈など）
@@ -123,6 +131,36 @@ async function findByContentHash(contentHash) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
+// 取引先名の緩い正規化（重複判定専用）: NFKC正規化・小文字化・空白/句読点除去
+function normalizeVendorForDup(v) {
+  return String(v || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s　,、.．]+/g, '');
+}
+
+// 内容ハッシュが不一致でも「同じ請求」の重複を検知する（Anthropic等が承認用に
+// 内容同一・バイト列だけ違うPDFを複数通送ってくるケース向け）。
+// 直近24時間以内に、同じ取引日・同じ金額・同じ通貨・取引先名が一致する行が
+// 既にあれば重複とみなす。取引先名が読めた場合のみ判定する（誤爆防止）。
+async function findRecentSemanticDup({ date, amount, currency, vendor }) {
+  const vendorNorm = normalizeVendorForDup(vendor);
+  if (!date || !Number.isFinite(amount) || !vendorNorm) return null;
+  const sinceIso = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const url =
+    `${SUPABASE_URL}/rest/v1/mf_evidence?ocr_date=eq.${encodeURIComponent(date)}` +
+    `&ocr_amount=eq.${amount}&created_at=gte.${encodeURIComponent(sinceIso)}` +
+    `&select=id,ocr_vendor,ocr_currency&order=created_at.desc&limit=20`;
+  const res = await fetch(url, { headers: supabaseHeaders() });
+  if (!res.ok) return null;
+  const rows = await res.json();
+  const curNorm = currency || 'JPY';
+  const hit = (Array.isArray(rows) ? rows : []).find(
+    (r) => String(r.ocr_currency || 'JPY') === curNorm && normalizeVendorForDup(r.ocr_vendor) === vendorNorm
+  );
+  return hit || null;
+}
+
 // OpenAI Files APIへアップロードしてfile_idを取得する（PDF用）
 async function uploadOpenAiFile({ decodedBytes, fileName, contentType }) {
   const fd = new FormData();
@@ -162,7 +200,7 @@ function extractOcrJson(text) {
 // 画像はinput_image(dataURL)、PDFはFiles APIアップロード後にinput_file(file_id)
 // OCR失敗はエラーにせず {date:null, amount:null, storeName:null} を返して続行する
 async function runOcr({ decodedBytes, contentType, fileName }) {
-  const fallback = { date: null, amount: null, storeName: null };
+  const fallback = { date: null, amount: null, currency: 'JPY', storeName: null };
   if (!OPENAI_API_KEY) return fallback;
 
   try {
@@ -206,6 +244,7 @@ async function runOcr({ decodedBytes, contentType, fileName }) {
     return {
       date: sanitizeOcrDate(parsed.date),
       amount: parsed.amount || null,
+      currency: sanitizeCurrency(parsed.currency),
       storeName: parsed.storeName || null,
     };
   } catch (e) {
@@ -213,12 +252,14 @@ async function runOcr({ decodedBytes, contentType, fileName }) {
   }
 }
 
-// OCR成功時は "YYYYMMDD_取引先_金額.拡張子"、失敗時は元file_nameを使う（拡張子は元ファイルから保持）
-function buildFileName({ date, amount, storeName, originalFileName }) {
+// OCR成功時は "YYYYMMDD_取引先_金額[通貨].拡張子"、失敗時は元file_nameを使う（拡張子は元ファイルから保持）。
+// 通貨がJPY以外のときはファイル名にも通貨を付け、金額を円と見誤らないようにする。
+function buildFileName({ date, amount, currency, storeName, originalFileName }) {
   if (!date && !amount && !storeName) return originalFileName;
   const d = String(date || '').replace(/-/g, '') || 'unknown';
   const v = String(storeName || '取引先未設定').replace(/[\\/:*?"<>|]/g, '');
-  const a = amount ? String(amount) : '0';
+  const cur = currency && currency !== 'JPY' ? currency : '';
+  const a = (amount ? String(amount) : '0') + cur;
   const extMatch = String(originalFileName || '').match(/\.(pdf|png|jpe?g)$/i);
   const ext = extMatch ? extMatch[0].toLowerCase() : '';
   return `${d}_${v}_${a}${ext}`;
@@ -294,9 +335,29 @@ module.exports = async (req, res) => {
   // OCR実行。失敗しても続行(null)。
   const ocr = await runOcr({ decodedBytes, contentType: content_type, fileName: file_name });
 
+  // 重複防止（内容一致・別バイト列版）: 承認用に同内容のPDFを複数通送ってくる
+  // 取引先向け。content_hashでは検出できないため、OCR結果（日付・金額・通貨・
+  // 取引先名）で24時間以内の重複を判定する。Storageアップロード前にチェックし、
+  // 重複なら不要なファイルを保存しない。
+  try {
+    const semDup = await findRecentSemanticDup({
+      date: ocr.date,
+      amount: Number(ocr.amount),
+      currency: ocr.currency,
+      vendor: ocr.storeName,
+    });
+    if (semDup) {
+      res.status(200).json({ ok: true, duplicate: true, evidence_id: semDup.id, reason: 'semantic' });
+      return;
+    }
+  } catch (e) {
+    // 重複判定自体の失敗は取込を止めない（誤って取りこぼすより多少の重複の方が安全）
+  }
+
   const finalFileName = buildFileName({
     date: ocr.date,
     amount: ocr.amount,
+    currency: ocr.currency,
     storeName: ocr.storeName,
     originalFileName: file_name,
   });
@@ -315,6 +376,7 @@ module.exports = async (req, res) => {
       file_name: finalFileName,
       ocr_date: ocr.date || null,
       ocr_amount: ocr.amount || null,
+      ocr_currency: ocr.currency || 'JPY',
       ocr_vendor: ocr.storeName || null,
       storage_path: storagePath,
       mf_file_id: null,

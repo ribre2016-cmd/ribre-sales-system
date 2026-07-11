@@ -32,7 +32,7 @@
 3. **Supabase REST/Storageは `apikey` ヘッダー必須**（Authorizationだけだと黙って失敗）
 4. **全APIエンドポイントは認証必須**: ログインユーザー（`verifySupabaseToken`）または Cron（`CRON_SECRET`）またはメール取込（`MAIL_INGEST_SECRET`）
 5. APIでBoxに入れた証憑は授受区分「未選択」。後から「受領」に変えてもMFのAI-OCR仕訳候補には流れない（MF側の既知の不具合）
-6. OCRは `gpt-4.1`。2桁年（26.7.3）は20xx解釈をプロンプトで明示済み。日付が読めない/あり得ない年のときは空欄にする（今日の日付で埋めない）
+6. OCRは `gpt-4.1`。2桁年（26.7.3）は20xx解釈をプロンプトで明示済み。日付が読めない/あり得ない年のときは空欄にする（今日の日付で埋めない）。外貨建て証憑（Anthropic/OpenAI等のドル建て請求書）はOCRが`currency`（ISO4217）も返し、`mf_evidence.ocr_currency`（要`supabase_mf_currency.sql`）に保存する。JPY以外は円換算しない・金額ベースのマッチング(`findCandidates`/`findFuzzyCandidates`)対象外にする（`mf-match-core.js`の`isJpyEvidence`）
 7. Boxメタデータ（取引日・取引先・金額）はAPIで書き込めない（会計APIに機能なし、Box APIはトライアル非公開）。台帳の「Box入力」チェック列で手入力漏れを管理
 8. 台帳（Supabase `mf_evidence`）とMF側は同期しない
 9. **売上/仕入データを書き込むページは必ず `services/data-store.js` を読み込むこと**。`hydrate()`（起動時）はクラウドの内容でlocalStorageを**完全置換**するため、data-store.js無しのページで書いた行は（クラウドにpushされず）次にどこかのページを開いた瞬間に消える。実際にPhase Bで発生（957b8abで修正）

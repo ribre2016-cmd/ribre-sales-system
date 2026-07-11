@@ -3,6 +3,25 @@
 このファイルは、Claude（AIアシスタント）がこのプロジェクトに加えた変更の記録です。
 新しい変更は上に追記します。
 
+## 2026-07-09 MF証憑インボックス: 外貨誤認識・重複取込・マッチング原因不明の解消
+
+**外貨誤認識（api/mf/ingest-mail.js・api/mf/vouchers.js・pages/mf-evidence.js・api/mf/_lib/mf-match-core.js・supabase_mf_currency.sql）**:
+- OCRスキーマに`currency`（ISO4217、判別不能ならJPY）を追加。ドル建て請求書(Anthropic等)の数値がそのまま円として保存・表示・マッチングされていた根本原因。新列`mf_evidence.ocr_currency`（デフォルトJPY・要SQL実行）に保存。
+- 台帳の金額表示は`ocr_currency!=='JPY'`のとき「11 USD」のように通貨コード付きで表示（従来は常に「◯◯円」）。ファイル名にも通貨コードを付与（`_11USD`等）。
+- マッチングは`ocr_currency!=='JPY'`の証憑を`findCandidates`/`findFuzzyCandidates`（金額比較あり）の対象から除外し、既存の第三段`findVendorDateCandidates`（取引先名+日付±7日・金額不問。外貨建て向けに元々設計済みだった）のみに委ねる。手動送信時は円換算していない旨のconfirmダイアログを追加。
+- `ocr_currency`列が無い/空の既存データはJPY扱いで後方互換（`isJpyEvidence`）。
+
+**重複取込（api/mf/ingest-mail.js）**:
+- 既存のcontent_hash（添付バイト列のSHA256）完全一致チェックに加え、`findRecentSemanticDup`を追加。24時間以内に同じ取引日・金額・通貨・取引先名（NFKC正規化）の行が既にあれば重複とみなしStorage保存前に打ち切る。Anthropicが承認用に内容同一・バイト列だけ異なるPDFを複数通送るケース（content_hashをすり抜ける）に対応。取引先名が読めた場合のみ判定（誤爆防止）。
+
+**マッチング「該当なし」の原因可視化（api/mf/_lib/mf-match-core.js・pages/mf-evidence.js）**:
+- `unmatched`配列を証憑idの羅列から`{evidence_id, file_name, ocr_date, ocr_amount, ocr_currency, ocr_vendor, reason}`へ拡張。reasonは`no_ocr_date`/`no_journal_in_window`（検索期間±7日に仕訳が1件も無い）/`no_ocr_vendor`/`no_candidates`/`attach_failed`を判別。
+- フロントは件数だけでなく証憑ごとに理由を画面表示（従来はconsole.log頼み）。ブックオフ2件がなぜ「該当なし」になるかは実際のMF仕訳データが見えないと断定できないため、このログを見れば「検索期間に仕訳が無い」のか「あるが不一致」のかをユーザー自身が即座に判別できるようにした（コード上のバグは見つからなかった。第三段の取引先名+日付マッチは既に実装済みで意図通り機能している）。
+
+**テスト**: Node単体テスト14グループ25assertion（OCR結果の通貨保存・ファイル名・重複判定の正常系/誤爆防止4パターン・findCandidates系の通貨スキップ・後方互換・診断理由3パターン）全パス。ブラウザ実機: ヘルパー関数群・マッチング結果の理由表示・台帳の通貨表示、コンソールエラーなし。全JS `node --check` OK。
+
+**要Supabase SQL実行**: `supabase_mf_currency.sql`（`mf_evidence.ocr_currency`列追加。冪等）
+
 ## 2026-07-08 セキュリティ修正: MF OAuth保護／Storage RLS所有者照合／削除・同期の誤表示修正／大量削除ガードの追跡保持
 
 **MF OAuth（api/mf/auth/start.js・callback.js・status.js・pages/mf-evidence.js・pages/app-v2.js）**:

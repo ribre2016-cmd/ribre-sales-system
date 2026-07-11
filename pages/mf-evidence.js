@@ -10,6 +10,7 @@ const MF_MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MF_ALLOWED_MIME = ['image/png', 'image/jpeg', 'application/pdf'];
 
 let mfCurrentFile = null; // { dataUrl, mime, size, name }
+let mfCurrentOcrCurrency = 'JPY'; // OCRが読み取った通貨(ISO4217)。ドル建て等の請求書を円と誤認しないための表示・送信用
 
 /* ---------------- ファイル受付 ---------------- */
 
@@ -44,6 +45,7 @@ async function mfIngestFile(file) {
   try {
     const dataUrl = await mfReadFileAsDataUrl(file);
     mfCurrentFile = { dataUrl, mime: file.type, size: file.size, name: file.name || 'evidence' };
+    mfCurrentOcrCurrency = 'JPY';
     mfShowPreview();
     await mfRunOcr();
   } catch (e) {
@@ -170,6 +172,7 @@ function mfShowPreview() {
 
 function mfResetForm() {
   mfCurrentFile = null;
+  mfCurrentOcrCurrency = 'JPY';
   document.getElementById('mfPreviewPanel').style.display = 'none';
 }
 
@@ -177,11 +180,17 @@ function mfRenderOcrStatus(rows) {
   renderList('mfOcrStatus', rows);
 }
 
-function mfBuildFileName(date, vendor, amount) {
+// 通貨がJPY以外のときはファイル名にも通貨を付け、金額を円と見誤らないようにする
+function mfBuildFileName(date, vendor, amount, currency) {
   const d = String(date || today()).replace(/-/g, '');
   const v = String(vendor || '取引先未設定').replace(/[\\/:*?"<>|]/g, '');
-  const a = amount ? String(amount) : '0';
+  const cur = currency && currency !== 'JPY' ? currency : '';
+  const a = (amount ? String(amount) : '0') + cur;
   return d + '_' + v + '_' + a;
+}
+function mfSanitizeCurrency(cur) {
+  const c = String(cur || '').trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(c) ? c : 'JPY';
 }
 
 /* ---------------- OCR ---------------- */
@@ -192,9 +201,12 @@ async function mfRunOcr() {
   try {
     const prompt =
       'あなたは日本の証憑OCRです。必ずJSONのみ返してください。説明文は禁止。推測は禁止。存在しない値は null。' +
-      '出力schemaは次のみ: {"date":"","amount":0,"storeName":""}。' +
+      '出力schemaは次のみ: {"date":"","amount":0,"currency":"JPY","storeName":""}。' +
       'dateは西暦YYYY-MM-DD形式。年が2桁表記(例: 26.7.3、26/07/03)の場合は「20」を付けて2026年のように解釈する（平成・昭和とみなさない）。' +
-      '「令和」「平成」の元号表記が明記されている場合のみ和暦として西暦に変換する。参考: 今日は' + today() + '。';
+      '「令和」「平成」の元号表記が明記されている場合のみ和暦として西暦に変換する。参考: 今日は' + today() + '。' +
+      'amountは証憑に印字された数値をそのまま返す（円換算・為替換算は絶対にしない）。' +
+      'currencyはamountの通貨をISO4217の3文字コードで返す（日本円/¥/円 表記はJPY、$やUSD表記はUSD、EUR表記はEURなど）。' +
+      '通貨表記が無く判別できない場合はJPYとする。';
     let content;
     if (mfCurrentFile.mime.startsWith('image/') && typeof window.ribreOptimizeOcrImage === 'function') {
       const optimized = await window.ribreOptimizeOcrImage(mfCurrentFile.dataUrl);
@@ -238,6 +250,8 @@ async function mfRunOcr() {
     const parsed = typeof window.ribreExtractOcrJson === 'function' ? window.ribreExtractOcrJson(text) : null;
     if (!parsed) throw new Error('OCR結果の解析に失敗しました');
     const norm = typeof window.ribreNormalizeOcrSchema === 'function' ? window.ribreNormalizeOcrSchema(parsed) : parsed;
+    // currencyはribreNormalizeOcrSchemaの汎用schemaに無いフィールドのため、正規化前のparsedから直接読む
+    mfCurrentOcrCurrency = mfSanitizeCurrency(parsed.currency);
     // あり得ない年（大昔・未来）は誤読とみなして空欄にする（2桁年の元号誤解釈など）
     if (norm.date) {
       const y = Number(String(norm.date).slice(0, 4));
@@ -248,8 +262,12 @@ async function mfRunOcr() {
     document.getElementById('mfDate').value = norm.date || '';
     document.getElementById('mfAmount').value = norm.amount || '';
     document.getElementById('mfVendor').value = norm.storeName || '';
-    document.getElementById('mfFileName').value = mfBuildFileName(norm.date, norm.storeName, norm.amount);
-    if (!norm.date) {
+    document.getElementById('mfFileName').value = mfBuildFileName(norm.date, norm.storeName, norm.amount, mfCurrentOcrCurrency);
+    if (mfCurrentOcrCurrency !== 'JPY') {
+      mfRenderOcrStatus([
+        { type: 'OCR', level: 'warn', msg: '通貨が' + mfCurrentOcrCurrency + '建てと判定されました（円換算はしていません）。金額欄は' + mfCurrentOcrCurrency + 'の数値です。円に換算してから登録してください' }
+      ]);
+    } else if (!norm.date) {
       mfRenderOcrStatus([
         { type: 'OCR', level: 'warn', msg: '取引日を読み取れませんでした。レシートを見て手入力してください' },
         { type: 'OCR', msg: '金額・取引先は自動入力しました（内容を確認してください）' }
@@ -303,7 +321,16 @@ async function mfSendToMf() {
   const date = document.getElementById('mfDate').value || '';
   const amount = num(document.getElementById('mfAmount').value);
   const vendor = document.getElementById('mfVendor').value || '';
-  const fileName = document.getElementById('mfFileName').value || mfBuildFileName(date, vendor, amount);
+  const fileName = document.getElementById('mfFileName').value || mfBuildFileName(date, vendor, amount, mfCurrentOcrCurrency);
+
+  if (mfCurrentOcrCurrency !== 'JPY') {
+    const ok = confirm(
+      '金額欄は' + mfCurrentOcrCurrency + '建ての数値（' + amount + '）のままです。円換算していません。\n' +
+      'このまま送信すると台帳に「' + amount + '円」として記録されます。よろしいですか？\n' +
+      '（円に直す場合はキャンセルして金額欄を書き換えてください）'
+    );
+    if (!ok) return;
+  }
 
   const dup = await mfFindDuplicate(date, amount);
   if (dup) {
@@ -324,6 +351,7 @@ async function mfSendToMf() {
         content_type: mfCurrentFile.mime,
         ocr_date: date,
         ocr_amount: amount,
+        ocr_currency: mfCurrentOcrCurrency,
         ocr_vendor: vendor
       })
     });
@@ -429,7 +457,10 @@ async function mfLoadLedger() {
       const vendorSpan = document.createElement('span');
       vendorSpan.textContent = r.ocr_vendor || '-';
       const amountSpan = document.createElement('span');
-      amountSpan.textContent = yen(r.ocr_amount);
+      // 通貨がJPY以外の証憑は「5.5円」のように誤解される表示をせず、通貨コード付きで示す
+      amountSpan.textContent = (r.ocr_currency && r.ocr_currency !== 'JPY')
+        ? Number(r.ocr_amount || 0).toLocaleString('ja-JP') + ' ' + r.ocr_currency
+        : yen(r.ocr_amount);
       const nameSpan = document.createElement('span');
       if (r.storage_path) {
         // 控えファイルがある行はファイル名クリックでプレビュー（別タブ表示）
@@ -704,6 +735,16 @@ function mfRenderAmbiguous(ambiguousList) {
   });
 }
 
+function mfUnmatchedReasonLabel(reason) {
+  return {
+    no_ocr_date: '取引日が読み取れていない（日付を確認してください）',
+    no_journal_in_window: '検索期間（日付±7日）内にMFの仕訳が1件もありません（仕訳の登録日を確認してください）',
+    no_ocr_vendor: '取引先名が読み取れていない（日付±7日の仕訳はあるが名前で絞れない）',
+    no_candidates: '日付・金額・取引先名のいずれも一致するMF仕訳が見つかりません',
+    attach_failed: 'MFへの添付処理自体が失敗しました（再試行してください）',
+  }[reason] || '該当なし';
+}
+
 async function mfRunMatch() {
   const btn = document.getElementById('mfMatchBtn');
   btn.disabled = true;
@@ -727,11 +768,23 @@ async function mfRunMatch() {
       { type: '結果', msg: attachedCount + '件を仕訳に添付しました' }
     ];
     if (ambiguousCount) rows.push({ type: '結果', level: 'warn', msg: ambiguousCount + '件は候補が複数（下で選択してください）' });
-    if (unmatchedCount) rows.push({ type: '結果', level: 'warn', msg: unmatchedCount + '件は該当仕訳なし' });
     if (skippedCount) rows.push({ type: '結果', level: 'warn', msg: skippedCount + '件は控えファイルが無く対象外' });
     if (d.debug) {
       rows.push({ type: '診断', msg: '仕訳取得: ' + d.debug.journals_count + '件（' + d.debug.start_date + '〜' + d.debug.end_date + '）' });
       console.log('MFマッチング診断:', d.debug);
+    }
+    // 「該当なし」は件数だけでなく、証憑ごとに理由を表示する（画面だけで原因が分かるように）
+    if (unmatchedCount) {
+      rows.push({ type: '結果', level: 'warn', msg: unmatchedCount + '件は該当仕訳なし（理由は下記）' });
+      (d.unmatched || []).forEach((u) => {
+        const cur = u.ocr_currency && u.ocr_currency !== 'JPY' ? (' ' + u.ocr_currency) : '円';
+        const amt = u.ocr_amount != null ? Number(u.ocr_amount).toLocaleString('ja-JP') + cur : '金額不明';
+        rows.push({
+          type: '該当なし',
+          level: 'warn',
+          msg: (u.file_name || u.evidence_id) + '／' + (u.ocr_date || '日付不明') + '／' + amt + '／' + (u.ocr_vendor || '取引先不明') + '　→　' + mfUnmatchedReasonLabel(u.reason)
+        });
+      });
     }
     mfRenderMatchSummary(rows);
     mfRenderAmbiguous(d.ambiguous);

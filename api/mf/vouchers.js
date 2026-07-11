@@ -116,7 +116,8 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const { file_name, file_data, content_type, ocr_date, ocr_amount, ocr_vendor, journal_id } = body || {};
+  const { file_name, file_data, content_type, ocr_date, ocr_amount, ocr_currency, ocr_vendor, journal_id } = body || {};
+  const currency = /^[A-Za-z]{3}$/.test(String(ocr_currency || '')) ? String(ocr_currency).toUpperCase() : 'JPY';
 
   if (!file_data || typeof file_data !== 'string') {
     res.status(400).json({ ok: false, error: 'file_data_required' });
@@ -173,6 +174,7 @@ module.exports = async (req, res) => {
       file_name,
       ocr_date: ocr_date || null,
       ocr_amount: ocr_amount || null,
+      ocr_currency: currency,
       ocr_vendor: ocr_vendor || null,
       storage_path: storagePath,
       mf_file_id: mfFileId,
@@ -187,6 +189,7 @@ module.exports = async (req, res) => {
         file_name,
         ocr_date: ocr_date || null,
         ocr_amount: ocr_amount || null,
+        ocr_currency: currency,
         ocr_vendor: ocr_vendor || null,
         storage_path: storagePath,
         journal_id: journal_id || null,
