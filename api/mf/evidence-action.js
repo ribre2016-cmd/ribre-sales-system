@@ -1,13 +1,15 @@
 // POST /api/mf/evidence-action
 // 台帳の証憑1件に対する操作をまとめたエンドポイント（Vercel Hobbyの12関数制限対応で統合）。
 // body: { action: 'resend' | 'delete', evidence_id }
-//  - resend: failed=再送、pending=メール取込の承認送信（Storageの控えからMFクラウドBoxへ送る）
+//  - resend: failed=再送、pending=メール取込の承認送信（Storageの控えからMFクラウドBoxへ送る）。
+//    送信前に確実な仕訳(trySingleMatch)が見つかれば最初から添付済みで送り、MF API制約による
+//    二重アップロード（未紐付け→後で添付で2ファイルになる）を避ける
 //  - delete: pending/failed の行を削除（承認制の却下操作）。MF送信済みの行は削除不可
 'use strict';
 
 const { getAccessToken, postVoucher, NotConnectedError } = require('./_lib/mf-client');
 const { verifySupabaseToken } = require('../openai/_lib/require-auth');
-const { fetchEvidenceById, fetchStorageFileBase64, updateEvidence } = require('./_lib/mf-match-core');
+const { fetchEvidenceById, fetchStorageFileBase64, updateEvidence, trySingleMatch } = require('./_lib/mf-match-core');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -68,11 +70,25 @@ async function handleResend(res, evidence) {
     return;
   }
 
+  // 送信前に確実な仕訳が既に見つかれば、最初から添付済みで送る。
+  // MFのvouchers APIは呼ぶたびに必ず新規ファイルを作成し、後から既存ファイルを仕訳に
+  // 紐付け直すことも、未紐付けのファイル単体を削除することもできない
+  // （openapi.yaml PostVouchersRequest/DeleteVouchersRequestで確認済み）。
+  // そのため「未紐付けで送る→後でマッチングして添付」の順だと、MFのクラウドBoxに
+  // 同じ内容のファイルが2件（未紐付け＋添付済み）残ってしまう。ここで先にマッチングを
+  // 試すことで、その場で確定する分については二重送信を避ける。
+  let matchedJournalId = null;
+  try {
+    matchedJournalId = await trySingleMatch({ accessToken, evidence });
+  } catch (e) {
+    // マッチング判定の失敗は送信自体を妨げない（従来通り未紐付けで送る）
+  }
+
   try {
     const fileDataBase64 = await fetchStorageFileBase64(evidence.storage_path);
     const mfResult = await postVoucher({
       accessToken,
-      journalId: null,
+      journalId: matchedJournalId,
       fileName: evidence.file_name,
       fileDataBase64,
     });
@@ -81,12 +97,13 @@ async function handleResend(res, evidence) {
       null;
 
     await updateEvidence(evidence.id, {
-      status: 'box_saved',
+      status: matchedJournalId ? 'attached' : 'box_saved',
+      journal_id: matchedJournalId || null,
       mf_file_id: fileId,
       error_message: null,
     });
 
-    res.status(200).json({ ok: true, evidence_id: evidence.id, file_id: fileId });
+    res.status(200).json({ ok: true, evidence_id: evidence.id, file_id: fileId, matched_journal_id: matchedJournalId });
   } catch (e) {
     try {
       await updateEvidence(evidence.id, {

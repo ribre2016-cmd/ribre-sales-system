@@ -571,7 +571,7 @@ async function mfResendEvidence(evidenceId, btnEl) {
     if (!res.ok || !d.ok) {
       throw new Error((d && d.error) || 'HTTP ' + res.status);
     }
-    mfToast('MFへ送信しました', 'ok');
+    mfToast(d.matched_journal_id ? 'MFへ送信しました（仕訳に自動添付されました）' : 'MFへ送信しました', 'ok');
     mfLoadLedger();
   } catch (e) {
     if (btnEl) btnEl.disabled = false;

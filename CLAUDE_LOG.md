@@ -3,6 +3,22 @@
 このファイルは、Claude（AIアシスタント）がこのプロジェクトに加えた変更の記録です。
 新しい変更は上に追記します。
 
+## 2026-07-12 MF証憑インボックス: 「MFへ送信」後にマッチングすると二重アップロードされる問題を軽減
+
+**原因（MF側APIの構造的制約。openapi.yamlで確認済み）**:
+- `POST /api/v3/vouchers` は呼ぶたびに必ず新規ファイルを作成する。既存アップロード済みファイル(file_id)を後から仕訳に紐付ける方法は無い（`file_data`の再送信のみ）
+- `DELETE /api/v3/vouchers` は「既に仕訳に紐付いているファイルの紐付け解除」専用（journal_id必須）。未紐付けのままBoxに置かれているファイル単体を削除する手段は無い
+- そのため従来の「①MFへ送信＝未紐付けでBoxへ送る（box_saved）→②後でマッチングして仕訳へ添付」という2段階の流れは、両方実行すると必ずBoxに同一内容のファイルが2件残る（片方は永久に未紐付けのまま）。API側にクリーンアップ手段が無いため、コード側だけでは完全解消不可
+
+**対策（api/mf/_lib/mf-match-core.js・api/mf/evidence-action.js・pages/mf-evidence.js）**:
+- `trySingleMatch({accessToken, evidence})`を追加。runAutoMatchの完全一致(±0日・金額一致)と同じ確度でその場判定し、ちょうど1件に絞れればjournal_idを返す（外貨建て・日付未読取は対象外）
+- `handleResend`（「MFへ送信」ボタン）は送信直前にこれを呼び、見つかればその場で`journal_id`付き・`status:'attached'`として1回のPOSTで送信（＝二重アップロードなし）。見つからなければ従来通り未紐付け(`box_saved`)で送信し、後日のマッチングに委ねる（この場合のみ従来と同じ制約が残る）
+- フロントの送信成功トーストを「MFへ送信しました（仕訳に自動添付されました）」/「MFへ送信しました」に出し分け
+
+**残るリスク**: 送信時点でMF側にまだ仕訳が存在しない場合（証憑がMF側の記帳より先に届くケースは多い）は従来通りbox_saved経由になり、後日マッチングで添付すると引き続き2件になる。MF側の`DELETE /api/v3/vouchers`がjournal_id必須のため、未紐付けファイルの自動削除は不可能。**手動でMFのBox画面から片方を削除する運用は今後も必要**。
+
+**テスト**: Node単体テスト2グループ12assertion（trySingleMatchの完全一致/0件/外貨除外/日付なし/取引先名絞込み/絞れず、handleResendの一括統合テスト2パターン）全パス。既存29assertionも回帰なし。ブラウザ実機でトースト分岐確認、コンソールエラーなし。
+
 ## 2026-07-09 MF証憑インボックス: 外貨誤認識・重複取込・マッチング原因不明の解消
 
 **外貨誤認識（api/mf/ingest-mail.js・api/mf/vouchers.js・pages/mf-evidence.js・api/mf/_lib/mf-match-core.js・supabase_mf_currency.sql）**:

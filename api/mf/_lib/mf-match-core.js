@@ -193,6 +193,34 @@ function findCandidates(journals, evidence) {
   });
 }
 
+// 「MFへ送信」の時点で、その証憑にちょうど1件だけ確実な仕訳が見つかればjournal_idを返す。
+// MFのvouchers APIは呼ぶたびに必ず新規ファイルを作成し、既存ファイルへの後付け紐付けも
+// 未紐付けファイル単体の削除もできない（openapi.yaml PostVouchersRequest/DeleteVouchersRequest
+// で確認済み）。そのため送信前に確実な仕訳が分かっていれば、未紐付け(box_saved)の
+// アップロードを経由せず最初から添付済みで送ることで、二重アップロードを防ぐ。
+// 条件はrunAutoMatchの完全一致(±0日)と同じ確度のみ（曖昧な候補は自動添付しない）。
+async function trySingleMatch({ accessToken, evidence }) {
+  if (!isJpyEvidence(evidence)) return null;
+  const dateStr = evidence.ocr_date;
+  const amount = Number(evidence.ocr_amount);
+  if (!dateStr || !Number.isFinite(amount)) return null;
+  let journals;
+  try {
+    const startDate = addDays(dateStr, -FUZZY_MARGIN_DAYS);
+    const endDate = addDays(dateStr, FUZZY_MARGIN_DAYS);
+    journals = await fetchJournals({ accessToken, startDate, endDate });
+  } catch (e) {
+    return null; // 仕訳取得に失敗しても通常の未紐付け送信へフォールバックする
+  }
+  const exact = findCandidates(journals, evidence);
+  if (exact.length === 1) return exact[0].id;
+  if (exact.length > 1) {
+    const v = resolveByVendor(exact, evidence);
+    if (v) return v.id;
+  }
+  return null;
+}
+
 // 完全一致が0件のときのみ使う緩和マッチ。ocr_dateの前後3日以内で金額一致の仕訳を探す。
 // 自動添付はしない（呼び出し側でambiguous扱いにすること）。外貨建ては対象外（findCandidates同様）。
 function findFuzzyCandidates(journals, evidence) {
@@ -397,6 +425,7 @@ module.exports = {
   findCandidates,
   findFuzzyCandidates,
   journalPassesCommonFilters,
+  trySingleMatch,
   attachEvidenceToJournal,
   runAutoMatch,
   runManualMatch,
