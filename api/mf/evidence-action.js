@@ -1,10 +1,13 @@
 // POST /api/mf/evidence-action
 // 台帳の証憑1件に対する操作をまとめたエンドポイント（Vercel Hobbyの12関数制限対応で統合）。
 // body: { action: 'resend' | 'delete', evidence_id }
-//  - resend: failed=再送、pending=メール取込の承認送信（Storageの控えからMFクラウドBoxへ送る）。
-//    送信前に確実な仕訳(trySingleMatch)が見つかれば最初から添付済みで送り、MF API制約による
-//    二重アップロード（未紐付け→後で添付で2ファイルになる）を避ける
-//  - delete: pending/failed の行を削除（承認制の却下操作）。MF送信済みの行は削除不可
+//  - resend: failed=再送、pending/awaiting_match=承認送信。送信前に確実な仕訳
+//    (trySingleMatch)が見つかれば最初から添付済みで送る。見つからなければMFへは
+//    まだ送らずawaiting_match（マッチ待ち）のまま保留し、日次のprocessAwaitingMatch
+//    （auto-matchのcron・手動の「マッチング実行」）が見つかるまで再チェックし続ける
+//    （MF API制約による二重アップロード＝未紐付け→後で添付で2ファイルになる、を避ける
+//    ため。自動フォールバックは無し＝ユーザーが判断して手動対応する運用）
+//  - delete: pending/failed/awaiting_match の行を削除（承認制の却下操作）。MF送信済みの行は削除不可
 'use strict';
 
 const { getAccessToken, postVoucher, NotConnectedError } = require('./_lib/mf-client');
@@ -53,7 +56,7 @@ function readJsonBody(req) {
 }
 
 async function handleResend(res, evidence) {
-  if (['failed', 'pending'].indexOf(evidence.status) < 0 || !evidence.storage_path) {
+  if (['failed', 'pending', 'awaiting_match'].indexOf(evidence.status) < 0 || !evidence.storage_path) {
     res.status(400).json({ ok: false, error: 'not_resendable' });
     return;
   }
@@ -81,7 +84,25 @@ async function handleResend(res, evidence) {
   try {
     matchedJournalId = await trySingleMatch({ accessToken, evidence });
   } catch (e) {
-    // マッチング判定の失敗は送信自体を妨げない（従来通り未紐付けで送る）
+    // マッチング判定の失敗はawaiting_matchへのフォールバックを妨げない
+  }
+
+  if (!matchedJournalId) {
+    // その場では見つからなかった。即座に未紐付けで送ると上記の二重アップロード問題が
+    // 起きるため、まだMFへは送らずawaiting_match（マッチ待ち）として保留する。
+    // 日次のマッチング処理(processAwaitingMatch)が見つかるまで再チェックし続ける
+    // （自動フォールバックは無し。長期間見つからない場合はユーザーが判断して手動対応する）。
+    try {
+      await updateEvidence(evidence.id, {
+        status: 'awaiting_match',
+        approved_at: evidence.approved_at || new Date().toISOString(),
+        error_message: null,
+      });
+      res.status(200).json({ ok: true, evidence_id: evidence.id, file_id: null, matched_journal_id: null, awaiting_match: true });
+    } catch (e) {
+      res.status(502).json({ ok: false, error: 'evidence_update_failed' });
+    }
+    return;
   }
 
   try {
@@ -97,8 +118,8 @@ async function handleResend(res, evidence) {
       null;
 
     await updateEvidence(evidence.id, {
-      status: matchedJournalId ? 'attached' : 'box_saved',
-      journal_id: matchedJournalId || null,
+      status: 'attached',
+      journal_id: matchedJournalId,
       mf_file_id: fileId,
       error_message: null,
     });
@@ -141,8 +162,9 @@ async function handlePreview(res, evidence) {
 }
 
 async function handleDelete(res, evidence) {
-  // attached(仕訳添付済み)のみ削除不可。box_savedはMF側で削除済みの後始末等のため削除可
-  if (['pending', 'failed', 'box_saved'].indexOf(evidence.status) < 0) {
+  // attached(仕訳添付済み)のみ削除不可。box_savedはMF側で削除済みの後始末等のため削除可。
+  // awaiting_matchはまだMFへ何も送っていないためいつでも削除可
+  if (['pending', 'failed', 'awaiting_match', 'box_saved'].indexOf(evidence.status) < 0) {
     res.status(400).json({ ok: false, error: 'not_deletable' });
     return;
   }

@@ -33,6 +33,16 @@ async function fetchBoxSavedEvidence() {
   return Array.isArray(rows) ? rows : [];
 }
 
+async function fetchAwaitingMatchEvidence() {
+  const url =
+    `${SUPABASE_URL}/rest/v1/mf_evidence` +
+    `?select=*&status=eq.awaiting_match&storage_path=not.is.null&order=ocr_date.asc`;
+  const res = await fetch(url, { headers: supabaseHeaders() });
+  if (!res.ok) throw new Error(`Supabase mf_evidence取得失敗: HTTP ${res.status}`);
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
 async function fetchEvidenceById(id) {
   const url = `${SUPABASE_URL}/rest/v1/mf_evidence?id=eq.${encodeURIComponent(id)}&select=*&limit=1`;
   const res = await fetch(url, { headers: supabaseHeaders() });
@@ -398,6 +408,57 @@ async function runAutoMatch(accessToken) {
   return { ok: true, attached, ambiguous, unmatched, skipped_no_storage: skippedNoStorage, debug };
 }
 
+// 「送信」時点で確実な仕訳が見つからず awaiting_match（マッチ待ち）のまま保留されている
+// 証憑を日次で再チェックする。見つかれば最初から添付済みでMFへ送信（二重アップロード
+// なし）。見つからない間はMFへは一切送信せず待機し続ける（完全手動運用。自動フォール
+// バックは意図的に無し＝ユーザー判断）。auto-match.jsのcron・match.jsの手動実行の
+// 両方から呼ばれる。
+async function processAwaitingMatch(accessToken) {
+  const evidenceRows = await fetchAwaitingMatchEvidence();
+  const attached = [];
+  const stillWaiting = [];
+  const failed = [];
+
+  if (!evidenceRows.length) {
+    return { ok: true, attached, still_waiting: stillWaiting, failed };
+  }
+
+  const dates = evidenceRows.map((e) => e.ocr_date).filter(Boolean).sort();
+  let journals = [];
+  if (dates.length) {
+    try {
+      const startDate = addDays(dates[0], -FUZZY_MARGIN_DAYS);
+      const endDate = addDays(dates[dates.length - 1], FUZZY_MARGIN_DAYS);
+      journals = await fetchJournals({ accessToken, startDate, endDate });
+    } catch (e) {
+      journals = []; // 取得失敗時は「今回は見つからなかった」として扱う（次回のリトライに委ねる）
+    }
+  }
+
+  for (const evidence of evidenceRows) {
+    const exact = findCandidates(journals, evidence);
+    let matchedJournalId = null;
+    if (exact.length === 1) matchedJournalId = exact[0].id;
+    else if (exact.length > 1) {
+      const v = resolveByVendor(exact, evidence);
+      if (v) matchedJournalId = v.id;
+    }
+
+    if (matchedJournalId) {
+      try {
+        await attachEvidenceToJournal({ accessToken, evidence, journalId: matchedJournalId });
+        attached.push({ evidence_id: evidence.id, journal_id: matchedJournalId });
+      } catch (e) {
+        failed.push(evidence.id);
+      }
+    } else {
+      stillWaiting.push(evidence.id);
+    }
+  }
+
+  return { ok: true, attached, still_waiting: stillWaiting, failed };
+}
+
 // 手動確定モード: {evidence_id, journal_id} を指定して添付する
 async function runManualMatch({ accessToken, evidenceId, journalId }) {
   const evidence = await fetchEvidenceById(evidenceId);
@@ -429,4 +490,5 @@ module.exports = {
   attachEvidenceToJournal,
   runAutoMatch,
   runManualMatch,
+  processAwaitingMatch,
 };

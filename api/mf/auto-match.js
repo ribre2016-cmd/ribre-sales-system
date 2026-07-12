@@ -4,7 +4,7 @@
 'use strict';
 
 const { verifySupabaseToken } = require('../openai/_lib/require-auth');
-const { getAccessToken, NotConnectedError, runAutoMatch } = require('./_lib/mf-match-core');
+const { getAccessToken, NotConnectedError, runAutoMatch, processAwaitingMatch } = require('./_lib/mf-match-core');
 
 const CRON_SECRET = process.env.CRON_SECRET;
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
@@ -63,20 +63,24 @@ module.exports = async (req, res) => {
 
   try {
     const result = await runAutoMatch(accessToken);
+    // awaiting_match（「MFへ送信」時点で未確定だった証憑）の日次リトライ。
+    // 見つかれば添付、見つからない間はMFへ送信せず待ち続ける（自動フォールバックは無し）。
+    const awaiting = await processAwaitingMatch(accessToken);
 
+    const totalAttached = result.attached.length + awaiting.attached.length;
     let slackSent = false;
-    const shouldNotify = SLACK_WEBHOOK_URL && (result.attached.length > 0 || result.ambiguous.length > 0);
+    const shouldNotify = SLACK_WEBHOOK_URL && (totalAttached > 0 || result.ambiguous.length > 0);
     if (shouldNotify) {
       try {
         slackSent = await postToSlack(
-          buildSlackMessage({ attachedCount: result.attached.length, ambiguousCount: result.ambiguous.length })
+          buildSlackMessage({ attachedCount: totalAttached, ambiguousCount: result.ambiguous.length })
         );
       } catch (e) {
         slackSent = false;
       }
     }
 
-    res.status(200).json({ ...result, slack_sent: slackSent });
+    res.status(200).json({ ...result, awaiting_match: awaiting, slack_sent: slackSent });
   } catch (e) {
     res.status(502).json({
       ok: false,

@@ -36,6 +36,7 @@
 7. Boxメタデータ（取引日・取引先・金額）はAPIで書き込めない（会計APIに機能なし、Box APIはトライアル非公開）。台帳の「Box入力」チェック列で手入力漏れを管理
 8. 台帳（Supabase `mf_evidence`）とMF側は同期しない
 9. **売上/仕入データを書き込むページは必ず `services/data-store.js` を読み込むこと**。`hydrate()`（起動時）はクラウドの内容でlocalStorageを**完全置換**するため、data-store.js無しのページで書いた行は（クラウドにpushされず）次にどこかのページを開いた瞬間に消える。実際にPhase Bで発生（957b8abで修正）
+10. **MFのvouchers APIは呼ぶたびに必ず新規ファイルを作成する**。既存アップロード済みファイルを後から仕訳に紐付け直すことも、未紐付けファイル単体を削除することもできない（`DELETE /vouchers`はjournal_id必須＝既に仕訳に紐付いているものの解除専用。openapi.yamlで確認済み）。そのため証憑の「送信」ボタン（`handleResend`/`vouchers.js`）は、送信時点で確実な仕訳が見つからなければ即座に未紐付け送信せず`status='awaiting_match'`（マッチ待ち）で保留する。日次cron・手動「マッチング実行」（`processAwaitingMatch`）が見つかるまで再チェックし続け、**自動フォールバックは無い**（ユーザーの明示的な選択。要`supabase_mf_awaiting_match.sql`）。長期間見つからない証憑は台帳から手動で対応する（削除して再登録、またはMF画面から直接対応）
 
 ## 環境変数（Vercel）
 

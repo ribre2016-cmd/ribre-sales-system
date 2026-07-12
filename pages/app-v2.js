@@ -4668,7 +4668,8 @@ async function appvRenderCloseChecklist() {
 
   const coveragePct = await appvFetchCoveragePct(month);
   const coverageOk = coveragePct == null ? null : coveragePct >= 100;
-  const matchingPending = await appvFetchEvidenceCountInMonth('?select=id&status=eq.box_saved', month);
+  // box_saved(未紐付けでBox送信済み)＋awaiting_match(「送信」時点で仕訳未確定・自動リトライ待ち)を合算
+  const matchingPending = await appvFetchEvidenceCountInMonth('?select=id&status=in.(box_saved,awaiting_match)', month);
   const boxTodo = await appvFetchEvidenceCountInMonth('?select=id&box_meta_done=is.false&status=eq.box_saved', month);
   const shipUnmatch = appvShipUnmatchCountForMonth(month);
   const closed = appvIsMonthClosed(month);

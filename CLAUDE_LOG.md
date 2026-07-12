@@ -3,6 +3,38 @@
 このファイルは、Claude（AIアシスタント）がこのプロジェクトに加えた変更の記録です。
 新しい変更は上に追記します。
 
+## 2026-07-12 (続き) MF証憑インボックス: 「送信」時点で未確定ならMFへ送らず見つかるまで待つ（完全手動フォールバック）
+
+前回の対策（送信直前にtrySingleMatchで一度だけ確認）をさらに一歩進め、送信時点で
+見つからなくても即座に未紐付け送信せず、見つかるまでMFへは一切送信しないように変更。
+ユーザーの提案「送信前の状態にしておいて、税理士が登録したあとにマッチングすればいい」
+を採用。当初は「1〜2日待って自動フォールバック」案も実装したが、ユーザーの明示選択
+（「無くして完全に手動にする」）により自動フォールバックは削除し、無期限待機＋手動対応に
+確定した。
+
+**新ステータス `awaiting_match`（マッチ待ち）を追加（要`supabase_mf_awaiting_match.sql`）**:
+- `mf_evidence.approved_at`列を追加（「いつマッチ待ちになったか」の表示用。時間判定には使わない）。statusのCHECK制約に`awaiting_match`を追加（動的に既存制約名を探して置換。冪等）
+
+**送信フロー変更（api/mf/evidence-action.js の handleResend・api/mf/vouchers.js）**:
+- 送信時点でtrySingleMatchが見つかれば、従来通り最初から添付済みで1回だけ送信（変更なし）
+- 見つからない場合、**MFへは一切送信せず**`status='awaiting_match'`で保留するだけに変更（以前は即座に未紐付けでbox_saved送信していた）
+- `handleDelete`は`awaiting_match`も削除可能な状態に追加（まだMFへ何も送っていないため）
+
+**日次リトライ（api/mf/_lib/mf-match-core.js の processAwaitingMatch。新規）**:
+- `awaiting_match`の証憑をまとめて取得し、完全一致(±0日)で判定。見つかれば1回のPOSTで添付済み送信（二重アップロードなし）
+- 見つからなければ`still_waiting`のまま**無期限に待機**（自動フォールバックは意図的に無し。長期間見つからない証憑はユーザーが台帳から手動対応する運用）
+- `api/mf/auto-match.js`（日次cron）・`api/mf/match.js`（手動「マッチング実行」）の両方から呼ばれる
+
+**フロント（pages/mf-evidence.js）**: `mfStatusLabel`に「マッチ待ち」追加。送信成功時のメッセージを「MFへ送信しました（自動添付）」/「登録しました。仕訳が見つかり次第、自動でMFへ送信されます」で出し分け。マッチング実行結果に awaiting_match の集計（自動添付/様子見中の件数）を追加表示
+
+**ダッシュボード（pages/app-v2.js）**: 「マッチング未処理」件数の集計クエリを`status=eq.box_saved`から`status=in.(box_saved,awaiting_match)`に拡張（awaiting_match中の証憑も未処理として正しくカウントされるように）
+
+**運用上の注意（ユーザー選択の代償）**: 自動フォールバックが無いため、税理士が仕訳を登録しない限り証憑は`awaiting_match`のまま**永久にMFへ送信されない**。電帳法対応のストック漏れリスクはユーザー側で運用管理する前提（長期未マッチの証憑を台帳で定期確認する等）
+
+**ドキュメント更新**: `docs/MF_SETUP.md`（接続テスト手順・cronの動作説明）、`CLAUDE.md`（制約10として追記）
+
+**テスト**: Node単体テスト5グループ30assertion（trySingleMatch/handleResend統合/processAwaitingMatch/vouchers.js統合。マッチ即添付・無期限待機・approved_at欠損・明示journal_id指定を含む）全パス。既存43assertionも回帰なし。ブラウザ実機でawaiting_matchのバッジ表示・ボタン出し分け・マッチング結果表示を確認、コンソールエラーなし。
+
 ## 2026-07-12 MF証憑インボックス: 「MFへ送信」後にマッチングすると二重アップロードされる問題を軽減
 
 **原因（MF側APIの構造的制約。openapi.yamlで確認済み）**:

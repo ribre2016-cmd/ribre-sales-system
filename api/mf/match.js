@@ -6,7 +6,7 @@
 'use strict';
 
 const { verifySupabaseToken } = require('../openai/_lib/require-auth');
-const { getAccessToken, NotConnectedError, runAutoMatch, runManualMatch } = require('./_lib/mf-match-core');
+const { getAccessToken, NotConnectedError, runAutoMatch, runManualMatch, processAwaitingMatch } = require('./_lib/mf-match-core');
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -80,7 +80,9 @@ module.exports = async (req, res) => {
       return;
     }
     const result = await runAutoMatch(accessToken);
-    res.status(200).json(result);
+    // awaiting_match（「MFへ送信」時点で未確定だった証憑）も手動実行時に併せてリトライする。
+    const awaiting = await processAwaitingMatch(accessToken);
+    res.status(200).json({ ...result, awaiting_match: awaiting });
   } catch (e) {
     res.status(502).json({ ok: false, error: 'mf_match_failed', message: e && e.message ? String(e.message).slice(0, 500) : 'unknown_error' });
   }

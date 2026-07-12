@@ -359,8 +359,16 @@ async function mfSendToMf() {
     if (!res.ok || !d.ok) {
       throw new Error((d && d.error) || 'HTTP ' + res.status);
     }
-    mfRenderOcrStatus([{ type: '送信', msg: 'MFへ送信しました（evidence_id: ' + (d.evidence_id || '-') + '）' }]);
-    mfToast('MFへ送信しました', 'ok');
+    if (d.matched_journal_id) {
+      mfRenderOcrStatus([{ type: '送信', msg: 'MFへ送信しました（仕訳に自動添付されました／evidence_id: ' + (d.evidence_id || '-') + '）' }]);
+      mfToast('MFへ送信しました（仕訳に自動添付されました）', 'ok');
+    } else if (d.awaiting_match) {
+      mfRenderOcrStatus([{ type: '登録', msg: '登録しました。仕訳が見つかり次第、自動でMFへ送信されます（見つかるまでMFへは送信しません／evidence_id: ' + (d.evidence_id || '-') + '）' }]);
+      mfToast('登録しました（マッチ待ち。仕訳が見つかり次第、自動でMFへ送信されます）', 'ok');
+    } else {
+      mfRenderOcrStatus([{ type: '送信', msg: 'MFへ送信しました（evidence_id: ' + (d.evidence_id || '-') + '）' }]);
+      mfToast('MFへ送信しました', 'ok');
+    }
     // 保管庫（税理士送付ファイル）から取り込んだ場合は送信済みマークを付ける（再送防止）
     if (mfCurrentFile && mfCurrentFile.taxDocsKey) mfMarkTaxDocSent(mfCurrentFile.taxDocsKey);
     mfResetForm();
@@ -376,7 +384,7 @@ async function mfSendToMf() {
 /* ---------------- 台帳リスト ---------------- */
 
 function mfStatusLabel(s) {
-  return { pending: '送信前', box_saved: 'Box保存済', attached: '仕訳添付済', failed: '失敗' }[s] || s || '-';
+  return { pending: '送信前', awaiting_match: 'マッチ待ち', box_saved: 'Box保存済', attached: '仕訳添付済', failed: '失敗' }[s] || s || '-';
 }
 
 /* 月の末日をYYYY-MM-DDで返す（input[type=month]の値からgte/lteのDATE範囲を作るため） */
@@ -571,7 +579,13 @@ async function mfResendEvidence(evidenceId, btnEl) {
     if (!res.ok || !d.ok) {
       throw new Error((d && d.error) || 'HTTP ' + res.status);
     }
-    mfToast(d.matched_journal_id ? 'MFへ送信しました（仕訳に自動添付されました）' : 'MFへ送信しました', 'ok');
+    if (d.matched_journal_id) {
+      mfToast('MFへ送信しました（仕訳に自動添付されました）', 'ok');
+    } else if (d.awaiting_match) {
+      mfToast('承認しました。仕訳が見つかり次第、自動でMFへ送信されます', 'ok');
+    } else {
+      mfToast('MFへ送信しました', 'ok');
+    }
     mfLoadLedger();
   } catch (e) {
     if (btnEl) btnEl.disabled = false;
@@ -786,9 +800,19 @@ async function mfRunMatch() {
         });
       });
     }
+    // マッチ待ち(awaiting_match)のリトライ結果（自動フォールバックは無し＝見つからない
+    // 限りMFへは送信せず待ち続ける）
+    const aw = d.awaiting_match;
+    let awaitingAttachedCount = 0;
+    if (aw) {
+      awaitingAttachedCount = (aw.attached || []).length;
+      const stillWaitingCount = (aw.still_waiting || []).length;
+      if (awaitingAttachedCount) rows.push({ type: '結果', msg: 'マッチ待ちのうち ' + awaitingAttachedCount + '件を仕訳に自動添付しました（二重送信なし）' });
+      if (stillWaitingCount) rows.push({ type: '結果', msg: 'マッチ待ちのまま様子見中: ' + stillWaitingCount + '件（仕訳が見つかり次第、自動で添付します）' });
+    }
     mfRenderMatchSummary(rows);
     mfRenderAmbiguous(d.ambiguous);
-    if (attachedCount) mfLoadLedger();
+    if (attachedCount || awaitingAttachedCount) mfLoadLedger();
   } catch (e) {
     mfRenderMatchSummary([{ type: 'ERROR', level: 'danger', msg: 'マッチング失敗: ' + e.message }]);
   } finally {

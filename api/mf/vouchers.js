@@ -4,6 +4,7 @@
 
 const { getAccessToken, postVoucher, NotConnectedError } = require('./_lib/mf-client');
 const { verifySupabaseToken } = require('../openai/_lib/require-auth');
+const { trySingleMatch } = require('./_lib/mf-match-core');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -156,15 +157,61 @@ module.exports = async (req, res) => {
   // 失敗してもMF送信自体は継続する（保存できなければ以降 storagePath は null のまま）。
   const storagePath = await saveToStorage({ fileName: file_name, decodedBytes, contentType: content_type });
 
+  // journal_idが明示指定されなければ、送信前に確実な仕訳が既に見つかるか試す。
+  // MFのvouchers APIは呼ぶたびに必ず新規ファイルを作成し、後から既存ファイルを仕訳に
+  // 紐付け直すことも未紐付けファイル単体を削除することもできないため
+  // （openapi.yaml PostVouchersRequest/DeleteVouchersRequestで確認済み）、
+  // 「未紐付けで送る→後でマッチングして添付」だとBoxに同じファイルが2件残ってしまう。
+  let matchedJournalId = journal_id || null;
+  if (!matchedJournalId) {
+    try {
+      matchedJournalId = await trySingleMatch({
+        accessToken,
+        evidence: {
+          ocr_date: ocr_date || null,
+          ocr_amount: ocr_amount != null ? Number(ocr_amount) : null,
+          ocr_currency: currency,
+          ocr_vendor: ocr_vendor || null,
+          mf_file_id: null,
+        },
+      });
+    } catch (e) {
+      // マッチング判定の失敗はawaiting_matchへのフォールバックを妨げない
+    }
+  }
+
+  if (!matchedJournalId) {
+    // その場では見つからなかった。即座に未紐付けで送ると二重アップロード問題が起きる
+    // ため、まだMFへは送らずawaiting_match（マッチ待ち）として保留する。日次の
+    // processAwaitingMatchが見つかるまで再チェックし続ける（自動フォールバックは無し）。
+    try {
+      const evidence = await insertEvidence({
+        file_name,
+        ocr_date: ocr_date || null,
+        ocr_amount: ocr_amount || null,
+        ocr_currency: currency,
+        ocr_vendor: ocr_vendor || null,
+        storage_path: storagePath,
+        mf_file_id: null,
+        journal_id: null,
+        status: 'awaiting_match',
+        approved_at: new Date().toISOString(),
+      });
+      res.status(200).json({ ok: true, file_id: null, evidence_id: evidence && evidence.id, matched_journal_id: null, awaiting_match: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: 'evidence_insert_failed' });
+    }
+    return;
+  }
+
   try {
     const mfResult = await postVoucher({
       accessToken,
-      journalId: journal_id,
+      journalId: matchedJournalId,
       fileName: file_name,
       fileDataBase64: file_data,
     });
 
-    const status = journal_id ? 'attached' : 'box_saved';
     // レスポンス形式は {voucher_file_ids: [{file_name, file_id}]}（openapi.yaml PostVouchersResponse）
     const mfFileId =
       (mfResult && Array.isArray(mfResult.voucher_file_ids) && mfResult.voucher_file_ids[0] && mfResult.voucher_file_ids[0].file_id) ||
@@ -178,11 +225,11 @@ module.exports = async (req, res) => {
       ocr_vendor: ocr_vendor || null,
       storage_path: storagePath,
       mf_file_id: mfFileId,
-      journal_id: journal_id || null,
-      status,
+      journal_id: matchedJournalId,
+      status: 'attached',
     });
 
-    res.status(200).json({ ok: true, file_id: mfFileId, evidence_id: evidence && evidence.id });
+    res.status(200).json({ ok: true, file_id: mfFileId, evidence_id: evidence && evidence.id, matched_journal_id: matchedJournalId });
   } catch (e) {
     try {
       await insertEvidence({
@@ -192,7 +239,7 @@ module.exports = async (req, res) => {
         ocr_currency: currency,
         ocr_vendor: ocr_vendor || null,
         storage_path: storagePath,
-        journal_id: journal_id || null,
+        journal_id: matchedJournalId || null,
         status: 'failed',
         error_message: e && e.message ? String(e.message).slice(0, 500) : 'unknown_error',
       });
