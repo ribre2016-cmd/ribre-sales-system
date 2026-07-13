@@ -575,6 +575,7 @@ async function uploadOpenAIFile(ev) {
   return d.id;
 }
 function extractJson(text) {
+  const raw = String(text || '');
   let t = ribreCleanJsonText(text);
   try {
     return JSON.parse(t);
@@ -582,12 +583,19 @@ function extractJson(text) {
   try {
     return JSON.parse(t.replace(/,\s*([}\]])/g, '$1'));
   } catch (e) {}
-  // 文字列値内の生の改行/タブがJSON.parseを失敗させているケースを最後に試す
+  // 文字列値内の生の改行/タブがJSON.parseを失敗させているケースを試す
   try {
     return JSON.parse(ribreRepairJsonControlChars(t));
   } catch (e) {}
   // すべて失敗。原因調査用に生の応答をコンソールへ残す（呼び出し側は
-  // 「解析に失敗しました」しか表示しないため、ここがほぼ唯一の手がかりになる）
+  // 「解析に失敗しました」しか表示しないため、ここがほぼ唯一の手がかりになる）。
+  // ※単一オブジェクトの指示を無視してJSON配列（合計・小計・明細行が混在）が
+  // 返るケースがあるが、要素を自動合算すると合計と内訳の二重計上で誤った金額に
+  // なる実例が確認された（精算書の例: 正しくは¥37,572だが、書類内の合計・小計・
+  // 明細をすべて合算すると¥103,092という架空の値になった）。金額データを誤って
+  // 自動計算するより、素直に失敗させて手入力を促す方が安全なため、配列検出時も
+  // 推測での復元は行わない（プロンプト側で単一の最終合計のみを返すよう強く指示する
+  // ことで発生自体を減らす方針。mfRunOcr/buildOcrPromptを参照）。
   try { console.error('[RIBRE OCR] JSON解析に失敗しました。生の応答:', text); } catch (e) {}
   return null;
 }
