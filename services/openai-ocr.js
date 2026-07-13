@@ -454,6 +454,25 @@ function ribreCleanJsonText(text) {
   t = t.replace(/,\s*([}\]])/g, '$1');
   return t;
 }
+// LLMがJSON文字列値の中に生の改行/タブ(\n本来はエスケープが必要)をそのまま出力することがあり、
+// それだけでJSON.parseが失敗する（精算書等の長い書類でありがち）。文字列内かどうかを
+// エスケープ考慮で追跡し、文字列内の生の制御文字だけをエスケープし直す。
+function ribreRepairJsonControlChars(text) {
+  let out = '';
+  let inString = false;
+  let escaping = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escaping) { out += ch; escaping = false; continue; }
+    if (ch === '\\') { out += ch; escaping = true; continue; }
+    if (ch === '"') { inString = !inString; out += ch; continue; }
+    if (inString && ch === '\n') { out += '\\n'; continue; }
+    if (inString && ch === '\r') { out += '\\r'; continue; }
+    if (inString && ch === '\t') { out += '\\t'; continue; }
+    out += ch;
+  }
+  return out;
+}
 function ribreNormalizeOcrSchema(obj) {
   const src = obj && typeof obj === 'object' ? obj : {};
   const textPool = [
@@ -563,6 +582,13 @@ function extractJson(text) {
   try {
     return JSON.parse(t.replace(/,\s*([}\]])/g, '$1'));
   } catch (e) {}
+  // 文字列値内の生の改行/タブがJSON.parseを失敗させているケースを最後に試す
+  try {
+    return JSON.parse(ribreRepairJsonControlChars(t));
+  } catch (e) {}
+  // すべて失敗。原因調査用に生の応答をコンソールへ残す（呼び出し側は
+  // 「解析に失敗しました」しか表示しないため、ここがほぼ唯一の手がかりになる）
+  try { console.error('[RIBRE OCR] JSON解析に失敗しました。生の応答:', text); } catch (e) {}
   return null;
 }
 async function runOcr() {

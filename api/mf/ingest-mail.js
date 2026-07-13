@@ -181,19 +181,49 @@ async function uploadOpenAiFile({ decodedBytes, fileName, contentType }) {
 }
 
 // コードフェンス除去してJSON.parse。失敗したら{}扱い（OCR失敗はエラーにせずnull続行のため）
+// LLMがJSON文字列値の中に生の改行/タブをそのまま出力することがあり、
+// それだけでJSON.parseが失敗する（長い書類でありがち）。文字列内かどうかを
+// エスケープ考慮で追跡し、文字列内の生の制御文字だけをエスケープし直す。
+// pages/mf-evidence.js / services/openai-ocr.js の ribreRepairJsonControlChars と同一ロジック。
+function repairJsonControlChars(text) {
+  let out = '';
+  let inString = false;
+  let escaping = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escaping) { out += ch; escaping = false; continue; }
+    if (ch === '\\') { out += ch; escaping = true; continue; }
+    if (ch === '"') { inString = !inString; out += ch; continue; }
+    if (inString && ch === '\n') { out += '\\n'; continue; }
+    if (inString && ch === '\r') { out += '\\r'; continue; }
+    if (inString && ch === '\t') { out += '\\t'; continue; }
+    out += ch;
+  }
+  return out;
+}
+
 function extractOcrJson(text) {
   if (!text || typeof text !== 'string') return {};
-  const stripped = text
+  let stripped = text
     .trim()
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/, '')
     .replace(/```\s*$/, '')
     .trim();
+  // 前後にモデルの説明文が付くケースに備え、最初の{〜最後の}だけを取り出す
+  const start = stripped.indexOf('{');
+  const end = stripped.lastIndexOf('}');
+  if (start >= 0 && end > start) stripped = stripped.slice(start, end + 1);
+  stripped = stripped.replace(/,\s*([}\]])/g, '$1');
   try {
     return JSON.parse(stripped);
-  } catch (e) {
-    return {};
-  }
+  } catch (e) {}
+  try {
+    return JSON.parse(repairJsonControlChars(stripped));
+  } catch (e) {}
+  // すべて失敗。原因調査用にVercelのログへ生の応答を残す
+  console.error('[MF ingest-mail] OCR JSON解析に失敗しました。生の応答:', text);
+  return {};
 }
 
 // pages/mf-evidence.js mfRunOcr() と同一仕様: model gpt-4.1-mini, temperature 0
