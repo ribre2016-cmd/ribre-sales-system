@@ -1,4 +1,11 @@
 /* RIBRE — Supabase PostgREST（Phase2 続き: index.html から分離。ロジックは同一） */
+/* セッション自動更新について: restHeaders()は本ファイル内(rest())だけでなく
+ * pages/mf-evidence.js・pages/app-v2.js・pages/kobutsu-ledger.js からも
+ * 同期的に `headers: restHeaders()` の形で呼ばれている（非同期化するとそれら
+ * すべての呼び出し元をawait対応に直す必要があり、対象外ファイルの変更になる）。
+ * そのためここでは期限直前チェック(await window.ribreRefreshSession())を
+ * 追加しない。期限切れ対策は services/supabase-auth.js の5分間隔プロアクティブ
+ * タイマー（期限10分前に自動更新）に一本化する。 */
 function restHeaders() {
   const c = sb(),
     s = sess();

@@ -85,10 +85,32 @@
     }, 600);
   }
 
+  // トークン期限切れでゲートを出す直前に、1回だけ自動更新(refresh_token)を試みる。
+  // 成功していれば次のupdate()でゲートを出さずに済む。失敗してもログアウトはしない
+  // （services/supabase-auth.js の ribreRefreshSession() が既存セッションを保持する）。
+  var __gateRefreshTried = false;
+  var __gateRefreshInFlight = false;
+
   function update() {
     var o = document.getElementById('ribreLoginGate');
     if (!o) return;
-    o.style.display = isLoggedIn() ? 'none' : 'flex';
+    if (isLoggedIn()) {
+      __gateRefreshTried = false; // 有効なうちにリセットしておき、次に切れた時また1回試せるようにする
+      o.style.display = 'none';
+      return;
+    }
+    var s = (typeof sess === 'function') ? sess() : {};
+    var hasExpiredSession = !!(s && s.access_token && s.refresh_token); // トークンはあるが期限切れ＝更新の余地あり
+    if (hasExpiredSession && !__gateRefreshTried && !__gateRefreshInFlight && typeof window.ribreRefreshSession === 'function') {
+      __gateRefreshTried = true;
+      __gateRefreshInFlight = true;
+      window.ribreRefreshSession().then(function () {
+        __gateRefreshInFlight = false;
+        update(); // 更新できていればここでゲートが隠れる／できていなければゲートを表示
+      }).catch(function () { __gateRefreshInFlight = false; update(); });
+      return; // 結果が出るまでは現在の表示状態を維持（ちらつき防止。ゲートは出さない）
+    }
+    o.style.display = 'flex';
   }
 
   // ログアウトをフックして、キャッシュ消去 + ゲート表示
