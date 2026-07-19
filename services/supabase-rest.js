@@ -56,50 +56,34 @@ async function cloudCheck() {
     }
   ]);
 }
-function mapSale(x) {
-  return {
-    user_email: email(),
-    user_role: role(),
-    sale_date: x.date,
-    month: x.month,
-    item_name: x.name,
-    shop: x.shop,
-    amount: num(x.amount),
-    fee: 0,
-    shipping: 0,
-    profit: num(x.amount),
-    memo: x.memo || ''
-  };
-}
-function mapPurchase(x) {
-  return {
-    user_email: email(),
-    user_role: role(),
-    purchase_date: x.date,
-    month: x.month,
-    item_name: x.name,
-    vendor: x.vendor,
-    cost: num(x.total),
-    shipping: 0,
-    total: num(x.total),
-    memo: x.memo || ''
-  };
-}
+/* 旧実装（mapSale/mapPurchaseでclient_id無しの配列を毎回POST）は呼ぶたびに
+ * クラウド上の全行を複製していた（実際に3210→6420件へ倍化した事故の原因）。
+ * services/data-store.js の pushSafe()（client_idでのupsert・大量削除ガードつき）へ
+ * 委譲する。ribreStoreが読み込まれていない場合は絶対に生POSTへフォールバックせず、
+ * 何もしない（alertのみ）。関数名・シグネチャはlegacy.htmlのonclickが依存しているため維持する。 */
 async function uploadSales() {
   if (!email()) {
     alert('ログインしてください');
     return;
   }
-  const r = await rest('sales', { method: 'POST', body: sales().map(mapSale) });
-  afterUpload(r, '売上');
+  if (!(window.ribreStore && typeof window.ribreStore.pushSafe === 'function')) {
+    alert('安全な同期モジュール（ribreStore）が読み込まれていないため、同期を中止しました。ページを再読み込みしてください');
+    return;
+  }
+  const r = await window.ribreStore.pushSafe();
+  afterUpload(r && r.ok ? { data: r } : { error: { message: (r && (r.reason || r.error)) || '不明なエラー' } }, '売上');
 }
 async function uploadPurchases() {
   if (!email()) {
     alert('ログインしてください');
     return;
   }
-  const r = await rest('purchases', { method: 'POST', body: purchases().map(mapPurchase) });
-  afterUpload(r, '仕入');
+  if (!(window.ribreStore && typeof window.ribreStore.pushSafe === 'function')) {
+    alert('安全な同期モジュール（ribreStore）が読み込まれていないため、同期を中止しました。ページを再読み込みしてください');
+    return;
+  }
+  const r = await window.ribreStore.pushSafe();
+  afterUpload(r && r.ok ? { data: r } : { error: { message: (r && (r.reason || r.error)) || '不明なエラー' } }, '仕入');
 }
 function afterUpload(r, name) {
   if (r.error) {

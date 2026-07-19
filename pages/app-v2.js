@@ -3430,10 +3430,10 @@ function appvTaxShareRandToken() {
     crypto.getRandomValues(arr);
     return Array.prototype.map.call(arr, (b) => b.toString(16).padStart(2, '0')).join('');
   } catch (e) {
-    // フォールバック（crypto.getRandomValues非対応環境向け。通常は到達しない）
-    let s = '';
-    for (let i = 0; i < 32; i++) s += Math.floor(Math.random() * 16).toString(16);
-    return s;
+    // crypto.getRandomValues非対応環境ではMath.random()由来の推測可能なトークンを
+    // 発行しない（税理士向け共有リンクの認証情報になるため）。呼び出し元
+    // appvTaxShareUpdateはtry/catchでエラーを捕捉しトースト表示するので、ここは投げるだけでよい。
+    throw new Error('この環境では安全な乱数を生成できないため共有リンクを作成できません');
   }
 }
 /* 現在の共有URLを返す。token未作成ならnull。
@@ -3984,6 +3984,10 @@ async function appvInsertRow(kind, date, name, partner, amount, memoRaw) {
     const a = sales();
     a.unshift(row);
     setLS(LS.sales, a);
+    // ribre_yahoo_sales240側にも同じ行を追加する（appvSyncYahoo同様の理由。これが無いと
+    // CSV取込のappvYSaveがyahoo240起点でLS.salesを丸ごと置換した際、手入力したこの行が消える＝
+    // クラウドのreconcileでも削除扱いになる C1事故と同じ経路）
+    appvSyncYahoo(row, row.shop, 'insert');
   } else {
     // 仕入・経費は同形（addPurchaseと同一）。経費のみメモ先頭に[経費]タグを付与して区別する。
     const memo = kind === 'expense' ? ('[経費] ' + memoRaw).trim() : memoRaw;
@@ -4011,13 +4015,19 @@ async function appvInsertRow(kind, date, name, partner, amount, memoRaw) {
 /* ribre_yahoo_sales240側の同期（旧: app-simple.js smpSyncYahoo 2941-2953行目と同一。
  * id/itemId一致で同一行を特定し、編集時はshopのみ反映、削除時は同一行を削除する。
  * これが無いと data-store.js の canonical() が旧ストアに残った行を拾い、
- * 削除済み・変更前の内容がクラウド同期で復活する）。 */
+ * 削除済み・変更前の内容がクラウド同期で復活する）。
+ * mode='insert'（appvInsertRow用に追加）：一致する行がまだ無いはずの新規行を先頭に追加する。
+ * appvYSave（CSV取込の保存経路）がyahoo240を基準にLS.salesを丸ごと置換するため、
+ * 手入力行もyahoo240側に存在させておかないと次のCSV取込で消えてしまう。 */
 function appvSyncYahoo(rec, shop, mode) {
   try {
     const key = 'ribre_yahoo_sales240';
     const arr = JSON.parse(localStorage.getItem(key) || '[]');
     const match = (r) => (rec.id && r.id === rec.id) || (rec.itemId && r.itemId === rec.itemId);
-    if (mode === 'delete') {
+    if (mode === 'insert') {
+      if (!arr.some(match)) arr.unshift(rec);
+      localStorage.setItem(key, JSON.stringify(arr));
+    } else if (mode === 'delete') {
       localStorage.setItem(key, JSON.stringify(arr.filter((r) => !match(r))));
     } else {
       // 旧smpSyncYahooはshopのみ更新だったが、新UIの編集は金額・日付・商品名・メモも変更できるため
@@ -4707,6 +4717,10 @@ function appvCloseMonth() {
   });
   if (changed > 0) {
     setLS(LS.sales, s);
+    // yahoo240側にも[LOCK]付与後のmemoを反映（appvUpdateRowと同じ理由。ここを怠ると、
+    // 後日のYahoo CSV再取込でLS.salesがyahoo240基準の配列へ丸ごと置換された際に
+    // ロックが巻き戻る恐れがある＝月ロック自体の意味が壊れる）
+    s.forEach((x) => { if ((x.month || String(x.date || '').slice(0, 7)) === month && String(x.memo || '').includes('[LOCK]')) appvSyncYahoo(x, x.shop, 'edit'); });
     appvToast('✅ ' + label + 'を月締めしました（' + changed + '件）');
     appvRenderCloseChecklist();
     appvRenderHomeClosedBadge();
@@ -4724,15 +4738,22 @@ function appvReopenMonth() {
   try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv reopenMonth ' + month); } catch (e) {}
   const s = sales();
   let changed = 0;
+  const touchedIdx = [];
   s.forEach((x, idx) => {
     if ((x.month || String(x.date || '').slice(0, 7)) !== month) return;
     const memo = String(x.memo || '');
     if (!memo.includes('[LOCK]')) return;
     s[idx].memo = memo.replace(/\s*\/\s*\[LOCK\]/g, '').replace(/\[LOCK\]\s*\/\s*/g, '').replace('[LOCK]', '').trim();
     changed++;
+    touchedIdx.push(idx);
   });
   if (changed > 0) {
     setLS(LS.sales, s);
+    // yahoo240側にも[LOCK]解除後のmemoを反映（appvCloseMonthと対称。ここが無いと
+    // yahoo240には古い[LOCK]付きmemoが残り、data-store.js canonical()自体はLS.sales優先で
+    // 影響しないが、後日のYahoo CSV再取込でyahoo240起点にLS.salesが置換されると
+    // 解除したはずのロックが復活する）
+    touchedIdx.forEach((idx) => appvSyncYahoo(s[idx], s[idx].shop, 'edit'));
     appvToast('✅ ' + label + 'の締めを解除しました（' + changed + '件）');
     appvRenderCloseChecklist();
     appvRenderHomeClosedBadge();
@@ -5009,6 +5030,7 @@ function appvMatchShipping() {
   if (!ships.length) return { error: '先に配送CSVを取込してください' };
   let matched = 0, unmatched = 0;
   const unmatchedList = [];
+  const touched = [];
   ships.forEach((sh) => {
     let target = null;
     if (sh.itemId) target = s.find((x) => appvShipIdHit(x, sh.itemId));
@@ -5020,12 +5042,18 @@ function appvMatchShipping() {
       target.deliveryCompany = sh.company;
       target.matchStatus = '配送CSV一致';
       matched++;
+      touched.push(target);
     } else {
       unmatched++;
       unmatchedList.push({ company: sh.company, itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping });
     }
   });
   setLS(LS.sales, s);
+  // yahoo240側にも配送照合結果(送料/利益/伝票/配送会社/一致ステータス)を反映。
+  // appvSyncYahooShip（appvManualShippingの手入力と同じ経路）を再利用し、後日のYahoo/配送CSV
+  // 再取込でLS.salesがyahoo240起点に丸ごと置換された際に照合結果が巻き戻らないようにする
+  // （appvManualShippingは既に同じ理由でミラーしているが、自動照合側は抜けていたため追加）。
+  touched.forEach((x) => appvSyncYahooShip(x, x.shipping, x.profit));
   const salesResults = s.map((x) => {
     const shipped = Number(x.shipping || 0) > 0;
     const csvMatched = x.matchStatus === '配送CSV一致' && shipped;
@@ -5198,7 +5226,15 @@ function appvSyncYahooShip(rec, ship, profit) {
     const key = 'ribre_yahoo_sales240';
     const arr = JSON.parse(localStorage.getItem(key) || '[]');
     const match = (r) => (rec.id && r.id === rec.id) || (rec.itemId && r.itemId === rec.itemId);
-    arr.forEach((r) => { if (match(r)) { r.shipping = ship; r.ship = ship; r.profit = profit; if (ship > 0) r.matchStatus = '手入力'; } });
+    arr.forEach((r) => {
+      if (!match(r)) return;
+      r.shipping = ship; r.ship = ship; r.profit = profit;
+      // recが既にmatchStatus/slip/deliveryCompanyを持っていれば併せて反映する
+      // （appvMatchShippingの自動照合='配送CSV一致'、appvManualShippingの手入力='手入力'の両方から呼ばれる）
+      if (rec.matchStatus != null) r.matchStatus = rec.matchStatus;
+      if (rec.slip != null) r.slip = rec.slip;
+      if (rec.deliveryCompany != null) r.deliveryCompany = rec.deliveryCompany;
+    });
     localStorage.setItem(key, JSON.stringify(arr));
   } catch (e) {}
 }
@@ -5537,13 +5573,31 @@ function appvBackupImport(file) {
   rd.readAsText(file);
 }
 
-/* ---- 手動同期 ---- */
+/* ---- 手動同期 ----
+ * 大量削除ガード（data-store.js reconcile: 5件超かつ既存の20%超の削除は自動では実行せず
+ * pendingDeletesとして保留する）の承認はここが唯一の入口。旧UI app-simple.js smpCloudSave
+ * 828-834行目と同一パターン：件数を示して確認し、承認されたときだけ
+ * pushSafe({ allowMassDelete: true }) を再実行する（自動保存では確認しない＝安全側）。 */
 async function appvManualPush() {
   const statusEl = document.getElementById('manualSyncStatus');
   if (statusEl) statusEl.textContent = '同期中…';
   if (!(window.ribreStore && window.ribreStore.pushSafe)) { if (statusEl) statusEl.textContent = '⚠️ 同期機能が使えません'; return; }
   try {
-    const r = await window.ribreStore.pushSafe();
+    let r = await window.ribreStore.pushSafe();
+    if (r && r.ok && r.pendingDeletes > 0) {
+      const approve = confirm(
+        'クラウドから ' + r.pendingDeletes + ' 件の削除が保留されています。\n\n' +
+        '本当にこの端末に無い ' + r.pendingDeletes + ' 件をクラウドからも削除しますか？\n' +
+        '（心当たりがない場合は「キャンセル」を押し、「クラウドから最新を取得」で読み直してください）'
+      );
+      if (approve) {
+        r = await window.ribreStore.pushSafe({ allowMassDelete: true });
+      } else {
+        if (statusEl) statusEl.textContent = '⚠️ 削除' + r.pendingDeletes + '件は保留中です（再読み込みで復活します。承認する場合はもう一度「同期」を押してください）';
+        appvToast('⚠️ 削除' + r.pendingDeletes + '件は保留中です（承認するまでクラウドには残ります）');
+        return;
+      }
+    }
     if (statusEl) statusEl.textContent = r && r.ok ? '✅ クラウドに同期しました（' + new Date().toLocaleString('ja-JP') + '）' : '⚠️ 同期に失敗しました: ' + (r && (r.reason || r.error) || '不明なエラー');
     appvToast(r && r.ok ? '✅ クラウドに同期しました' : '⚠️ 同期に失敗しました');
   } catch (e) {

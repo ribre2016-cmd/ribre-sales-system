@@ -87,14 +87,18 @@ async function ver320SyncNow() {
   ver320Set('ver320SyncStatus', '同期中');
   const rows = [];
   try {
-    if (typeof uploadSales === 'function') {
-      await uploadSales();
-      rows.push({ type: '売上', msg: '売上をクラウド同期しました' });
+    // 旧実装はuploadSales()→uploadPurchases()の順に呼んでいたが、
+    // services/supabase-rest.jsの両関数は今はどちらもwindow.ribreStore.pushSafe()
+    // （売上・仕入を1回でまとめてreconcileする）に委譲しているため、続けて2回呼ぶのは
+    // 無駄（2回目は差分なしの空振り）。ここでは1回だけ呼ぶ。
+    if (!(window.ribreStore && typeof window.ribreStore.pushSafe === 'function')) {
+      throw new Error('安全な同期モジュール（ribreStore）が読み込まれていないため、同期を中止しました');
     }
-    if (typeof uploadPurchases === 'function') {
-      await uploadPurchases();
-      rows.push({ type: '仕入', msg: '仕入をクラウド同期しました' });
+    const pr = await window.ribreStore.pushSafe();
+    if (!(pr && pr.ok)) {
+      throw new Error((pr && (pr.reason || pr.error)) || '同期に失敗しました');
     }
+    rows.push({ type: '売上・仕入', msg: '売上・仕入をクラウド同期しました' + (pr.pendingDeletes ? '（削除' + pr.pendingDeletes + '件は保留中。app-v2「設定→手動同期」から承認できます）' : '') });
     const at = new Date().toLocaleString('ja-JP');
     localStorage.setItem('ribre_last_sync320', at);
     ver320ClearDirty();
