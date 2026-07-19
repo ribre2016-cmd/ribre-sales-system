@@ -3,6 +3,62 @@
 このファイルは、Claude（AIアシスタント）がこのプロジェクトに加えた変更の記録です。
 新しい変更は上に追記します。
 
+## 2026-07-19 全体レビュー（5観点並列）→ CRITICAL/HIGH指摘の一括修正
+
+ユーザー指示「全体をくまなくレビューし100点になるように」により、5観点（APIセキュリティ/
+MFマッチングロジック/クライアントデータ整合性/SQL・RLS/証憑UI+OCR）の並列レビューを実施。
+全指摘をコード行レベルで裏取りし、以下を修正した。
+
+**P1: データ消失根絶（CRITICAL）**
+- C1: 通常モード手入力の売上行がLS.salesのみに書かれ、ヤフオクCSV取込のappvYSave
+  （yahoo240起点でLS.salesを丸ごと置換）で消えて次のreconcileでクラウドからも削除される
+  事故経路を修正。appvInsertRowにappvSyncYahoo('insert')ミラーを追加。監査で見つかった
+  同種のミラー漏れ（月締め/締め解除/配送CSV自動照合）も修正
+- C2: 旧アップロード経路uploadSales/uploadPurchases（client_idなし生POST＝呼ぶたび全行複製。
+  2026-07-01の3210→6420件倍化事故と同一機構）をdata-store.jsのpushSafe()委譲へ書き換え。
+  生POSTには二度と到達しない。ver320自動同期も同様に委譲化
+- H1: 新UI（appvManualPush）に大量削除の承認フローを追加（pendingDeletes>0でconfirm→
+  allowMassDelete再実行。従来は旧ページにしか承認手段がなく、保留削除がリロードで復活していた）
+- appvTaxShareRandTokenのMath.randomフォールバック廃止（安全な乱数が使えない環境ではエラー）
+
+**P2: MF二重送信の構造的根絶（HIGH）**
+- claimEvidence（条件付きPATCH status=eq.元status）を新設し、attachEvidenceToJournalを
+  「DB先行claim→Storage取得→MF送信→mf_file_id記録（ベストエフォート）」の順に再構築。
+  0行更新=他プロセス処理済みならMFへ送信しない。失敗時は元statusへ復帰。
+  cron毎時実行・手動マッチング・再送の同時実行でも二重送信が構造的に不可能に
+- 同一実行内で添付済みの仕訳を後続証憑の候補から除外（従来はマーカーだけで実質機能せず）
+- runManualMatchにstatus='attached'ガード（already_attachedエラー）
+- 送信ボタンをconfirmダイアログより前に無効化＋in-flightガード（二重クリック窓の封鎖）
+- ファイル上限5MB→3MB（base64膨張4/3×Vercelリクエスト上限4.5MBのため5MBは必ず失敗していた）。
+  Gmail取込も3MB超をスキップ＋ログ（従来は7日間15分おき無限リトライ）
+- OCRレース修正（別ファイル貼り付け時に古いOCR結果がフォームを上書きしない）、
+  日付/金額未入力時の送信confirm、プレビューモーダルのリスナーリーク修正、
+  状態フィルタに「マッチ待ち」追加
+
+**P3: セキュリティ隔離（ユーザーがSupabase SQL Editorで実行済み）**
+- supabase_mf_owner_rls.sql: mf_evidenceの全開放ポリシー（authenticated using(true)×3本）を
+  RIBREメンバーのメール許可リスト方式へ置換（共有プロジェクトの同居アプリから遮断）。
+  当初user_email一致方式で実装したが実運用ログインがk.sado@ribre.co.jpのため台帳が
+  空表示になり、許可リスト方式へ即日変更。content_hashにunique制約追加（重複0件確認済み）
+- tax-shareトークン検証強化（regex {32,64}・SHA-256+timingSafeEqual比較）
+
+**P4: 運用可視化＋Proプラン活用**
+- auto-matchのSlack通知を失敗時にも送るよう変更（従来は成功時のみで、MF連携が壊れても
+  永久に無通知だった）
+- CRON_SECRET/MAIL_INGEST_SECRETの比較をtimingSafeEqual化
+- OCRプロンプトの「今日」とカバー率の対象月をJST化（従来UTC: JST朝9時まで前日/前月扱い）
+- ingest-mailの金額0保全（||nullで0がnullになっていた）・ボディサイズ上限追加
+- vercel.json: auto-matchを日次→毎時化（Pro移行による）。netlify.toml削除（死に設定）
+- CLAUDE.md: 制約#1をPro前提に書き換え、claim必須(#11)・RLSメンバー方式(#12)を追加
+
+**テスト**: 全5スイート（auth 14グループ/currency-dup-match 29/no-double-upload 39
+〔claim対応で書き換え＋claim競合・revert・同一仕訳除外の新規3ケース追加〕/ocr-repair 3/
+ocr-array-repair 6）パス。全13ファイルnode --check OK。RLSは本番の実画面で台帳表示を確認済み。
+
+**レビューで確認した非問題（記録）**: 未認証者から突ける穴なし・SSRF/インジェクション/CORS
+問題なし・シークレット混入なし・OAuth state設計は堅牢・mf_tokens/StorageはRLS deny-all適切。
+Vercelのcache-controlはmax-age=0のため?v=キャッシュバスティングは実質不要。
+
 ## 2026-07-13 (続き2) MF証憑OCR: 「配列を自動合算」は誤りだったため撤回。安全に失敗する仕様に訂正
 
 直前のエントリ（下記「真の原因判明→合算して修復」）で実装した**自動合算は誤りだった**。

@@ -16,13 +16,21 @@ const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const OPENAI_FILES_URL = 'https://api.openai.com/v1/files';
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
+const MAX_BODY_BYTES = 8 * 1024 * 1024; // 8MB（base64エンコードされたファイルを含むリクエストボディ全体の上限）
 const MAX_FILE_NAME_LENGTH = 255;
 const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'application/pdf'];
 const MF_STORAGE_BUCKET = 'mf-evidence';
 
+// JST(UTC+9)基準の現在時刻をISO文字列で返す。VercelはUTCで動作するため、
+// そのままnew Date()を使うとJST 0:00〜8:59の間は日付が1日ズレる
+// （OCRプロンプトの「今日」やあり得ない年の判定に影響する）。
+function nowJstIso() {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString();
+}
+
 // pages/mf-evidence.js の mfRunOcr() と同一仕様のプロンプト・schema
 function buildOcrPrompt() {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = nowJstIso().slice(0, 10);
   return (
     'あなたは日本の証憑OCRです。必ずJSONのみ返してください。説明文は禁止。推測は禁止。存在しない値は null。' +
     '出力schemaは次のみ: {"date":"","amount":0,"currency":"JPY","storeName":""}。' +
@@ -50,8 +58,18 @@ function sanitizeCurrency(cur) {
 function sanitizeOcrDate(date) {
   if (!date) return null;
   const y = Number(String(date).slice(0, 4));
-  const nowY = new Date().getFullYear();
+  const nowY = Number(nowJstIso().slice(0, 4));
   return y >= nowY - 1 && y <= nowY + 1 ? date : null;
+}
+
+// タイミング攻撃対策: 文字列を直接 !== 比較すると、不一致が見つかった位置によって
+// 処理時間にごくわずかな差が出て、シークレットを推測される余地が生まれる
+// （timing attack）。SHA256でハッシュ化した上でcrypto.timingSafeEqualを使い、
+// 桁数が違う入力でも安全に定時間比較する。
+function timingSafeEqualStr(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a || '')).digest();
+  const hb = crypto.createHash('sha256').update(String(b || '')).digest();
+  return crypto.timingSafeEqual(ha, hb);
 }
 
 function supabaseHeaders() {
@@ -63,10 +81,18 @@ function supabaseHeaders() {
   };
 }
 
+// リクエストボディ読み取り。base64ファイルを含むため上限(MAX_BODY_BYTES)を設け、
+// 超過時はtooLarge=trueのエラーで reject する（api/openai/responses.js と同一パターン）。
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     if (req.body) {
       if (typeof req.body === 'string') {
+        if (Buffer.byteLength(req.body, 'utf8') > MAX_BODY_BYTES) {
+          const err = new Error('payload_too_large');
+          err.tooLarge = true;
+          reject(err);
+          return;
+        }
         try {
           resolve(JSON.parse(req.body));
         } catch (e) {
@@ -78,10 +104,22 @@ function readJsonBody(req) {
       return;
     }
     let raw = '';
+    let bytes = 0;
+    let aborted = false;
     req.on('data', (chunk) => {
+      if (aborted) return;
+      bytes += chunk.length;
+      if (bytes > MAX_BODY_BYTES) {
+        aborted = true;
+        const err = new Error('payload_too_large');
+        err.tooLarge = true;
+        reject(err);
+        return;
+      }
       raw += chunk;
     });
     req.on('end', () => {
+      if (aborted) return;
       try {
         resolve(raw ? JSON.parse(raw) : {});
       } catch (e) {
@@ -240,7 +278,7 @@ function extractOcrJson(text) {
   return {};
 }
 
-// pages/mf-evidence.js mfRunOcr() と同一仕様: model gpt-4.1-mini, temperature 0
+// pages/mf-evidence.js mfRunOcr() と同一仕様: model gpt-4.1, temperature 0
 // 画像はinput_image(dataURL)、PDFはFiles APIアップロード後にinput_file(file_id)
 // OCR失敗はエラーにせず {date:null, amount:null, storeName:null} を返して続行する
 async function runOcr({ decodedBytes, contentType, fileName }) {
@@ -287,7 +325,8 @@ async function runOcr({ decodedBytes, contentType, fileName }) {
     const parsed = extractOcrJson(text);
     return {
       date: sanitizeOcrDate(parsed.date),
-      amount: parsed.amount || null,
+      // amount:0（正当な0円の証憑）を誤ってnullに落とさないようNumber.isFiniteで判定する
+      amount: Number.isFinite(parsed.amount) ? parsed.amount : null,
       currency: sanitizeCurrency(parsed.currency),
       storeName: parsed.storeName || null,
     };
@@ -321,7 +360,7 @@ module.exports = async (req, res) => {
   }
 
   const providedSecret = req.headers && (req.headers['x-ingest-secret'] || req.headers['X-Ingest-Secret']);
-  if (providedSecret !== MAIL_INGEST_SECRET) {
+  if (!providedSecret || !timingSafeEqualStr(providedSecret, MAIL_INGEST_SECRET)) {
     res.status(401).json({ ok: false, error: 'unauthorized' });
     return;
   }
@@ -330,6 +369,10 @@ module.exports = async (req, res) => {
   try {
     body = await readJsonBody(req);
   } catch (e) {
+    if (e && e.tooLarge) {
+      res.status(413).json({ ok: false, error: 'payload_too_large' });
+      return;
+    }
     res.status(400).json({ ok: false, error: 'invalid_json' });
     return;
   }
@@ -419,7 +462,8 @@ module.exports = async (req, res) => {
     const evidence = await insertEvidence({
       file_name: finalFileName,
       ocr_date: ocr.date || null,
-      ocr_amount: ocr.amount || null,
+      // amount:0（正当な0円の証憑）を誤ってnullに落とさないようNumber.isFiniteで判定する
+      ocr_amount: Number.isFinite(ocr.amount) ? ocr.amount : null,
       ocr_currency: ocr.currency || 'JPY',
       ocr_vendor: ocr.storeName || null,
       storage_path: storagePath,

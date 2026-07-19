@@ -9,7 +9,7 @@
     },
     {
       "path": "/api/mf/auto-match",
-      "schedule": "0 22 * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }

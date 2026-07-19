@@ -9,12 +9,11 @@ function isValidYearMonth(month) {
   return typeof month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(month);
 }
 
-// 当月(JST基準ではなくサーバーローカル時刻基準。VercelはUTCだが年月単位のため実用上問題なし)を返す
+// JST(UTC+9)基準の当月('YYYY-MM')を返す。VercelはUTCで動くため、素のUTC年月だと
+// JST 0:00〜8:59の間（例: 月初0:00〜8:59）は前月扱いのままになってしまう。
 function currentYearMonth() {
-  const d = new Date();
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
+  const jstIso = new Date(Date.now() + 9 * 3600 * 1000).toISOString();
+  return jstIso.slice(0, 7);
 }
 
 // 'YYYY-MM' の月初/月末日付('YYYY-MM-DD')を返す

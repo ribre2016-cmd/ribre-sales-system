@@ -3,6 +3,7 @@
 // 認証: (1) Vercel Cronからの実行（Authorization: Bearer CRON_SECRET一致） (2) ログイン済みユーザー のいずれか
 'use strict';
 
+const crypto = require('crypto');
 const { getAccessToken, NotConnectedError } = require('./_lib/mf-client');
 const { verifySupabaseToken } = require('../openai/_lib/require-auth');
 const { computeCoverage, currentYearMonth } = require('./_lib/mf-coverage');
@@ -42,10 +43,20 @@ async function countBoxMetaPending() {
   return Array.isArray(rows) ? rows.length : 0;
 }
 
+// タイミング攻撃対策: 文字列を直接 !== 比較すると、不一致が見つかった位置によって
+// 処理時間にごくわずかな差が出て、シークレットを推測される余地が生まれる
+// （timing attack）。SHA256でハッシュ化した上でcrypto.timingSafeEqualを使い、
+// 桁数が違う入力でも安全に定時間比較する。
+function timingSafeEqualStr(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a || '')).digest();
+  const hb = crypto.createHash('sha256').update(String(b || '')).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
 function isValidCronRequest(req) {
   const auth = req.headers && (req.headers.authorization || req.headers.Authorization);
   if (!auth || !CRON_SECRET) return false;
-  return auth === `Bearer ${CRON_SECRET}`;
+  return timingSafeEqualStr(auth, `Bearer ${CRON_SECRET}`);
 }
 
 function buildSlackMessage({ month, coverage }) {
