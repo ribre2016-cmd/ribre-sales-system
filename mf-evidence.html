@@ -33,7 +33,7 @@
 <main>
   <div class="panel">
     <h2>証憑を貼り付け・ドロップ</h2>
-    <div class="safe-hint ok">画面のどこでも <b>Ctrl+V</b> で貼り付け、またはファイルをドラッグ＆ドロップできます（PNG/JPG/PDF、5MBまで）</div>
+    <div class="safe-hint ok">画面のどこでも <b>Ctrl+V</b> で貼り付け、またはファイルをドラッグ＆ドロップできます（PNG/JPG/PDF、3MBまで）</div>
     <div id="mfDropZone" class="mf-dropzone">
       <div>ここにドラッグ＆ドロップ</div>
       <div style="margin:8px 0;color:#94a3b8;font-weight:700">または</div>
@@ -108,6 +108,7 @@
         <select id="mfFilterStatus">
           <option value="">全て</option>
           <option value="pending">送信前</option>
+          <option value="awaiting_match">マッチ待ち</option>
           <option value="box_saved">Box保存済</option>
           <option value="attached">仕訳添付済</option>
           <option value="failed">失敗</option>

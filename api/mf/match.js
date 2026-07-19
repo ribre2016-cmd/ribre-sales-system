@@ -8,10 +8,18 @@
 const { verifySupabaseToken } = require('../openai/_lib/require-auth');
 const { getAccessToken, NotConnectedError, runAutoMatch, runManualMatch, processAwaitingMatch } = require('./_lib/mf-match-core');
 
+const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1MB（{evidence_id, journal_id}のみでファイル本体を含まない）
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     if (req.body) {
       if (typeof req.body === 'string') {
+        if (Buffer.byteLength(req.body, 'utf8') > MAX_BODY_BYTES) {
+          const err = new Error('payload_too_large');
+          err.tooLarge = true;
+          reject(err);
+          return;
+        }
         try {
           resolve(req.body ? JSON.parse(req.body) : {});
         } catch (e) {
@@ -23,10 +31,22 @@ function readJsonBody(req) {
       return;
     }
     let raw = '';
+    let bytes = 0;
+    let aborted = false;
     req.on('data', (chunk) => {
+      if (aborted) return;
+      bytes += chunk.length;
+      if (bytes > MAX_BODY_BYTES) {
+        aborted = true;
+        const err = new Error('payload_too_large');
+        err.tooLarge = true;
+        reject(err);
+        return;
+      }
       raw += chunk;
     });
     req.on('end', () => {
+      if (aborted) return;
       try {
         resolve(raw ? JSON.parse(raw) : {});
       } catch (e) {
@@ -54,6 +74,10 @@ module.exports = async (req, res) => {
   try {
     body = await readJsonBody(req);
   } catch (e) {
+    if (e && e.tooLarge) {
+      res.status(413).json({ ok: false, error: 'payload_too_large' });
+      return;
+    }
     res.status(400).json({ ok: false, error: 'invalid_json' });
     return;
   }

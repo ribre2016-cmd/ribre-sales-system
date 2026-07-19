@@ -10,13 +10,15 @@
 //  - delete: pending/failed/awaiting_match の行を削除（承認制の却下操作）。MF送信済みの行は削除不可
 'use strict';
 
-const { getAccessToken, postVoucher, NotConnectedError } = require('./_lib/mf-client');
+const crypto = require('crypto');
+const { getAccessToken, NotConnectedError } = require('./_lib/mf-client');
 const { verifySupabaseToken } = require('../openai/_lib/require-auth');
-const { fetchEvidenceById, fetchStorageFileBase64, updateEvidence, trySingleMatch } = require('./_lib/mf-match-core');
+const { fetchEvidenceById, updateEvidence, trySingleMatch, attachEvidenceToJournal } = require('./_lib/mf-match-core');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const MF_STORAGE_BUCKET = 'mf-evidence';
+const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1MB（resend/delete/previewはevidence_idのみでファイル本体を含まない）
 
 function supabaseHeaders() {
   return {
@@ -30,6 +32,12 @@ function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     if (req.body) {
       if (typeof req.body === 'string') {
+        if (Buffer.byteLength(req.body, 'utf8') > MAX_BODY_BYTES) {
+          const err = new Error('payload_too_large');
+          err.tooLarge = true;
+          reject(err);
+          return;
+        }
         try {
           resolve(JSON.parse(req.body));
         } catch (e) {
@@ -41,10 +49,22 @@ function readJsonBody(req) {
       return;
     }
     let raw = '';
+    let bytes = 0;
+    let aborted = false;
     req.on('data', (chunk) => {
+      if (aborted) return;
+      bytes += chunk.length;
+      if (bytes > MAX_BODY_BYTES) {
+        aborted = true;
+        const err = new Error('payload_too_large');
+        err.tooLarge = true;
+        reject(err);
+        return;
+      }
       raw += chunk;
     });
     req.on('end', () => {
+      if (aborted) return;
       try {
         resolve(raw ? JSON.parse(raw) : {});
       } catch (e) {
@@ -105,34 +125,26 @@ async function handleResend(res, evidence) {
     return;
   }
 
+  // 実送信はmf-match-coreのattachEvidenceToJournalに一本化する。内部でDB先行claim
+  // （status=eq.<fromStatus>の条件付きPATCH）を行うため、日次cronのprocessAwaitingMatch
+  // や「マッチング実行」ボタンとこの再送ボタンが同時に走っても、あるいはこの再送ボタンが
+  // 二重クリックされても、MFへの送信そのものが二重に起きることは構造的にない。
   try {
-    const fileDataBase64 = await fetchStorageFileBase64(evidence.storage_path);
-    const mfResult = await postVoucher({
+    const result = await attachEvidenceToJournal({
       accessToken,
+      evidence,
       journalId: matchedJournalId,
-      fileName: evidence.file_name,
-      fileDataBase64,
+      fromStatus: evidence.status,
     });
-    const fileId =
-      (mfResult && Array.isArray(mfResult.voucher_file_ids) && mfResult.voucher_file_ids[0] && mfResult.voucher_file_ids[0].file_id) ||
-      null;
-
-    await updateEvidence(evidence.id, {
-      status: 'attached',
-      journal_id: matchedJournalId,
-      mf_file_id: fileId,
-      error_message: null,
-    });
-
-    res.status(200).json({ ok: true, evidence_id: evidence.id, file_id: fileId, matched_journal_id: matchedJournalId });
-  } catch (e) {
-    try {
-      await updateEvidence(evidence.id, {
-        error_message: e && e.message ? String(e.message).slice(0, 500) : 'unknown_error',
-      });
-    } catch (updateErr) {
-      // 記録失敗はログのみ
+    if (!result.claimed) {
+      // claim失敗＝他プロセスが先にこの証憑を処理済み。二重送信ではなく正常系のスキップ。
+      res.status(200).json({ ok: true, evidence_id: evidence.id, file_id: null, matched_journal_id: matchedJournalId, already_attached: true });
+      return;
     }
+    res.status(200).json({ ok: true, evidence_id: evidence.id, file_id: result.file_id || null, matched_journal_id: matchedJournalId });
+  } catch (e) {
+    // Storage取得/MF送信の失敗はattachEvidenceToJournal内部でfromStatusへ復帰済み
+    // （error_messageも記録済み）なので、ここでは応答のみ返す。
     res.status(502).json({ ok: false, error: 'mf_send_failed' });
   }
 }
@@ -199,9 +211,20 @@ async function handleDelete(res, evidence) {
  * - 共有解除（トークン墓標化）後は即座に新規アクセスが止まる。 */
 const TAX_SHARE_SIGN_EXPIRES_SEC = 24 * 3600;
 
+// タイミング攻撃対策: 生の文字列比較(===)は先頭バイトの不一致で早期リターンするため、
+// 応答時間差からトークンを1バイトずつ推測されうる。両者をSHA-256でハッシュ化した上で
+// crypto.timingSafeEqualを使い、比較にかかる時間が入力に依存しないようにする
+// （ハッシュ化により長さも常に32byteへ揃うため、生成トークンの長さ違いでも安全に比較できる）。
+function safeTokenEquals(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
 async function handleTaxShareList(res, shareToken) {
   const token = String(shareToken || '');
-  if (!/^[a-f0-9]{16,64}$/.test(token)) {
+  // 生成トークンは常に128bit(=32文字)の16進乱数。上限64は将来の桁数変更に対する余裕。
+  if (!/^[a-f0-9]{32,64}$/.test(token)) {
     res.status(400).json({ ok: false, error: 'invalid_token' });
     return;
   }
@@ -214,7 +237,7 @@ async function handleTaxShareList(res, shareToken) {
     const rows = await r.json();
     const hit = (Array.isArray(rows) ? rows : []).find((row) => {
       const share = row && row.value && row.value.data && row.value.data.share;
-      return share && share.token === token;
+      return share && share.token && safeTokenEquals(share.token, token);
     });
     if (!hit) {
       res.status(404).json({ ok: false, error: 'share_not_found' });
@@ -262,6 +285,10 @@ module.exports = async (req, res) => {
   try {
     body = await readJsonBody(req);
   } catch (e) {
+    if (e && e.tooLarge) {
+      res.status(413).json({ ok: false, error: 'payload_too_large' });
+      return;
+    }
     res.status(400).json({ ok: false, error: 'invalid_json' });
     return;
   }

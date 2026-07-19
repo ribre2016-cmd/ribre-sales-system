@@ -6,17 +6,21 @@ function refreshAll() {
   try { mfLoadLedger(); } catch (e) {}
 }
 
-const MF_MAX_FILE_BYTES = 5 * 1024 * 1024;
+// base64化すると元サイズの約4/3に膨張し、かつVercelのサーバーレス関数はリクエストボディが
+// 約4.5MBを超えると失敗する（全プラン共通）。5MBのままだと3.4〜5MBのファイルが
+// クライアント側のチェックは通過するのに送信時に必ず失敗していたため、3MBに下げる。
+const MF_MAX_FILE_BYTES = 3 * 1024 * 1024;
 const MF_ALLOWED_MIME = ['image/png', 'image/jpeg', 'application/pdf'];
 
 let mfCurrentFile = null; // { dataUrl, mime, size, name }
 let mfCurrentOcrCurrency = 'JPY'; // OCRが読み取った通貨(ISO4217)。ドル建て等の請求書を円と誤認しないための表示・送信用
+let mfSendInFlight = false; // MFへの二重送信防止の在席ガード（MFのvouchersは削除不可のため必須）
 
 /* ---------------- ファイル受付 ---------------- */
 
 function mfRejectIfTooBig(file) {
   if (file.size > MF_MAX_FILE_BYTES) {
-    alert('ファイルサイズが5MBを超えています。別のファイルを選択してください。');
+    alert('ファイルサイズが3MBを超えています。別のファイルを選択してください。');
     return true;
   }
   return false;
@@ -35,21 +39,26 @@ function mfReadFileAsDataUrl(file) {
   });
 }
 
+// 取り込んだファイルオブジェクトをreturnする（呼び出し元がOCR待ち後もmfCurrentFileの
+// 差し替えに惑わされず「自分が取り込んだファイル」を特定できるようにするため）
 async function mfIngestFile(file) {
-  if (!file) return;
+  if (!file) return null;
   if (!mfAcceptMime(file.type)) {
     alert('対応形式は PNG / JPG / PDF のみです');
-    return;
+    return null;
   }
-  if (mfRejectIfTooBig(file)) return;
+  if (mfRejectIfTooBig(file)) return null;
   try {
     const dataUrl = await mfReadFileAsDataUrl(file);
-    mfCurrentFile = { dataUrl, mime: file.type, size: file.size, name: file.name || 'evidence' };
+    const ingested = { dataUrl, mime: file.type, size: file.size, name: file.name || 'evidence' };
+    mfCurrentFile = ingested;
     mfCurrentOcrCurrency = 'JPY';
     mfShowPreview();
     await mfRunOcr();
+    return ingested;
   } catch (e) {
     alert('ファイルの読込に失敗しました: ' + e.message);
+    return null;
   }
 }
 
@@ -128,9 +137,12 @@ async function mfImportFromTaxDocs(key, name) {
     const blob = await r.blob();
     const fileName = name || key.split('/').pop() || 'evidence';
     const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
-    await mfIngestFile(file);
-    // MF送信成功時に送信済みマークを付けるため、取り込み元のキーを覚えておく
-    if (mfCurrentFile) mfCurrentFile.taxDocsKey = key;
+    const ingested = await mfIngestFile(file);
+    // MF送信成功時に送信済みマークを付けるため、取り込み元のキーを覚えておく。
+    // mfIngestFile内のOCR待ち中に別ファイルが貼り付けられているとmfCurrentFileは
+    // 別物になっている可能性があるため、必ずmfIngestFileがreturnした「この取り込みの
+    // 対象ファイル」自身にキーを付ける（誤って別ファイルを送信済みマークしないため）
+    if (ingested) ingested.taxDocsKey = key;
   } catch (e) {
     mfToast('保管庫からの取り込みに失敗しました: ' + e.message, 'error');
   }
@@ -197,6 +209,11 @@ function mfSanitizeCurrency(cur) {
 
 async function mfRunOcr() {
   if (!mfCurrentFile) return;
+  // OCRは非同期で時間がかかるため、待っている間に別ファイルが貼り付けられると
+  // mfCurrentFileが差し替わる。この関数が担当するのはfileAtStartの結果だけであり、
+  // 以降フォームへ書き込む直前は必ずmfCurrentFile===fileAtStartを確認してから行う
+  // （古い結果で新しいファイルのフォームを上書きしないため）
+  const fileAtStart = mfCurrentFile;
   mfRenderOcrStatus([{ type: 'OCR', level: 'warn', msg: 'AI読取中です' }]);
   try {
     const prompt =
@@ -257,6 +274,9 @@ async function mfRunOcr() {
     const parsed = typeof window.ribreExtractOcrJson === 'function' ? window.ribreExtractOcrJson(text) : null;
     if (!parsed) throw new Error('OCR結果の解析に失敗しました');
     const norm = typeof window.ribreNormalizeOcrSchema === 'function' ? window.ribreNormalizeOcrSchema(parsed) : parsed;
+    // 待っている間に別ファイルへ切り替わっていたら、この結果は古い（別ファイルの）ものなので
+    // グローバル状態・フォームのどちらにも一切書き込まずに終了する
+    if (mfCurrentFile !== fileAtStart) return;
     // currencyはribreNormalizeOcrSchemaの汎用schemaに無いフィールドのため、正規化前のparsedから直接読む
     mfCurrentOcrCurrency = mfSanitizeCurrency(parsed.currency);
     // あり得ない年（大昔・未来）は誤読とみなして空欄にする（2桁年の元号誤解釈など）
@@ -283,6 +303,9 @@ async function mfRunOcr() {
       mfRenderOcrStatus([{ type: 'OCR', msg: '自動入力しました（内容を確認してください）' }]);
     }
   } catch (e) {
+    // 待っている間に別ファイルへ切り替わっていたら、古いファイルのエラー表示で
+    // 新しいファイルの画面を上書きしない
+    if (mfCurrentFile !== fileAtStart) return;
     mfRenderOcrStatus([{ type: 'OCR', level: 'danger', msg: 'OCR失敗: ' + e.message + '（手入力してください）' }]);
   }
 }
@@ -325,30 +348,45 @@ async function mfSendToMf() {
     alert('証憑ファイルを貼り付け/選択してください');
     return;
   }
-  const date = document.getElementById('mfDate').value || '';
-  const amount = num(document.getElementById('mfAmount').value);
-  const vendor = document.getElementById('mfVendor').value || '';
-  const fileName = document.getElementById('mfFileName').value || mfBuildFileName(date, vendor, amount, mfCurrentOcrCurrency);
-
-  if (mfCurrentOcrCurrency !== 'JPY') {
-    const ok = confirm(
-      '金額欄は' + mfCurrentOcrCurrency + '建ての数値（' + amount + '）のままです。円換算していません。\n' +
-      'このまま送信すると台帳に「' + amount + '円」として記録されます。よろしいですか？\n' +
-      '（円に直す場合はキャンセルして金額欄を書き換えてください）'
-    );
-    if (!ok) return;
-  }
-
-  const dup = await mfFindDuplicate(date, amount);
-  if (dup) {
-    const ok = confirm('同じ日付・金額の証憑が既にあります（' + dup.file_name + '）。それでも送信しますか？');
-    if (!ok) return;
-  }
-
+  // 在席ガード（belt-and-suspenders）: disabled中のボタンは通常クリックイベントが
+  // 発火しないが、念のため二重POSTを防ぐ最終防衛ラインとして持つ
+  if (mfSendInFlight) return;
+  mfSendInFlight = true;
+  // ボタンはconfirm()ダイアログより前、この関数の最初に無効化する。
+  // MFのvouchersは一度作成すると削除できないため、confirm待ちの間の連打・二重クリックで
+  // 二重POSTされる余地を作らない。以降の早期returnも含め、再有効化は必ずfinallyで行う
   const sendBtn = document.getElementById('mfSendBtn');
   sendBtn.disabled = true;
-  mfRenderOcrStatus([{ type: '送信', level: 'warn', msg: 'MFへ送信中...' }]);
   try {
+    const date = document.getElementById('mfDate').value || '';
+    const amount = num(document.getElementById('mfAmount').value);
+    const vendor = document.getElementById('mfVendor').value || '';
+    const fileName = document.getElementById('mfFileName').value || mfBuildFileName(date, vendor, amount, mfCurrentOcrCurrency);
+
+    if (!date || !amount) {
+      const ok = confirm(
+        '取引日または金額が未入力です。このまま送信すると仕訳との自動マッチングができず、' +
+        'ずっと「マッチ待ち」のままになります。送信しますか？'
+      );
+      if (!ok) return;
+    }
+
+    if (mfCurrentOcrCurrency !== 'JPY') {
+      const ok = confirm(
+        '金額欄は' + mfCurrentOcrCurrency + '建ての数値（' + amount + '）のままです。円換算していません。\n' +
+        'このまま送信すると台帳に「' + amount + '円」として記録されます。よろしいですか？\n' +
+        '（円に直す場合はキャンセルして金額欄を書き換えてください）'
+      );
+      if (!ok) return;
+    }
+
+    const dup = await mfFindDuplicate(date, amount);
+    if (dup) {
+      const ok = confirm('同じ日付・金額の証憑が既にあります（' + dup.file_name + '）。それでも送信しますか？');
+      if (!ok) return;
+    }
+
+    mfRenderOcrStatus([{ type: '送信', level: 'warn', msg: 'MFへ送信中...' }]);
     const res = await fetch('/api/mf/vouchers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (sess().access_token || '') },
@@ -385,6 +423,7 @@ async function mfSendToMf() {
     mfToast('送信失敗: ' + e.message, 'error');
   } finally {
     sendBtn.disabled = false;
+    mfSendInFlight = false;
   }
 }
 
@@ -630,7 +669,12 @@ async function mfPreviewEvidence(evidenceId, linkEl) {
 /* プレビューモーダルの表示。×ボタン・背景クリック・Escで閉じる */
 function mfShowPreviewModal({ url, type, fileName }) {
   const old = document.querySelector('.mf-preview-overlay');
-  if (old) old.remove();
+  // remove()だけだと古いオーバーレイのkeydownリスナーとBlob URLが解放されないままリークするため、
+  // 保持しておいたclose()を必ず呼ぶ（無ければ後方互換でremove()にフォールバック）
+  if (old) {
+    if (typeof old.__mfClose === 'function') old.__mfClose();
+    else old.remove();
+  }
 
   const overlay = document.createElement('div');
   overlay.className = 'mf-preview-overlay';
@@ -672,6 +716,7 @@ function mfShowPreviewModal({ url, type, fileName }) {
   function onKey(e) {
     if (e.key === 'Escape') close();
   }
+  overlay.__mfClose = close; // 次回この関数が呼ばれ既存オーバーレイを差し替えるときに使う
   closeBtn.onclick = close;
   overlay.onclick = (e) => {
     if (e.target === overlay) close();

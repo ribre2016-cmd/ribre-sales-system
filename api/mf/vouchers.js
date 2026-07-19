@@ -11,6 +11,9 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
 const MAX_FILE_NAME_LENGTH = 255;
+// リクエストボディ全体の上限。file_dataはbase64化で元バイト数の約4/3に膨らむため、
+// MAX_FILE_BYTES(5MB)にヘッダ等のJSONオーバーヘッド分の余裕を持たせる。
+const MAX_BODY_BYTES = 8 * 1024 * 1024; // 8MB
 
 function supabaseHeaders() {
   return {
@@ -71,6 +74,12 @@ function readJsonBody(req) {
     if (req.body) {
       // Vercelが既にパース済みの場合
       if (typeof req.body === 'string') {
+        if (Buffer.byteLength(req.body, 'utf8') > MAX_BODY_BYTES) {
+          const err = new Error('payload_too_large');
+          err.tooLarge = true;
+          reject(err);
+          return;
+        }
         try {
           resolve(JSON.parse(req.body));
         } catch (e) {
@@ -82,10 +91,22 @@ function readJsonBody(req) {
       return;
     }
     let raw = '';
+    let bytes = 0;
+    let aborted = false;
     req.on('data', (chunk) => {
+      if (aborted) return;
+      bytes += chunk.length;
+      if (bytes > MAX_BODY_BYTES) {
+        aborted = true;
+        const err = new Error('payload_too_large');
+        err.tooLarge = true;
+        reject(err);
+        return;
+      }
       raw += chunk;
     });
     req.on('end', () => {
+      if (aborted) return;
       try {
         resolve(raw ? JSON.parse(raw) : {});
       } catch (e) {
@@ -113,6 +134,10 @@ module.exports = async (req, res) => {
   try {
     body = await readJsonBody(req);
   } catch (e) {
+    if (e && e.tooLarge) {
+      res.status(413).json({ ok: false, error: 'payload_too_large' });
+      return;
+    }
     res.status(400).json({ ok: false, error: 'invalid_json' });
     return;
   }

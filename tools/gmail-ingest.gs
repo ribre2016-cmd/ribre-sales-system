@@ -21,6 +21,11 @@ var GMAIL_SEARCH_QUERY = 'has:attachment -label:MF取込済み newer_than:7d';
 var PROCESSED_LABEL_NAME = 'MF取込済み';
 var MAX_THREADS_PER_RUN = 10; // 1回の実行タイムアウト対策
 var ALLOWED_ATTACHMENT_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
+// base64化すると元サイズの約4/3に膨張し、Vercelのサーバーレス関数はリクエストボディが
+// 約4.5MBを超えると失敗する。3MB超の添付は送信しても必ず失敗し続けるため、
+// ここでスキップしてラベルを付け、7日間毎回リトライされるのを防ぐ。
+// 3MB超は手動で mf-evidence.html から登録する運用（同画面も同じ理由で3MBまで）。
+var MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
 function ingestInvoices() {
   var props = PropertiesService.getScriptProperties();
@@ -62,6 +67,17 @@ function processThread_(thread, ingestUrl, ingestSecret) {
       var blob = attachments[a];
       var contentType = blob.getContentType();
       if (ALLOWED_ATTACHMENT_TYPES.indexOf(contentType) < 0) continue;
+
+      // 3MB超は送信しても必ず失敗する（Vercelのリクエストボディ上限のため）。
+      // allOkは崩さず「処理済み」扱いにしてラベルを付け、毎回リトライされないようにする。
+      // 3MB超は手動で mf-evidence.html から登録する運用。
+      if (blob.getSize() > MAX_ATTACHMENT_BYTES) {
+        Logger.log(
+          '添付サイズ超過のためスキップ: subject=' + subject +
+          ' filename=' + blob.getName() + ' size=' + blob.getSize()
+        );
+        continue;
+      }
 
       var success = sendAttachment_(ingestUrl, ingestSecret, blob, from, subject);
       if (!success) allOk = false;

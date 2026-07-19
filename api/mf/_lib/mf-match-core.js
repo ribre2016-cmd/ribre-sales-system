@@ -64,6 +64,30 @@ async function updateEvidence(id, patch) {
   }
 }
 
+// 条件付き（楽観的）claim: status=eq.<expectedStatus> のときだけpatchを適用する。
+// 0行更新（他プロセスが先にstatusを変えていた＝既にclaimされていた）ならnullを返す。
+// MFのvouchers APIは呼ぶたびに必ず新規ファイルを作成し取り消し不能なため、
+// 「MF送信 → DB更新」の順だと同時実行（日次cron・手動マッチング・再送ボタンの
+// 二重クリック等）で同じ証憑が2回送信されうる。DB側のこの条件付き更新を
+// 「MF送信より先に」行うことで、2つの実行のうち片方だけが行を獲得でき、
+// 送信そのものが構造的に一度しか起きなくなる。
+async function claimEvidence(id, expectedStatus, patch) {
+  const url =
+    `${SUPABASE_URL}/rest/v1/mf_evidence?id=eq.${encodeURIComponent(id)}` +
+    `&status=eq.${encodeURIComponent(expectedStatus)}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { ...supabaseHeaders(), Prefer: 'return=representation' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Supabase mf_evidence claim失敗: HTTP ${res.status} ${text}`);
+  }
+  const rows = await res.json().catch(() => []);
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
 // Storageからファイルを取得しbase64化する
 async function fetchStorageFileBase64(storagePath) {
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${MF_STORAGE_BUCKET}/${storagePath}`, {
@@ -220,7 +244,7 @@ async function trySingleMatch({ accessToken, evidence }) {
     const endDate = addDays(dateStr, FUZZY_MARGIN_DAYS);
     journals = await fetchJournals({ accessToken, startDate, endDate });
   } catch (e) {
-    return null; // 仕訳取得に失敗しても通常の未紐付け送信へフォールバックする
+    return null; // 仕訳取得に失敗した場合はnullを返し、呼び出し側でawaiting_match（マッチ待ち）へフォールバックさせる
   }
   const exact = findCandidates(journals, evidence);
   if (exact.length === 1) return exact[0].id;
@@ -231,7 +255,7 @@ async function trySingleMatch({ accessToken, evidence }) {
   return null;
 }
 
-// 完全一致が0件のときのみ使う緩和マッチ。ocr_dateの前後3日以内で金額一致の仕訳を探す。
+// 完全一致が0件のときのみ使う緩和マッチ。ocr_dateの前後FUZZY_MARGIN_DAYS(14)日以内で金額一致の仕訳を探す。
 // 自動添付はしない（呼び出し側でambiguous扱いにすること）。外貨建ては対象外（findCandidates同様）。
 function findFuzzyCandidates(journals, evidence) {
   if (!isJpyEvidence(evidence)) return [];
@@ -249,7 +273,7 @@ function findFuzzyCandidates(journals, evidence) {
   });
 }
 
-// 第三段: 金額を使わず「取引先名の一致＋日付±7日」で候補を探す。
+// 第三段: 金額を使わず「取引先名の一致＋日付±VENDOR_DATE_MARGIN_DAYS(45)日」で候補を探す。
 // 外貨建て請求書（Anthropic/OpenAI等）は円換算額が読めず金額照合が不可能なため、
 // カード明細の摘要に含まれる加盟店名と証憑の取引先名を突き合わせる。
 // 金額の裏取りができない以上、自動添付は絶対にしない（候補提示のみ）。
@@ -269,23 +293,57 @@ function findVendorDateCandidates(journals, evidence) {
   });
 }
 
-// 証憑をStorageから読み出し、指定仕訳へ添付。成功したらevidence行を更新する。
-async function attachEvidenceToJournal({ accessToken, evidence, journalId }) {
-  const fileDataBase64 = await fetchStorageFileBase64(evidence.storage_path);
-  const mfResult = await postVoucher({
-    accessToken,
-    journalId,
-    fileName: evidence.file_name,
-    fileDataBase64,
-  });
-  const newFileId =
-    (mfResult && Array.isArray(mfResult.voucher_file_ids) && mfResult.voucher_file_ids[0] && mfResult.voucher_file_ids[0].file_id) ||
-    null;
-  await updateEvidence(evidence.id, {
+// 証憑をStorageから読み出し、指定仕訳へ添付する。
+// fromStatusは呼び出し時点でこの証憑行が持っているべきstatus（box_saved/awaiting_match/
+// pending等）。DB先行claimにより二重送信は構造的に不可能になる: MF送信より先に
+// status='attached'への遷移を条件付きPATCH（status=eq.<fromStatus>）で試み、
+// 他プロセス（cron自動マッチ・手動マッチング・再送ボタンの二重クリック等）に
+// 既にclaimされていれば0行更新（claimed:false）となり、この呼び出しはMFへは
+// 一切送信しない。
+// 失敗時（Storage取得/MF送信のいずれかで例外）はclaim済みのstatusをfromStatusへ戻す
+// （ベストエフォート・失敗してもconsole.errorのみでrethrowしない）。取り消し不能な
+// MF二重ファイルより、再送可能な「未送信のまま」の方が安全という判断。
+// 戻り値: 他プロセスに先を越されていた場合は {claimed:false}。
+//         成功時は {claimed:true, file_id}（mf_file_idの記録はベストエフォートで、
+//         それが失敗してもMF送信自体は成功しているためstatus='attached'は維持する）。
+async function attachEvidenceToJournal({ accessToken, evidence, journalId, fromStatus }) {
+  const claimed = await claimEvidence(evidence.id, fromStatus, {
     status: 'attached',
     journal_id: journalId,
-    mf_file_id: newFileId || evidence.mf_file_id || null,
   });
+  if (!claimed) {
+    return { claimed: false };
+  }
+
+  try {
+    const fileDataBase64 = await fetchStorageFileBase64(evidence.storage_path);
+    const mfResult = await postVoucher({
+      accessToken,
+      journalId,
+      fileName: evidence.file_name,
+      fileDataBase64,
+    });
+    const newFileId =
+      (mfResult && Array.isArray(mfResult.voucher_file_ids) && mfResult.voucher_file_ids[0] && mfResult.voucher_file_ids[0].file_id) ||
+      null;
+    try {
+      await updateEvidence(evidence.id, { mf_file_id: newFileId || evidence.mf_file_id || null });
+    } catch (patchErr) {
+      // mf_file_idの記録失敗はログのみ。MF送信自体は成功済みなのでstatus='attached'は覆さない。
+      console.error('attachEvidenceToJournal: mf_file_id記録に失敗（MF送信自体は成功済み）', patchErr);
+    }
+    return { claimed: true, file_id: newFileId };
+  } catch (e) {
+    try {
+      await updateEvidence(evidence.id, {
+        status: fromStatus,
+        error_message: e && e.message ? String(e.message).slice(0, 500) : 'unknown_error',
+      });
+    } catch (revertErr) {
+      console.error('attachEvidenceToJournal: fromStatusへの復帰に失敗', revertErr);
+    }
+    throw e;
+  }
 }
 
 // 自動モード: box_saved かつ storage_path ありの証憑をまとめてマッチング・添付する
@@ -318,6 +376,11 @@ async function runAutoMatch(accessToken) {
     })),
   };
 
+  // この実行内で既に添付した仕訳のid集合。同じ仕訳へ複数の証憑が完全一致してしまう
+  // ケース（金額・日付が偶然同じ等）で二重添付しないよう、以降の証憑の候補から
+  // 除外する（該当仕訳は「候補なし」として扱う）。
+  const attachedJournalIdsThisRun = new Set();
+
   for (const evidence of evidenceRows) {
     if (!evidence.storage_path) {
       skippedNoStorage.push(evidence.id);
@@ -332,13 +395,18 @@ async function runAutoMatch(accessToken) {
       ocr_currency: evidence.ocr_currency || 'JPY',
       ocr_vendor: evidence.ocr_vendor,
     });
-    const candidates = findCandidates(journals, evidence);
+    const availableJournals = attachedJournalIdsThisRun.size
+      ? journals.filter((j) => !attachedJournalIdsThisRun.has(j.id))
+      : journals;
+    const candidates = findCandidates(availableJournals, evidence);
     if (candidates.length === 1) {
       try {
-        await attachEvidenceToJournal({ accessToken, evidence, journalId: candidates[0].id });
-        attached.push({ evidence_id: evidence.id, journal_id: candidates[0].id, via: 'exact' });
-        // 添付した仕訳は同一実行内で他の証憑候補から除外されるよう voucher_file_ids を仮更新
-        candidates[0].voucher_file_ids = (candidates[0].voucher_file_ids || []).concat(['__attached_this_run__']);
+        const result = await attachEvidenceToJournal({ accessToken, evidence, journalId: candidates[0].id, fromStatus: 'box_saved' });
+        if (result.claimed) {
+          attached.push({ evidence_id: evidence.id, journal_id: candidates[0].id, via: 'exact' });
+          attachedJournalIdsThisRun.add(candidates[0].id);
+        }
+        // claimed:falseは他プロセスが既にこの証憑を処理済み（失敗ではないためunmatchedにもしない）
       } catch (e) {
         unmatched.push(Object.assign(evidenceInfo(), { reason: 'attach_failed' }));
       }
@@ -347,9 +415,11 @@ async function runAutoMatch(accessToken) {
       const vendorMatch = resolveByVendor(candidates, evidence);
       if (vendorMatch) {
         try {
-          await attachEvidenceToJournal({ accessToken, evidence, journalId: vendorMatch.id });
-          attached.push({ evidence_id: evidence.id, journal_id: vendorMatch.id, via: 'vendor' });
-          vendorMatch.voucher_file_ids = (vendorMatch.voucher_file_ids || []).concat(['__attached_this_run__']);
+          const result = await attachEvidenceToJournal({ accessToken, evidence, journalId: vendorMatch.id, fromStatus: 'box_saved' });
+          if (result.claimed) {
+            attached.push({ evidence_id: evidence.id, journal_id: vendorMatch.id, via: 'vendor' });
+            attachedJournalIdsThisRun.add(vendorMatch.id);
+          }
         } catch (e) {
           unmatched.push(Object.assign(evidenceInfo(), { reason: 'attach_failed' }));
         }
@@ -361,8 +431,8 @@ async function runAutoMatch(accessToken) {
         });
       }
     } else {
-      // 完全一致が0件の場合のみ、±3日の緩和マッチを試みる。自動添付はせず全件ambiguousで返す。
-      const fuzzyCandidates = findFuzzyCandidates(journals, evidence);
+      // 完全一致が0件の場合のみ、±FUZZY_MARGIN_DAYS(14)日の緩和マッチを試みる。自動添付はせず全件ambiguousで返す。
+      const fuzzyCandidates = findFuzzyCandidates(availableJournals, evidence);
       if (fuzzyCandidates.length) {
         ambiguous.push({
           evidence_id: evidence.id,
@@ -371,8 +441,8 @@ async function runAutoMatch(accessToken) {
           candidates: fuzzyCandidates.map((j) => journalSummary(j, true)),
         });
       } else {
-        // 第三段: 取引先名＋日付±7日（金額不問・外貨建て向け）。候補提示のみ。
-        const vendorCandidates = findVendorDateCandidates(journals, evidence);
+        // 第三段: 取引先名＋日付±VENDOR_DATE_MARGIN_DAYS(45)日（金額不問・外貨建て向け）。候補提示のみ。
+        const vendorCandidates = findVendorDateCandidates(availableJournals, evidence);
         if (vendorCandidates.length) {
           ambiguous.push({
             evidence_id: evidence.id,
@@ -382,7 +452,7 @@ async function runAutoMatch(accessToken) {
             candidates: vendorCandidates.map((j) => journalSummary(j, true)),
           });
         } else {
-          // 3段すべて空振り。日付±7日で仕訳自体は取得しているので、
+          // 3段すべて空振り。日付±VENDOR_DATE_MARGIN_DAYS(45)日で仕訳自体は取得しているので、
           // 「範囲内に仕訳が1件もない」のか「あるが日付/金額/取引先名が
           // どれも合わない」のかを判別できるよう理由を分けておく。
           const windowStart = addDays(evidence.ocr_date || startDate, -VENDOR_DATE_MARGIN_DAYS);
@@ -435,8 +505,14 @@ async function processAwaitingMatch(accessToken) {
     }
   }
 
+  // runAutoMatch同様、同一実行内で既に添付した仕訳は以降の証憑の候補から除外する
+  const attachedJournalIdsThisRun = new Set();
+
   for (const evidence of evidenceRows) {
-    const exact = findCandidates(journals, evidence);
+    const availableJournals = attachedJournalIdsThisRun.size
+      ? journals.filter((j) => !attachedJournalIdsThisRun.has(j.id))
+      : journals;
+    const exact = findCandidates(availableJournals, evidence);
     let matchedJournalId = null;
     if (exact.length === 1) matchedJournalId = exact[0].id;
     else if (exact.length > 1) {
@@ -446,8 +522,12 @@ async function processAwaitingMatch(accessToken) {
 
     if (matchedJournalId) {
       try {
-        await attachEvidenceToJournal({ accessToken, evidence, journalId: matchedJournalId });
-        attached.push({ evidence_id: evidence.id, journal_id: matchedJournalId });
+        const result = await attachEvidenceToJournal({ accessToken, evidence, journalId: matchedJournalId, fromStatus: 'awaiting_match' });
+        if (result.claimed) {
+          attached.push({ evidence_id: evidence.id, journal_id: matchedJournalId });
+          attachedJournalIdsThisRun.add(matchedJournalId);
+        }
+        // claimed:falseは他プロセスが既にこの証憑を処理済み（失敗ではないためfailedにもstill_waitingにもしない）
       } catch (e) {
         failed.push(evidence.id);
       }
@@ -465,10 +545,21 @@ async function runManualMatch({ accessToken, evidenceId, journalId }) {
   if (!evidence) {
     return { status: 404, body: { ok: false, error: 'evidence_not_found' } };
   }
+  // 既に添付済みの証憑への再実行は拒否する（二重送信防止。claimEvidenceでも防げるが
+  // ここで早期に弾いた方がエラーの意味が明確になる）
+  if (evidence.status === 'attached') {
+    return { status: 409, body: { ok: false, error: 'already_attached' } };
+  }
   if (!evidence.storage_path) {
     return { status: 400, body: { ok: false, error: 'no_storage_path' } };
   }
-  await attachEvidenceToJournal({ accessToken, evidence, journalId });
+  // attachEvidenceToJournal内部でclaimEvidence（status=eq.<fromStatus>の条件付きPATCH）を
+  // 使うため、上のstatusチェックと本呼び出しの間に他プロセスが先に処理していても
+  // 二重送信は起きない（claimed:falseとして検出される）。
+  const result = await attachEvidenceToJournal({ accessToken, evidence, journalId, fromStatus: evidence.status });
+  if (!result.claimed) {
+    return { status: 409, body: { ok: false, error: 'already_attached' } };
+  }
   return { status: 200, body: { ok: true, attached: [{ evidence_id: evidenceId, journal_id: journalId }] } };
 }
 
@@ -478,6 +569,7 @@ module.exports = {
   fetchBoxSavedEvidence,
   fetchEvidenceById,
   updateEvidence,
+  claimEvidence,
   fetchStorageFileBase64,
   fetchJournals,
   journalAmount,
