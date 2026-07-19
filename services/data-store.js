@@ -20,9 +20,12 @@
   ];
   var SYNCED_KEY = 'ribre_store_synced_v1';
   var HYDRATED_AT = 'ribre_store_hydrated_at';
+  var LOCK_KEY = 'ribre_sync_lock_v1'; // タブ間の同期排他ロック（複数タブで共有される唯一の手段=localStorage）
+  var LOCK_STALE_MS = 30000; // クラッシュ/固まったタブがロックを放置した場合の失効までの時間
   var MAX_ROW_AMOUNT = 1000000000; // 1行あたり10億円超は異常値として弾く（3.5兆円事故対策）
 
   var nativeSetItem = window.localStorage.setItem.bind(window.localStorage);
+  var TAB_ID = 'tab_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2); // ページ読込ごとに1回だけ生成する、このタブの識別子
   var __hydrating = false;
   var __hydratedOnce = false; // この読込(セッション)で一度クラウドを読み込むまでは保存(push)しない＝古いローカルがクラウドを汚すのを防ぐ
   var __setupNeeded = false;
@@ -88,6 +91,36 @@
   }
   function loadSynced() { try { return JSON.parse(window.localStorage.getItem(SYNCED_KEY) || '{}') || {}; } catch (e) { return {}; } }
   function saveSynced(o) { rawSet(SYNCED_KEY, JSON.stringify(o)); }
+
+  // ---- タブ間排他ロック -------------------------------------------------
+  // localStorageにはcompare-and-swapが無いため、「読む→空き/自分/陳腐と判定→書く」の間に
+  // 他タブが割り込む可能性はゼロにできない（同一ミリ秒での取得競合という極小の窓が残る）。
+  // それでも「ロック無し」（＝これまでの状態、reconcileのread-modify-writeが無防備に競合する）
+  // よりは確実にましなので、この程度の粗さで許容する。
+  function loadLock() { try { return JSON.parse(window.localStorage.getItem(LOCK_KEY) || 'null'); } catch (e) { return null; } }
+  function acquireLock() {
+    try {
+      var lock = loadLock();
+      var now = Date.now();
+      if (!lock || lock.owner === TAB_ID || (now - (lock.ts || 0)) > LOCK_STALE_MS) {
+        rawSet(LOCK_KEY, JSON.stringify({ owner: TAB_ID, ts: now }));
+        return true;
+      }
+      return false;
+    } catch (e) { return true; } // ロック機構自体が壊れても同期を永久停止させない（フェイルオープン）
+  }
+  function renewLock() {
+    try {
+      var lock = loadLock();
+      if (lock && lock.owner === TAB_ID) rawSet(LOCK_KEY, JSON.stringify({ owner: TAB_ID, ts: Date.now() }));
+    } catch (e) {}
+  }
+  function releaseLock() {
+    try {
+      var lock = loadLock();
+      if (lock && lock.owner === TAB_ID) window.localStorage.removeItem(LOCK_KEY);
+    } catch (e) {}
+  }
 
   // ---- 異常値チェック -------------------------------------------------
   function isSaneSale(out) {
@@ -202,6 +235,14 @@
     if (__hydrating || pushing[kind] || !loggedIn()) return { ok: false, reason: 'busy' };
     if (!__hydratedOnce) return { ok: false, reason: 'not-hydrated' }; // クラウド未読込のうちは保存しない（古いローカルでクラウドを上書き/重複させない）
     if (window.__ribreSessionLost) return { ok: false, reason: 'session-lost' }; // 別端末にログインされ無効化された端末は保存しない
+    // クロスタブ排他: 他タブがreconcile中（＝SYNCED_KEYのread-modify-write中）なら今回は実行せず、
+    // 既存のdebounce機構に再スケジュールして道を譲る。呼び出し元（pushSafe等）が誤ってエラー表示
+    // しないよう、ok:falseではなくok:true+locked:trueで「実害なし」を返す。
+    if (!acquireLock()) {
+      schedule(kind);
+      note('他のタブが同期中のため待機中…', 'warn');
+      return { ok: true, locked: true, upserted: 0, deleted: 0, delsSkipped: false, pendingDeletes: 0 };
+    }
     pushing[kind] = true;
     try {
       var cur = buildCurrent(kind);
@@ -219,10 +260,12 @@
       }
       if (!ups.length && !dels.length && !delsSkipped) return { ok: true, upserted: 0, deleted: 0, delsSkipped: false, pendingDeletes: 0 };
       if (ups.length) for (var i = 0; i < ups.length; i += 500) {
+        renewLock(); // 長時間の分割送信中にロックが陳腐化(30秒失効)して他タブに奪われないよう更新
         var r = await upsert(kind, ups.slice(i, i + 500));
         if (!r.ok) { handleErr(r); return { ok: false, status: r.status }; }
       }
       if (dels.length) for (var j = 0; j < dels.length; j += 200) {
+        renewLock();
         var rd = await removeRows(kind, dels.slice(j, j + 200));
         if (!rd.ok) { handleErr(rd); return { ok: false, status: rd.status }; }
       }
@@ -237,7 +280,7 @@
         : '保存OK（クラウド同期）' + (lastSkipped ? '／異常値' + lastSkipped + '件は除外' : ''));
       return { ok: true, upserted: ups.length, deleted: dels.length, delsSkipped: delsSkipped, pendingDeletes: skippedDelCids.length };
     } catch (e) { note('クラウド保存に失敗: ' + e.message, 'danger'); return { ok: false, error: e.message }; }
-    finally { pushing[kind] = false; }
+    finally { pushing[kind] = false; releaseLock(); }
   }
 
   function schedule(kind) {
@@ -275,6 +318,16 @@
   // ---- hydrate: Supabase → キャッシュ（空クラウドでは上書きしない） ----
   async function hydrate() {
     if (!loggedIn()) return { ok: false, reason: 'not-logged-in' };
+    // クロスタブ排他: 他タブがreconcile中に、hydrateがlocalStorageのsales/purchasesキーを
+    // 丸ごと置換すると、そのタブの書込みが消える。最大10秒だけロック取得を待つ。
+    // 取得できなくても起動をブロックし続けない（ロックは30秒で自動失効するため、固まった
+    // タブが半永久にロックを握り続けて起動不能になる事態はほぼ起こらない＝ここに来ても安全側）。
+    var gotLock = acquireLock();
+    for (var lw = 0; lw < 50 && !gotLock; lw++) { // 200ms x 最大50回 = 最大10秒待機
+      await new Promise(function (r) { setTimeout(r, 200); });
+      gotLock = acquireLock();
+    }
+    if (!gotLock) { try { console.warn('[RIBRE store] 同期ロックを取得できないまま読込を続行します'); } catch (e) {} }
     __hydrating = true;
     try {
       var e = encodeURIComponent(mail());
@@ -301,7 +354,7 @@
       __setupNeeded = false; __authNeeded = false; __hydratedOnce = true;
       return { ok: true, sales: sIn.length, purchases: pIn.length };
     } catch (e) { note('クラウド読込に失敗: ' + e.message, 'danger'); return { ok: false, error: e.message }; }
-    finally { __hydrating = false; }
+    finally { __hydrating = false; if (gotLock) releaseLock(); }
   }
 
   // ---- seed: このPCのデータでSupabaseを初期化（手動・1回） -----------
