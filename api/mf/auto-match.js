@@ -9,6 +9,8 @@ const { getAccessToken, NotConnectedError, runAutoMatch, processAwaitingMatch } 
 
 const CRON_SECRET = process.env.CRON_SECRET;
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+const CHATWORK_API_TOKEN = process.env.CHATWORK_API_TOKEN;
+const CHATWORK_ROOM_ID = process.env.CHATWORK_ROOM_ID;
 const MF_EVIDENCE_APP_URL = 'https://ribre-sales-system.vercel.app/mf-evidence';
 
 // タイミング攻撃対策: 文字列を直接 !== 比較すると、不一致が見つかった位置によって
@@ -27,24 +29,39 @@ function isValidCronRequest(req) {
   return timingSafeEqualStr(auth, `Bearer ${CRON_SECRET}`);
 }
 
-function buildSlackMessage({ attachedCount, ambiguousCount, failedCount, failedEvidenceIds }) {
+// Slack/Chatwork共通の通知本文。Chatworkはプレーンテキスト（Slack向けのマークダウン等は
+// 使っていないため、そのまま両方へ流用できる）。
+function buildNotifyText({ attachedCount, ambiguousCount, failedCount, failedEvidenceIds }) {
   const idsPreview =
     failedEvidenceIds && failedEvidenceIds.length
       ? `（${failedEvidenceIds.slice(0, 10).join(', ')}${failedEvidenceIds.length > 10 ? '…' : ''}）`
       : '';
-  const text =
+  return (
     `【MF証憑 自動マッチング】${attachedCount}件を仕訳に自動添付しました。` +
     (ambiguousCount > 0 ? `候補が複数の証憑が${ambiguousCount}件あります。` : '') +
     (failedCount > 0 ? `添付に失敗した証憑が${failedCount}件あります${idsPreview}。MF連携をご確認ください。` : '') +
-    ` → ${MF_EVIDENCE_APP_URL}`;
-  return { text };
+    ` → ${MF_EVIDENCE_APP_URL}`
+  );
 }
 
-async function postToSlack(payload) {
+async function postToSlack(text) {
   const res = await fetch(SLACK_WEBHOOK_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ text }),
+  });
+  return res.ok;
+}
+
+// monthly-report.jsのpostToChatworkと同一パターン（エンドポイント／ヘッダー／ボディ形式）
+async function postToChatwork(text) {
+  const res = await fetch(`https://api.chatwork.com/v2/rooms/${encodeURIComponent(CHATWORK_ROOM_ID)}/messages`, {
+    method: 'POST',
+    headers: {
+      'X-ChatWorkToken': CHATWORK_API_TOKEN,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({ body: text }),
   });
   return res.ok;
 }
@@ -91,24 +108,37 @@ module.exports = async (req, res) => {
     const failedEvidenceIds = attachFailed.map((u) => u.evidence_id).concat(awaitingFailed);
 
     const totalAttached = result.attached.length + awaiting.attached.length;
+    const shouldNotify = totalAttached > 0 || result.ambiguous.length > 0 || failedCount > 0;
+
+    let chatworkSent = false;
     let slackSent = false;
-    const shouldNotify = SLACK_WEBHOOK_URL && (totalAttached > 0 || result.ambiguous.length > 0 || failedCount > 0);
     if (shouldNotify) {
-      try {
-        slackSent = await postToSlack(
-          buildSlackMessage({
-            attachedCount: totalAttached,
-            ambiguousCount: result.ambiguous.length,
-            failedCount,
-            failedEvidenceIds,
-          })
-        );
-      } catch (e) {
-        slackSent = false;
+      const notifyText = buildNotifyText({
+        attachedCount: totalAttached,
+        ambiguousCount: result.ambiguous.length,
+        failedCount,
+        failedEvidenceIds,
+      });
+      // オーナーはSlackを使わなくなりChatworkへ移行したため、まずChatworkへ送る。
+      // Slack Webhookは撤去済みの可能性があるが、設定が残っていれば引き続き送る
+      // （経路自体は残しておく＝どちらか片方が死んでいてももう片方に影響しない）
+      if (CHATWORK_API_TOKEN && CHATWORK_ROOM_ID) {
+        try {
+          chatworkSent = await postToChatwork(notifyText);
+        } catch (e) {
+          chatworkSent = false;
+        }
+      }
+      if (SLACK_WEBHOOK_URL) {
+        try {
+          slackSent = await postToSlack(notifyText);
+        } catch (e) {
+          slackSent = false;
+        }
       }
     }
 
-    res.status(200).json({ ...result, awaiting_match: awaiting, slack_sent: slackSent });
+    res.status(200).json({ ...result, awaiting_match: awaiting, slack_sent: slackSent, chatwork_sent: chatworkSent });
   } catch (e) {
     res.status(502).json({
       ok: false,

@@ -39,27 +39,139 @@ function mfReadFileAsDataUrl(file) {
   });
 }
 
+// mfAcceptMimeがfalseだった後にのみ呼ぶ想定（png/jpeg/pdfは既に弾かれている）。
+// iPhoneのHEIC/HEIF（type='image/heic'等）に加え、ブラウザ/OS依存でtypeが空になる
+// HEIC/HEIFファイル（拡張子で判定）もここで拾う。それ以外の非image typeは対象外
+// （従来通り「対応形式は PNG / JPG / PDF のみです」に倒す）。
+function mfNeedsHeicConversion(file) {
+  const type = (file.type || '').toLowerCase();
+  if (type.indexOf('image/') === 0) return true;
+  if (!type) {
+    const name = (file.name || '').toLowerCase();
+    if (/\.(heic|heif)$/.test(name)) return true;
+  }
+  return false;
+}
+
+// dataURLのbase64部分から実バイト数を概算する（パディング考慮）。変換後サイズの
+// 上限チェック（MF_MAX_FILE_BYTES）に使う。
+function mfDataUrlByteSize(dataUrl) {
+  const comma = dataUrl.indexOf(',');
+  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const len = b64.length;
+  const padding = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((len * 3) / 4) - padding);
+}
+
+// HEIC変換後はファイル名の拡張子もjpgへ揃える（プレビューパネルの初期表示・OCR失敗時の
+// フォールバック名に使われるため）
+function mfHeicToJpegName(name) {
+  const base = String(name || 'evidence').replace(/\.(heic|heif)$/i, '');
+  return (base || 'evidence') + '.jpg';
+}
+
+// createImageBitmapまたはImage要素でHEIC/HEIF等（PNG/JPEG以外のimage/*）をデコードし、
+// canvas経由でJPEGへ再エンコードする。iPhoneの「高効率」設定で撮影したHEIC写真を
+// ブラウザ内でJPEGへ変換し、通常の取り込みフロー（mfShowPreview→mfRunOcr→MF送信）に
+// そのまま乗せるためのベストエフォート実装。長辺2500pxに縮小してメモリ使用量を抑える。
+// createImageBitmapが使えない/HEICをデコードできないブラウザ（Windows Chrome等）向けに
+// Image要素+object URLへフォールバックし、それも失敗したら例外を投げる
+// （呼び出し元でHEIC特有の案内メッセージを出す）。
+async function mfConvertHeicToJpeg(file) {
+  const MAX_EDGE = 2500;
+  let drawSource = null;
+  let objectUrl = null;
+  let width = 0;
+  let height = 0;
+  try {
+    if (typeof createImageBitmap === 'function') {
+      try {
+        drawSource = await createImageBitmap(file);
+        width = drawSource.width;
+        height = drawSource.height;
+      } catch (e) {
+        drawSource = null; // 非対応ブラウザはImage要素フォールバックへ
+      }
+    }
+    if (!drawSource) {
+      objectUrl = URL.createObjectURL(file);
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('decode_failed'));
+        el.src = objectUrl;
+      });
+      drawSource = img;
+      width = img.naturalWidth || img.width;
+      height = img.naturalHeight || img.height;
+    }
+    if (!drawSource || !width || !height) throw new Error('decode_failed');
+    const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
+    const outW = Math.max(1, Math.round(width * scale));
+    const outH = Math.max(1, Math.round(height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas_unsupported');
+    ctx.drawImage(drawSource, 0, 0, outW, outH);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    if (!dataUrl || dataUrl.indexOf('data:image/jpeg') !== 0) throw new Error('encode_failed');
+    return dataUrl;
+  } finally {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    if (drawSource && typeof drawSource.close === 'function') drawSource.close(); // ImageBitmapのGPUメモリ解放
+  }
+}
+
+// mfCurrentFileへの反映～プレビュー表示～OCR実行までの共通処理。
+// mfIngestFileの通常経路・HEIC変換経路の両方から呼ぶ（fileAtStart/mfCurrentFileの
+// 識別ガードはmfRunOcr側にあるため、ここでは単にmfCurrentFileを差し替えるだけでよい）
+async function mfFinishIngest(dataUrl, mime, size, name) {
+  const ingested = { dataUrl, mime, size, name };
+  mfCurrentFile = ingested;
+  mfCurrentOcrCurrency = 'JPY';
+  mfShowPreview();
+  await mfRunOcr();
+  return ingested;
+}
+
 // 取り込んだファイルオブジェクトをreturnする（呼び出し元がOCR待ち後もmfCurrentFileの
 // 差し替えに惑わされず「自分が取り込んだファイル」を特定できるようにするため）
 async function mfIngestFile(file) {
   if (!file) return null;
-  if (!mfAcceptMime(file.type)) {
-    alert('対応形式は PNG / JPG / PDF のみです');
-    return null;
+
+  if (mfAcceptMime(file.type)) {
+    if (mfRejectIfTooBig(file)) return null;
+    try {
+      const dataUrl = await mfReadFileAsDataUrl(file);
+      return await mfFinishIngest(dataUrl, file.type, file.size, file.name || 'evidence');
+    } catch (e) {
+      alert('ファイルの読込に失敗しました: ' + e.message);
+      return null;
+    }
   }
-  if (mfRejectIfTooBig(file)) return null;
-  try {
-    const dataUrl = await mfReadFileAsDataUrl(file);
-    const ingested = { dataUrl, mime: file.type, size: file.size, name: file.name || 'evidence' };
-    mfCurrentFile = ingested;
-    mfCurrentOcrCurrency = 'JPY';
-    mfShowPreview();
-    await mfRunOcr();
-    return ingested;
-  } catch (e) {
-    alert('ファイルの読込に失敗しました: ' + e.message);
-    return null;
+
+  // png/jpeg/pdf以外。HEIC/HEIFらしきimage/*ならブラウザ内変換を試す（iPhoneの
+  // 「高効率」設定対策）。それ以外の非対応形式は従来通り即座に拒否する。
+  if (mfNeedsHeicConversion(file)) {
+    try {
+      const dataUrl = await mfConvertHeicToJpeg(file);
+      const size = mfDataUrlByteSize(dataUrl);
+      if (mfRejectIfTooBig({ size })) return null;
+      return await mfFinishIngest(dataUrl, 'image/jpeg', size, mfHeicToJpegName(file.name));
+    } catch (e) {
+      alert(
+        'この画像形式(HEIC)はこのブラウザでは変換できませんでした。iPhoneの' +
+        ' 設定 → カメラ → フォーマット を「互換性優先」にすると JPEG で撮影されます。' +
+        '既存の写真は共有時に「自動」で送るか、スクリーンショットを撮って登録してください。'
+      );
+      return null;
+    }
   }
+
+  alert('対応形式は PNG / JPG / PDF のみです');
+  return null;
 }
 
 function mfHandleFileInput(ev) {

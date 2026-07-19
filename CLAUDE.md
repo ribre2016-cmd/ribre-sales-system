@@ -47,7 +47,7 @@
 
 ## Cron（vercel.json）
 
-- 毎時0分: `/api/mf/auto-match` — 自動マッチング＋結果・失敗があればSlack通知（Pro移行で日次→毎時化。失敗も通知される）
+- 毎時0分: `/api/mf/auto-match` — 自動マッチング＋結果・失敗があれば**Chatwork通知**（ユーザーはSlack利用を停止しChatworkへ移行済み。SLACK_WEBHOOK_URLが残っていればSlackにも並行送信される）。Pro移行で日次→毎時化
 - 毎月28日: `/api/mf/monthly-report` — カバー率をSlack＋Chatworkへ
 
 ## 変更履歴

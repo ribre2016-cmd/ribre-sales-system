@@ -3,6 +3,46 @@
 このファイルは、Claude（AIアシスタント）がこのプロジェクトに加えた変更の記録です。
 新しい変更は上に追記します。
 
+## 2026-07-19 (続き) 中優先課題4件＋Chatwork通知切替（全体レビュー残課題の解消）
+
+前エントリの全体レビューで残っていた中優先4件をユーザー指示により一括修正。
+
+- **①Supabaseセッション自動リフレッシュ**（services/supabase-auth.js / auth-gate.js）:
+  `ribreRefreshSession()`新設。5分ごと＋期限10分前に`grant_type=refresh_token`で先行更新。
+  失敗時はセッションを壊さずconsole.warnのみ。同時実行は単一Promiseへ集約。タブ間の
+  競合はaccess_token比較で新しい方を優先。auth-gateは期限切れ検知時に一度だけ
+  リフレッシュを試みてからゲート表示（急にログイン画面へ戻される問題の解消）。
+  restHeaders()は同期呼び出し（7箇所）のため非同期化せず、先行タイマー方式のみ採用
+- **②タブ間同期ロック**（services/data-store.js）: `ribre_sync_lock_v1`（owner+ts、30秒で
+  失効）でreconcileとhydrateを相互排他。ロック中のpushは`{ok:true, locked:true}`で
+  待機扱い＋debounce再試行（呼び出し元は偽エラーを出さない形を実測確認）。分割送信中は
+  renewLockで陳腐化防止。ロック機構自体の例外はフェイルオープン（同期を止めない）。
+  既知の残余: ミリ秒級のacquire競合窓（CASなしlocalStorageの限界・コメント明記）、
+  replaceCloudWithLocal/seedFromThisPCは対象外（手動・稀な操作のため）
+- **③Gmail取込をメッセージID単位の重複排除へ**（tools/gmail-ingest.gs）: 検索から
+  ラベル除外を撤廃し、Script Properties`PROCESSED_MSG_IDS`（上限400件≒7.6KB<9KB制限）で
+  メッセージ単位に管理。同一スレッドに届く翌月請求書も取り込まれるように。ラベルは
+  視覚マーカーに降格。失敗メッセージのみ再試行（兄弟メッセージを道連れにしない）。
+  更新直後は7日窓内の既処理分が一度だけ再走査されるがサーバーのcontent-hash重複判定で
+  即座に弾かれる（無害・コメント明記）。処理済みスレッドが枠を消費するようになったため
+  MAX_THREADS_PER_RUNを10→50へ拡大
+- **④iPhone HEIC対応**（pages/mf-evidence.js）: png/jpeg以外のimage/*はcanvas経由で
+  JPEG(品質0.92・長辺2500px上限)へ変換してから通常フローへ。変換後にサイズ検査
+  （HEICは変換で3MB未満に縮むことが多い）。デコード不能ブラウザでは設定変更手順
+  （設定→カメラ→フォーマット→互換性優先）を案内するアラート。OCRレースガードは不変
+- **⑤通知先をSlack→Chatworkへ**（api/mf/auto-match.js）: ユーザーがSlack利用を停止した
+  ため、auto-matchの成功/失敗通知をChatwork（monthly-reportと同一API方式）へ送信。
+  SLACK_WEBHOOK_URLが設定されていれば並行送信も維持（害なし）。通知失敗はcronを
+  失敗させない
+
+**テスト**: 新規3スイート（session-refresh 6 / cross-tab-lock 18〔vm二重コンテキストで
+2タブを実シミュレート〕/ auto-match-notify 3）＋既存5スイート全パス。全ファイル
+node --check OK（.gsもJS構文検証済み）。
+
+**ユーザー作業**: gmail-ingest.gsのscript.google.comへの再貼り付けが必要。
+CHATWORK_ROOM_IDは現在テスト用マイチャット宛のため、本番の部屋へ変えるなら
+Vercel環境変数の変更が必要。
+
 ## 2026-07-19 全体レビュー（5観点並列）→ CRITICAL/HIGH指摘の一括修正
 
 ユーザー指示「全体をくまなくレビューし100点になるように」により、5観点（APIセキュリティ/
