@@ -4340,12 +4340,21 @@ function appvPartnersAdd(kind, name) {
   const o = appvPartnersGet(); const k = (kind === 'sale') ? 'sales' : 'purchases';
   if (o[k].indexOf(name) < 0) { o[k].push(name); o[k].sort((a, b) => String(a).localeCompare(String(b), 'ja')); appvPartnersSet(o); }
 }
+function appvPartnersRemove(kind, name) {
+  name = String(name || '').trim(); if (!name) return false;
+  const o = appvPartnersGet(); const k = (kind === 'sale') ? 'sales' : 'purchases';
+  const before = o[k].length;
+  o[k] = o[k].filter((n) => String(n || '').trim() !== name);
+  if (o[k].length === before) return false;
+  appvPartnersSet(o);
+  return true;
+}
 /* 選択肢は「明細ストアに登場した名前」∪「登録先マスタ(ribre_smp_partners_v1)」の和集合（旧UIと同じ規則） */
 function appvPartnerOptions(kind) {
   const store = appvMeiGet();
   const arr = (kind === 'sale') ? (store.sales || []) : (store.purchases || []);
   const names = {};
-  arr.forEach((e) => { const n = String(e.name || '').trim(); if (n) names[n] = 1; });
+  arr.forEach((e) => { if (e && e.del) return; const n = String(e.name || '').trim(); if (n) names[n] = 1; });
   const master = appvPartnersGet();
   (kind === 'sale' ? master.sales : master.purchases).forEach((n) => { n = String(n || '').trim(); if (n) names[n] = 1; });
   return Object.keys(names).sort((a, b) => a.localeCompare(b, 'ja'));
@@ -4366,6 +4375,18 @@ function appvRenderMeisaiPartnerSelect() {
     opts.map((n) => '<option value="' + appvMeiEsc(n) + '">' + appvMeiEsc(n) + '</option>').join('') +
     '<option value="__new__">＋ 新しい相手先</option>';
   if (keep && (keep === '__new__' || opts.indexOf(keep) >= 0)) sel.value = keep;
+  appvUpdateMeisaiPartnerDeleteState();
+}
+function appvUpdateMeisaiPartnerDeleteState(message, isError) {
+  const sel = document.getElementById('txMeisaiPartnerSel');
+  const btn = document.getElementById('txMeisaiPartnerDelete');
+  const note = document.getElementById('txMeisaiPartnerDeleteNote');
+  const selected = sel && sel.value && sel.value !== '__new__';
+  if (btn) btn.disabled = !selected;
+  if (note) {
+    note.textContent = message || '';
+    note.classList.toggle('error', !!isError);
+  }
 }
 function appvMeiPartnerSelChange() {
   const sel = document.getElementById('txMeisaiPartnerSel');
@@ -4373,6 +4394,29 @@ function appvMeiPartnerSelChange() {
   if (!sel || !inp) return;
   if (sel.value === '__new__') { inp.style.display = ''; inp.value = ''; try { inp.focus(); } catch (e) {} }
   else { inp.style.display = 'none'; inp.value = ''; }
+  appvUpdateMeisaiPartnerDeleteState();
+}
+function appvDeleteSelectedMeisaiPartner() {
+  const sel = document.getElementById('txMeisaiPartnerSel');
+  const name = sel && sel.value && sel.value !== '__new__' ? String(sel.value).trim() : '';
+  if (!name) return;
+  const kindLabel = appvMeiKind === 'sale' ? '販売先' : '買取先';
+  const store = appvMeiGet();
+  const rows = appvMeiKind === 'sale' ? (store.sales || []) : (store.purchases || []);
+  const usedCount = rows.filter((row) => !row.del && String(row.name || '').trim() === name).length;
+  if (usedCount > 0) {
+    appvUpdateMeisaiPartnerDeleteState('「' + name + '」は明細' + usedCount + '件で使用中です。先にその明細を修正または削除してください。', true);
+    return;
+  }
+  if (!confirm(kindLabel + '「' + name + '」を候補から削除しますか？\n\n取引明細は削除されません。')) return;
+  if (!appvPartnersRemove(appvMeiKind, name)) {
+    appvUpdateMeisaiPartnerDeleteState('この候補は登録一覧にないため削除できませんでした。', true);
+    return;
+  }
+  sel.value = '';
+  appvRenderMeisaiPartnerSelect();
+  appvUpdateMeisaiPartnerDeleteState('「' + name + '」を候補から削除しました。', false);
+  appvToast('「' + name + '」を候補から削除しました');
 }
 function appvSetMeisaiKind(kind) {
   appvMeiKind = kind;
@@ -5760,6 +5804,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   const txMeisaiPartnerSel = document.getElementById('txMeisaiPartnerSel');
   if (txMeisaiPartnerSel) txMeisaiPartnerSel.addEventListener('change', appvMeiPartnerSelChange);
+  const txMeisaiPartnerDelete = document.getElementById('txMeisaiPartnerDelete');
+  if (txMeisaiPartnerDelete) txMeisaiPartnerDelete.addEventListener('click', appvDeleteSelectedMeisaiPartner);
   const txMeisaiDate = document.getElementById('txMeisaiDate');
   if (txMeisaiDate) txMeisaiDate.addEventListener('change', appvUpdateMeisaiLockWarn);
   const txModalOverlay = document.getElementById('txModalOverlay');

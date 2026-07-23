@@ -213,6 +213,16 @@ tr.rowclick:hover td{background:#FAFBFA;}
   width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
   background:#fff; color:var(--text); resize:vertical;
 }
+.tx-partner-select-row{display:flex; align-items:stretch; gap:8px;}
+.tx-partner-select-row select{flex:1; min-width:0;}
+.tx-partner-select-row .btn{flex:0 0 auto; white-space:nowrap;}
+.tx-partner-select-row .btn:disabled{opacity:.45; cursor:not-allowed; background:#fff;}
+.tx-partner-delete-note{min-height:18px; margin-top:5px; font-size:12px; color:var(--sub);}
+.tx-partner-delete-note.error{color:var(--err);}
+@media (max-width:520px){
+  .tx-partner-select-row{align-items:stretch;}
+  .tx-partner-select-row .btn{padding-inline:9px;}
+}
 .tpl-chip-row{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; min-height:24px;}
 .tpl-chip{
   display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px;

@@ -652,8 +652,12 @@
       </div>
       <div class="tx-field">
         <label id="txMeisaiPartnerLabel">販売先を選択</label>
-        <select id="txMeisaiPartnerSel"></select>
+        <div class="tx-partner-select-row">
+          <select id="txMeisaiPartnerSel" aria-describedby="txMeisaiPartnerDeleteNote"></select>
+          <button type="button" class="btn danger sm" id="txMeisaiPartnerDelete" aria-describedby="txMeisaiPartnerDeleteNote" disabled>選択先を削除</button>
+        </div>
         <input type="text" id="txMeisaiPartnerNew" placeholder="新しい相手先名" style="display:none; margin-top:6px;">
+        <div class="tx-partner-delete-note" id="txMeisaiPartnerDeleteNote" role="status" aria-live="polite"></div>
       </div>
       <div class="tx-field"><label>日付</label><input type="date" id="txMeisaiDate"></div>
       <div class="tx-field"><label>金額（円）</label><input type="number" id="txMeisaiAmount" inputmode="numeric" placeholder="0"></div>
