@@ -380,14 +380,20 @@ function aiqBuildSystemPrompt() {
 }
 
 /* ==================== OpenAI呼び出し（Responses API） ==================== */
-var AIQ_MODEL = 'gpt-4.1';
+// この機能はモデルに金額の計算をさせず「どの条件で集計するか」の判断とツール呼び出しだけを
+// させる設計のため、ツール利用に最適化された安価・高速なLunaを既定にしている
+// （OCR側は読取精度が生命線なのでgpt-4.1のまま。混同しないこと）。
+// 万一Lunaが利用できない場合（モデル廃止・ツール非対応等）はgpt-4.1へ自動フォールバックし、
+// 実際に使ったモデル名を回答の根拠行に表示する（黙って高いモデルに切り替わらないように）。
+var AIQ_MODEL = 'gpt-5.6-luna';
+var AIQ_FALLBACK_MODEL = 'gpt-4.1';
 var AIQ_MAX_TOOL_ROUNDS = 5; // これを超えるとツールを使わせず、その時点の情報で回答させる
+var aiqActiveModel = AIQ_MODEL;  // 実際に使えたモデル（フォールバック後は固定される）
+var aiqLastUsedModel = '';       // 直近の回答で使ったモデル（根拠行の表示用）
 
-async function aiqCallOpenAI(inputItems, tools) {
-  var token = '';
-  try { token = (typeof sess === 'function' ? sess().access_token : '') || ''; } catch (e) { token = ''; }
+async function aiqPostResponses(model, inputItems, tools, token) {
   var body = {
-    model: AIQ_MODEL,
+    model: model,
     instructions: aiqBuildSystemPrompt(),
     input: inputItems,
     temperature: 0,
@@ -410,9 +416,33 @@ async function aiqCallOpenAI(inputItems, tools) {
   var data = await res.json().catch(function () { return {}; });
   if (!res.ok) {
     var msg = (data && data.error && (data.error.message || data.error)) || ('HTTP ' + res.status);
-    throw new Error(String(msg));
+    var err = new Error(String(msg));
+    err.aiqStatus = res.status;
+    throw err;
   }
   return data;
+}
+
+async function aiqCallOpenAI(inputItems, tools) {
+  var token = '';
+  try { token = (typeof sess === 'function' ? sess().access_token : '') || ''; } catch (e) { token = ''; }
+  try {
+    var data = await aiqPostResponses(aiqActiveModel, inputItems, tools, token);
+    aiqLastUsedModel = aiqActiveModel;
+    return data;
+  } catch (e) {
+    // 認証エラーはフォールバック対象外（モデルの問題ではないため）
+    if (e && e.aiqUnauthorized) throw e;
+    // 既にフォールバック済み、またはフォールバック先自体の失敗ならそのまま投げる
+    if (aiqActiveModel === AIQ_FALLBACK_MODEL) throw e;
+    try {
+      console.warn('[RIBRE AI質問] ' + aiqActiveModel + ' が使えないため ' + AIQ_FALLBACK_MODEL + ' へ切り替えます:', e && e.message);
+    } catch (e2) {}
+    aiqActiveModel = AIQ_FALLBACK_MODEL;
+    var fb = await aiqPostResponses(aiqActiveModel, inputItems, tools, token);
+    aiqLastUsedModel = aiqActiveModel;
+    return fb;
+  }
 }
 
 function aiqExtractText(data) {
@@ -505,6 +535,14 @@ function aiqAppendMessage(container, role, text, toolLog) {
       li.textContent = t.name + '(' + JSON.stringify(t.args) + ')';
       list.appendChild(li);
     });
+    // どのモデルが答えたかも残す（フォールバックで高いモデルに切り替わった場合に気づけるように）
+    if (aiqLastUsedModel) {
+      var modelLi = document.createElement('li');
+      modelLi.textContent = 'モデル: ' + aiqLastUsedModel +
+        (aiqLastUsedModel === AIQ_FALLBACK_MODEL && AIQ_MODEL !== AIQ_FALLBACK_MODEL
+          ? '（' + AIQ_MODEL + 'が使えないため切替）' : '');
+      list.appendChild(modelLi);
+    }
     details.appendChild(list);
     container.appendChild(details);
   }

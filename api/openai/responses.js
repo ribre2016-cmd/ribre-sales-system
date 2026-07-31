@@ -7,8 +7,12 @@ const { verifySupabaseToken } = require('./_lib/require-auth');
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const MAX_BODY_BYTES = 10 * 1024 * 1024; // 10MB
-// 悪用時の高額請求を防ぐため、利用可能モデルを限定する
-const ALLOWED_MODELS = ['gpt-4.1-mini', 'gpt-4.1'];
+// 悪用時の高額請求を防ぐため、利用可能モデルを限定する。
+// gpt-5.6-luna はAI質問機能（pages/ai-assistant.js）用。ツール利用に最適化された
+// 安価・高速なモデルで、入力単価はgpt-4.1の約1/10。
+// OCR系（openai-ocr.js / mf-evidence.js / ingest-mail.js）は読取精度が生命線のため
+// gpt-4.1 / gpt-4.1-mini のまま。ここに安価なモデルを足してもOCR側は切り替えないこと。
+const ALLOWED_MODELS = ['gpt-4.1-mini', 'gpt-4.1', 'gpt-5.6-luna'];
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
