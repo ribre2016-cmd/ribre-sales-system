@@ -196,9 +196,39 @@ document.addEventListener('paste', (ev) => {
   }
 });
 
+/* 受信箱（index.htmlの監視フォルダ）から引き渡された証憑を取り込む。
+ * app-v2.js の appvAutoInboxSendEvidence が sessionStorage に置いて遷移してくる。
+ * 一度使ったら必ず消す（リロードで二重に取り込まないため）。 */
+const MF_AUTO_INBOX_KEY = 'ribre_auto_inbox_evidence_v1';
+async function mfConsumeAutoInboxHandoff() {
+  let raw = null;
+  try { raw = sessionStorage.getItem(MF_AUTO_INBOX_KEY); } catch (e) { return; }
+  if (!raw) return;
+  try { sessionStorage.removeItem(MF_AUTO_INBOX_KEY); } catch (e) {}
+  let payload = null;
+  try { payload = JSON.parse(raw); } catch (e) { return; }
+  if (!payload || !payload.base64 || !payload.name) return;
+  // 古い引き渡しは無視（10分以上前のものは使わない）
+  if (payload.at && Date.now() - payload.at > 10 * 60 * 1000) return;
+  try {
+    const bin = atob(payload.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const name = String(payload.name);
+    const ext = (name.match(/\.(pdf|png|jpe?g)$/i) || ['', ''])[1].toLowerCase();
+    const mime = ext === 'pdf' ? 'application/pdf' : (ext === 'png' ? 'image/png' : 'image/jpeg');
+    const file = new File([bytes], name, { type: mime });
+    mfToast('受信箱から証憑を読み込みました: ' + name, 'ok');
+    await mfIngestFile(file);
+  } catch (e) {
+    alert('受信箱から渡された証憑の読込に失敗しました: ' + ((e && e.message) || e));
+  }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   const zone = document.getElementById('mfDropZone');
   if (!zone) return;
+  mfConsumeAutoInboxHandoff();
   ['dragenter', 'dragover'].forEach((evt) =>
     zone.addEventListener(evt, (e) => {
       e.preventDefault();

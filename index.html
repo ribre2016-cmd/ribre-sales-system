@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="styles/ai-assistant.css">
 <link rel="stylesheet" href="styles/ai-write.css">
 <link rel="stylesheet" href="styles/ai-memory.css">
+<link rel="stylesheet" href="styles/auto-inbox.css">
 </head>
 <body>
 <!-- auth-gate.js/signIn()が参照する共通ログインフォーム要素（非表示・値はゲートのフォームから転記） -->
@@ -187,6 +188,18 @@
     <section class="page" id="page-import">
       <h1>取込</h1>
       <div class="muted section-gap">ヤフオク・メルカリ等の売上CSV取込、配送CSV照合、メール取込状況の確認ができます（旧UIと同じパーサ・保存先・同期）。</div>
+
+      <!-- ============ やることリスト（受信箱・pages/auto-inbox.js） ============
+           監視フォルダ（ダウンロードフォルダ等）の新着CSV/証憑を自動で見つけて並べる。
+           見つけるだけで、取り込むかどうかは必ず利用者のクリックで決まる。
+           取込処理そのものは既存の appvImportYahooCsv / appvImportShippingCsv を使う。 -->
+      <div class="card section-gap">
+        <h2>やることリスト（受信箱）</h2>
+        <div class="muted" style="font-size:12.5px;margin-bottom:10px">
+          フォルダを一度指定しておくと、次回から新しいCSV・証憑を自動で見つけてここに並べます（PCのChrome / Edge専用）。
+        </div>
+        <div id="autoInboxPanel"></div>
+      </div>
 
       <div class="card section-gap">
         <h2>売上CSV取込</h2>
@@ -729,6 +742,8 @@
      ai-assistant.js がロード時にツール定義を取り込むため、必ずその前に読み込むこと。
      どちらも core.js の sales()/setLS/createLocalSnapshot と app-v2.js の
      appvFindLocalRowIndex/appvSyncYahoo/appvIsMonthLocked に依存する。 -->
+<!-- auto-inbox.js: 取込ページの受信箱（監視フォルダの新着検出）。app-v2.jsのハンドラから使う -->
+<script src="pages/auto-inbox.js"></script>
 <script src="pages/ai-write.js"></script>
 <script src="pages/ai-memory.js"></script>
 <!-- ai-assistant.js: 分析ページ「AIに質問」。app-v2.js/servicesの読み込み後である必要がある -->

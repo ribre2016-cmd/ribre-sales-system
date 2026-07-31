@@ -1,0 +1,87 @@
+/* styles/auto-inbox.css — 監視フォルダ「やることリスト（受信箱）」
+ * pages/auto-inbox.js の aibRenderPanel() が生成するDOMだけを対象にした見た目。
+ * 色・間隔は styles/app-v2.css の :root カスタムプロパティを再利用する（独自色は使わない）。
+ * 呼び出し側（統合担当）が用意する外枠（.card 等）の中に置かれる前提のため、
+ * ここではカード自体の見た目（背景・角丸・影）は作らず、内側の要素だけを装飾する。 */
+
+.aib-panel { font-size: 13.5px; color: var(--text); }
+
+.aib-explain p { margin: 0 0 6px; }
+.aib-explain-sub { color: var(--sub); font-size: 12.5px; }
+
+.aib-loading, .aib-empty { color: var(--sub); padding: 10px 2px; }
+
+.aib-error {
+  color: var(--err); background: var(--err-light);
+  border-radius: 8px; padding: 8px 12px; margin-top: 10px; font-size: 12.5px;
+}
+
+/* ---- 接続済みヘッダー（フォルダ名・再スキャン・解除） ---- */
+.aib-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.aib-folder-info { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.aib-folder-icon { font-size: 15px; }
+.aib-folder-name {
+  font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px;
+}
+.aib-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* ---- ボタン（styles/app-v2.css .btn/.btn.primary/.btn.ghost と同じ見た目を独自クラスで再現） ---- */
+.aib-btn {
+  border: 1px solid var(--border); background: #fff; color: var(--text);
+  padding: 7px 14px; border-radius: 10px; font-size: 12.5px; font-weight: 600;
+}
+.aib-btn:hover { background: var(--bg); }
+.aib-btn:disabled { opacity: .55; cursor: default; }
+.aib-btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.aib-btn-primary:hover:not(:disabled) { background: #0a5f44; }
+.aib-btn-ghost { border-color: transparent; background: transparent; color: var(--sub); }
+
+/* ---- サマリー行（「取込待ちCSV 3件・証憑2件」） ---- */
+.aib-summary { font-weight: 700; margin-bottom: 12px; color: var(--accent); }
+
+/* ---- グループ（種別ごと） ---- */
+.aib-group { margin-bottom: 14px; }
+.aib-group:last-child { margin-bottom: 0; }
+.aib-group-title {
+  font-size: 12px; font-weight: 700; color: var(--sub);
+  margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px dashed var(--border);
+}
+
+/* ---- 1件ごとの行 ---- */
+.aib-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 4px; border-bottom: 1px solid var(--border);
+}
+.aib-item:last-child { border-bottom: none; }
+.aib-item-main { min-width: 0; flex: 1; }
+.aib-item-name {
+  font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.aib-item-meta { color: var(--sub); font-size: 12px; margin-top: 2px; }
+.aib-item-note { color: var(--info); font-size: 12px; margin-top: 2px; }
+.aib-item-error { color: var(--err); font-size: 12px; margin-top: 4px; }
+.aib-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ---- キャップ超過・エラー一覧 ---- */
+.aib-note-warn {
+  background: var(--warn-light); color: var(--warn);
+  border-radius: 8px; padding: 8px 12px; margin-top: 10px; font-size: 12.5px;
+}
+.aib-errors { margin-top: 12px; }
+.aib-errors-title { font-size: 12px; font-weight: 700; color: var(--sub); margin-bottom: 4px; }
+.aib-error-row {
+  display: flex; justify-content: space-between; gap: 10px; font-size: 12px;
+  color: var(--err); padding: 3px 0;
+}
+.aib-error-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aib-error-note { color: var(--sub); flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  .aib-item { flex-direction: column; align-items: flex-start; }
+  .aib-item-actions { width: 100%; }
+  .aib-item-actions .aib-btn { flex: 1; }
+}

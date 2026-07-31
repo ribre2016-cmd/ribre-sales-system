@@ -114,6 +114,8 @@ function appvGotoPage(page) {
   window.scrollTo({ top: 0, behavior: 'instant' });
   if (page === 'import' && typeof appvRenderMailImportStatus === 'function') appvRenderMailImportStatus();
   if (page === 'import' && typeof appvRenderShipPersistentTable === 'function') appvRenderShipPersistentTable();
+  // 受信箱（監視フォルダの新着CSV/証憑）。起動時ではなく取込ページを開いたときだけ描画する
+  if (page === 'import' && typeof appvRenderAutoInbox === 'function') appvRenderAutoInbox();
   if (page === 'analysis' && typeof appvRenderProvPanel === 'function') appvRenderProvPanel();
   if (page === 'analysis' && typeof appvRenderAnalysisPage === 'function') appvRenderAnalysisPage();
   if (page === 'settings') {
@@ -5143,6 +5145,81 @@ async function appvHandleYahooImport() {
     if (push && push.ok) appvToast('☁ クラウドに同期しました');
   });
 }
+/* ==================== 受信箱（監視フォルダ・pages/auto-inbox.js） ====================
+ * 監視フォルダで見つかった新着ファイルを、既存の取込経路へそのまま流し込む。
+ * 取込ロジックを二重に持たないことが要点で、auto-inbox.js側は「見つける」だけ、
+ * 実際の取込は従来どおり appvImportYahooCsv / appvImportShippingCsv が行う。
+ * 取り込むかどうかは必ず利用者のクリック（auto-inbox.js側のボタン）で決まる。 */
+function appvRenderAutoInbox() {
+  const el = document.getElementById('autoInboxPanel');
+  if (!el || typeof window.aibRenderPanel !== 'function') return;
+  window.aibRenderPanel(el, {
+    onImportCsv: appvAutoInboxImportCsv,
+    onSendEvidence: appvAutoInboxSendEvidence
+  });
+}
+
+async function appvAutoInboxImportCsv(item, text) {
+  if (item.kind === 'shipping') {
+    try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before auto-inbox shipping csv'); } catch (e) {}
+    const r = appvImportShippingCsv(text, 'auto');
+    if (r && r.error) throw new Error(r.error);
+    if (typeof appvMatchShipping === 'function') appvMatchShipping();
+    if (typeof appvRenderShipPersistentTable === 'function') appvRenderShipPersistentTable();
+    await appvAfterWrite();
+    const push = await appvPushCloudSafe();
+    if (push && push.ok) appvToast('☁ クラウドに同期しました');
+    appvToast('📦 配送CSVを取り込みました（' + item.name + '）');
+    return;
+  }
+
+  // 売上CSV。どのアカウント（チャネル）の売上かはCSVの中身から判別できないため
+  // （既存のappvImportYahooCsvも画面の選択に従う仕様）、必ず利用者に確認する。
+  const sel = document.getElementById('impYahooAccount');
+  if (!sel) throw new Error('売上CSV取込の選択欄が見つかりません');
+  if (item.kind === 'mercari_shops') {
+    const opt = Array.prototype.find.call(sel.options || [], (o) => o.value === 'メルカリShops');
+    if (opt) sel.value = 'メルカリShops';
+  }
+  const account = sel.value;
+  if (!account) throw new Error('取込先のアカウントを選んでください');
+  if (!confirm(item.name + '\nを「' + account + '」の売上として取り込みます。よろしいですか？\n（違う場合はキャンセルして、下の「売上CSV取込」でアカウントを選び直してください）')) {
+    throw new Error('取込を中止しました');
+  }
+
+  const monthEl = document.getElementById('impYahooMonth');
+  const forceMonth = (monthEl && /^\d{4}-\d{2}$/.test(monthEl.value)) ? monthEl.value : '';
+  try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before auto-inbox yahoo csv'); } catch (e) {}
+  const r = appvImportYahooCsv({ name: item.name }, text, account, forceMonth);
+  if (r && r.error) throw new Error(r.error);
+  let msg = '✅ ' + item.name + ' 取込完了：新規 ' + r.added + '件・補完更新 ' + r.patched + '件・スキップ ' + r.skipped + '件';
+  if (r.reverted) msg += '　🔒 ロック中の月のため ' + r.reverted + '件は取り込みませんでした';
+  appvImpSetStatus('impYahooStatus', msg);
+  await appvAfterWrite();
+  const push = await appvPushCloudSafe();
+  if (push && push.ok) appvToast('☁ クラウドに同期しました');
+  appvToast('📥 売上CSVを取り込みました');
+}
+
+/* 証憑は別ページ(mf-evidence.html)が担当するため、ファイルを引き渡して遷移する。
+ * sessionStorageは同一タブ限定なので、他タブ・他端末に証憑データが残らない。 */
+const APPV_AUTO_INBOX_EVIDENCE_KEY = 'ribre_auto_inbox_evidence_v1';
+const APPV_AUTO_INBOX_EVIDENCE_MAX = 3 * 1024 * 1024; // mf-evidence.js の MF_MAX_FILE_BYTES と同値
+async function appvAutoInboxSendEvidence(item, base64) {
+  if (item.size > APPV_AUTO_INBOX_EVIDENCE_MAX) {
+    throw new Error('証憑は3MBまでです（' + Math.round(item.size / 1024 / 1024 * 10) / 10 + 'MB）。PDFを圧縮してから登録してください');
+  }
+  try {
+    sessionStorage.setItem(APPV_AUTO_INBOX_EVIDENCE_KEY, JSON.stringify({
+      name: item.name, base64: base64, at: Date.now()
+    }));
+  } catch (e) {
+    throw new Error('証憑の引き渡しに失敗しました: ' + ((e && e.message) || e));
+  }
+  appvToast('📎 証憑ページへ移動します');
+  location.href = 'mf-evidence.html?from=auto-inbox';
+}
+
 function appvRenderShipUnmatchTable(list) {
   const wrap = document.getElementById('impShipUnmatchWrap');
   const body = document.getElementById('impShipUnmatchBody');
