@@ -1,0 +1,101 @@
+/* RIBRE 売上管理 — AIに質問（自然文Q&A）専用スタイル
+   styles/app-v2.css の CSS変数（--card/--border/--text/--sub/--accent 等）とトーンに合わせる。
+   新しい色は追加せず、既存の変数のみを再利用する。 */
+
+.aiq-log {
+  max-height: 360px;
+  overflow-y: auto;
+  margin: 4px 0 12px;
+  padding: 4px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.aiq-log:empty::before {
+  content: "質問を入力するか、上の例をタップしてください。";
+  color: var(--sub);
+  font-size: 12.5px;
+}
+
+.aiq-msg {
+  max-width: 88%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.aiq-msg.aiq-user {
+  align-self: flex-end;
+  background: var(--accent-light);
+  color: var(--text);
+  border-bottom-right-radius: 4px;
+}
+.aiq-msg.aiq-assistant {
+  align-self: flex-start;
+  background: #F1F5F1;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+.aiq-msg.aiq-error {
+  align-self: flex-start;
+  background: var(--err-light);
+  color: var(--err);
+  border: 1px solid var(--err-light);
+}
+
+.aiq-toollog {
+  align-self: flex-start;
+  margin-top: -4px;
+  font-size: 11.5px;
+  color: var(--sub);
+  max-width: 88%;
+}
+.aiq-toollog summary {
+  cursor: pointer;
+  color: var(--info);
+}
+.aiq-toollog ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.aiq-toollog li {
+  margin-bottom: 3px;
+  word-break: break-all;
+}
+
+.aiq-inputrow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.aiq-textarea {
+  flex: 1;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  resize: vertical;
+  font-size: 13.5px;
+  font-family: inherit;
+}
+.aiq-textarea:focus { outline: none; border-color: var(--accent); }
+
+.aiq-btnrow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.aiq-btnrow .btn { white-space: nowrap; }
+.aiq-btnrow .btn:disabled { opacity: .6; cursor: not-allowed; }
+
+@media (max-width: 899px) {
+  .aiq-inputrow { flex-direction: column; align-items: stretch; }
+  .aiq-btnrow { flex-direction: row; }
+  .aiq-btnrow .btn { flex: 1; }
+  .aiq-msg, .aiq-toollog { max-width: 100%; }
+}
