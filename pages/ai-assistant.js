@@ -382,7 +382,8 @@ function aiqBuildSystemPrompt() {
       'ツールで取得できない数値は正直に「取得できません」と答える。',
     'このアシスタントは読み取り専用。データの追加・変更・削除は一切行わない（そのようなツールも存在しない）。',
     '回答は簡潔な日本語で。どの期間・どの条件で集計したか（例: 「2026年7月・ヤフオク1」）を一言添える。',
-    '質問が曖昧で複数の解釈がありうる場合は、推測でツールを呼ばずに短い確認質問を返すこと（例: 「利益率」は売上に対する粗利益率か、それとも別の指標か等）。'
+    '質問が曖昧で複数の解釈がありうる場合は、推測でツールを呼ばずに短い確認質問を返すこと（例: 「利益率」は売上に対する粗利益率か、それとも別の指標か等）。',
+    '回答はMarkdownを使わないプレーンテキストで書くこと（**強調** や見出し記号は画面にそのまま記号として表示されてしまう）。'
   ].join('\n');
 }
 
@@ -546,10 +547,24 @@ async function aiqRunConversation(userText) {
 /* ==================== UI ====================
  * このブロックはブラウザ環境（DOM）でのみ動作する。Node/vmでのツール単体テストでは
  * documentが無いため、要素が見つかったときだけ初期化する。 */
+/* モデルがMarkdownの強調記号を付けて返すことがあるが、この画面はtextContentで
+ * 描画する（XSS対策のためinnerHTMLは使わない）ので「**2,473円**」のように記号が
+ * そのまま見えてしまう。表示前に記号だけを取り除く。
+ * ※対になっている ** __ ` と行頭の見出し記号のみを対象にし、
+ *   金額や商品名に含まれうる単独の記号は触らない。 */
+function aiqStripMarkdown(text) {
+  var s = String(text == null ? '' : text);
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '$1');   // **強調**
+  s = s.replace(/__([^_\n]+)__/g, '$1');       // __強調__
+  s = s.replace(/`([^`\n]+)`/g, '$1');         // `コード`
+  s = s.replace(/^\s{0,3}#{1,6}\s+/gm, '');    // 行頭の見出し
+  return s;
+}
+
 function aiqAppendMessage(container, role, text, toolLog) {
   var msg = document.createElement('div');
   msg.className = 'aiq-msg aiq-' + role;
-  msg.textContent = text;
+  msg.textContent = role === 'assistant' ? aiqStripMarkdown(text) : text;
   container.appendChild(msg);
   if (role === 'assistant' && toolLog && toolLog.length) {
     var details = document.createElement('details');
