@@ -296,7 +296,39 @@ function aiqExecuteTool(name, args) {
   var safeArgs = args && typeof args === 'object' ? args : {};
   if (name === 'query_data') return aiqQueryData(safeArgs);
   if (name === 'list_rows') return aiqListRows(safeArgs);
+  // 学習メモ（pages/ai-memory.js）。教わったことを覚えて以降の回答に反映する
+  if (name === 'remember_preference' && typeof window.aimHandleToolCall === 'function') {
+    return window.aimHandleToolCall(safeArgs);
+  }
+  // 変更提案（pages/ai-write.js）。ここでは「提案を作る」だけで、データは一切変更しない。
+  // 実際の変更は利用者が画面の「実行」を押したときにaiwApplyProposalが行う。
+  if (name === 'propose_update' && typeof window.aiwProposeUpdate === 'function') {
+    return aiqStageProposal(window.aiwProposeUpdate(safeArgs));
+  }
+  if (name === 'propose_delete' && typeof window.aiwProposeDelete === 'function') {
+    return aiqStageProposal(window.aiwProposeDelete(safeArgs));
+  }
   return { error: '未対応のツールです: ' + name };
+}
+
+/* 提案を画面表示用に控えつつ、モデルには「提案を作った」事実だけを返す。
+ * 実データの変更が起きていないことをモデルにも明示し、勝手に「変更しました」と
+ * 報告させない（実行したのは人間のクリックだけ、という事実関係を崩さないため）。 */
+var aiqPendingProposal = null;
+function aiqStageProposal(proposal) {
+  if (!proposal || !proposal.ok) {
+    return { ok: false, error: (proposal && proposal.summary) || '提案を作成できませんでした' };
+  }
+  aiqPendingProposal = proposal;
+  return {
+    ok: true,
+    staged: true,
+    kind: proposal.kind,
+    row_count: (proposal.rows || []).length,
+    blocked_count: (proposal.blocked || []).length,
+    summary: proposal.summary,
+    note: 'この提案はまだ実行されていません。画面に確認欄を表示したので、利用者が「実行」を押すまでデータは一切変更されません。回答では「変更しました」ではなく「変更内容を提案しました。ご確認ください」と伝えること。'
+  };
 }
 
 /* ==================== OpenAI Responses APIツール定義 ====================
@@ -356,8 +388,73 @@ var AIQ_TOOLS = [
       },
       required: ['source']
     }
+  },
+  /* ---- 変更提案（pages/ai-write.js）----
+   * これらは「提案を作る」だけでデータを変更しない。実行は利用者のクリックのみ。 */
+  {
+    type: 'function',
+    name: 'propose_update',
+    description:
+      '条件に合う取引行の修正を「提案」する。このツールはデータを変更しない。' +
+      '利用者が画面で内容を確認して「実行」を押したときだけ、自動バックアップの後に変更される。' +
+      '一度に扱えるのは10件まで。締め済み月の行と、同一内容が複数あって特定できない行は対象外になる。',
+    parameters: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', enum: ['sales', 'purchases', 'expenses'] },
+        month: { type: 'string', description: '対象月 YYYY-MM' },
+        month_from: { type: 'string' },
+        month_to: { type: 'string' },
+        shop: { type: 'string' },
+        vendor: { type: 'string' },
+        name_contains: { type: 'string' },
+        memo_contains: { type: 'string' },
+        amount_min: { type: 'number' },
+        amount_max: { type: 'number' },
+        set: {
+          type: 'object',
+          description: '変更する内容。指定した項目だけが書き換わる',
+          properties: {
+            date: { type: 'string', description: '取引日 YYYY-MM-DD' },
+            name: { type: 'string', description: '商品名' },
+            partner: { type: 'string', description: 'sales=チャネル名、purchases/expenses=取引先名' },
+            amount: { type: 'number', description: '金額' },
+            memo: { type: 'string', description: 'メモ' }
+          }
+        }
+      },
+      required: ['source', 'set']
+    }
+  },
+  {
+    type: 'function',
+    name: 'propose_delete',
+    description:
+      '条件に合う取引行の削除を「提案」する。このツールはデータを変更しない。' +
+      '利用者が画面で内容を確認して「実行」を押したときだけ、自動バックアップの後に削除される。' +
+      '一度に扱えるのは10件まで。締め済み月の行と、同一内容が複数あって特定できない行は対象外になる。',
+    parameters: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', enum: ['sales', 'purchases', 'expenses'] },
+        month: { type: 'string', description: '対象月 YYYY-MM' },
+        month_from: { type: 'string' },
+        month_to: { type: 'string' },
+        shop: { type: 'string' },
+        vendor: { type: 'string' },
+        name_contains: { type: 'string' },
+        memo_contains: { type: 'string' },
+        amount_min: { type: 'number' },
+        amount_max: { type: 'number' }
+      },
+      required: ['source']
+    }
   }
 ];
+// 学習メモのツール（pages/ai-memory.js）が読み込まれていれば追加する
+if (typeof window !== 'undefined' && typeof window.aimGetToolSpec === 'function') {
+  try { AIQ_TOOLS.push(window.aimGetToolSpec()); } catch (e) {}
+}
 
 /* ==================== システムプロンプト ==================== */
 /* 今日の日付をJSTで取得（クライアントPCのタイムゾーンに依存しないようにする）。 */
@@ -380,11 +477,20 @@ function aiqBuildSystemPrompt() {
     '最重要ルール: 金額・件数は必ずquery_dataまたはlist_rowsの戻り値の数値をそのまま使うこと。自分で暗算・推計・合算しない。' +
       '複数のツール結果を組み合わせる場合も、足し算・引き算・割り算は戻ってきた数値同士の単純な演算に留め、' +
       'ツールで取得できない数値は正直に「取得できません」と答える。',
-    'このアシスタントは読み取り専用。データの追加・変更・削除は一切行わない（そのようなツールも存在しない）。',
+    'データの修正・削除を頼まれたらpropose_update/propose_deleteで「提案」を作ること。' +
+      'これらのツールはデータを変更しない。実際に変更されるのは利用者が画面の「実行」ボタンを押したときだけで、' +
+      'その直前に自動でバックアップが取られる。したがって提案を作った後の回答では、必ず' +
+      '「変更しました」ではなく「変更内容を提案しました。内容を確認して実行してください」と伝えること。' +
+      '一度に扱えるのは10件までで、締め済みの月の行は変更できない（提案しても対象外として弾かれる）。',
+    '利用者から「◯◯として扱って」「いつも△△で」のような指示や訂正を受けたら、remember_preferenceで覚えること。' +
+      '一度覚えたことは次回以降の質問でも自動的に適用されるので、同じ確認を繰り返さない。' +
+      '例: 年を省略した月の指定は今年として解釈する、等。',
     '回答は簡潔な日本語で。どの期間・どの条件で集計したか（例: 「2026年7月・ヤフオク1」）を一言添える。',
-    '質問が曖昧で複数の解釈がありうる場合は、推測でツールを呼ばずに短い確認質問を返すこと（例: 「利益率」は売上に対する粗利益率か、それとも別の指標か等）。',
-    '回答はMarkdownを使わないプレーンテキストで書くこと（**強調** や見出し記号は画面にそのまま記号として表示されてしまう）。'
-  ].join('\n');
+    '質問が曖昧で複数の解釈がありうる場合は、推測でツールを呼ばずに短い確認質問を返すこと（例: 「利益率」は売上に対する粗利益率か、それとも別の指標か等）。' +
+      'ただし過去に教わって覚えている事柄については、再確認せずその解釈を使うこと。',
+    '回答はMarkdownを使わないプレーンテキストで書くこと（**強調** や見出し記号は画面にそのまま記号として表示されてしまう）。',
+    (typeof window.aimBuildPromptBlock === 'function' ? window.aimBuildPromptBlock() : '')
+  ].filter(function (s) { return s; }).join('\n');
 }
 
 /* ==================== OpenAI呼び出し（Responses API） ==================== */
@@ -625,6 +731,30 @@ function aiqInitUI() {
       }
       aiqAppendMessage(log, 'assistant', result.answer, result.toolLog);
       aiqPushHistory(text, result.answer);
+      // 変更提案が作られていれば、その確認カードを会話の下に表示する。
+      // ここで初めて利用者が「実行」を押せるようになる（押すまでデータは変わらない）。
+      if (aiqPendingProposal && typeof window.aiwRenderProposal === 'function') {
+        var proposal = aiqPendingProposal;
+        aiqPendingProposal = null;
+        var holder = document.createElement('div');
+        holder.className = 'aiq-proposal-holder';
+        log.appendChild(holder);
+        try {
+          window.aiwRenderProposal(holder, proposal, function (outcome) {
+            // 実行/取消の結果を会話にも残す（後から見返せるように）
+            if (outcome && outcome.applied) {
+              aiqAppendMessage(log, 'assistant', '変更を実行しました（' + (outcome.rowCount || 0) + '件）。バックアップ済みなので「元に戻す」で取り消せます。');
+            } else if (outcome && outcome.undone) {
+              aiqAppendMessage(log, 'assistant', '変更を元に戻しました。');
+            } else if (outcome && outcome.error) {
+              aiqAppendMessage(log, 'error', '実行できませんでした: ' + outcome.error);
+            }
+          });
+        } catch (e2) {
+          aiqAppendMessage(log, 'error', '提案の表示に失敗しました: ' + ((e2 && e2.message) || String(e2)));
+        }
+        log.scrollTop = log.scrollHeight;
+      }
     } catch (e) {
       aiqAppendMessage(log, 'error', '予期しないエラーが発生しました: ' + ((e && e.message) || String(e)));
     } finally {
@@ -645,6 +775,11 @@ function aiqInitUI() {
       while (log.firstChild) log.removeChild(log.firstChild);
       aiqClearHistory();
     });
+  }
+  // 「AIが覚えていること」パネル（pages/ai-memory.js）。未読込でも本体は動く
+  var memPanel = document.getElementById('aimPanel');
+  if (memPanel && typeof window.aimRenderPanel === 'function') {
+    try { window.aimRenderPanel(memPanel); } catch (e) {}
   }
   var chipRow = document.getElementById('aiqChipRow');
   if (chipRow) {

@@ -6,6 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="styles/app-v2.css">
 <link rel="stylesheet" href="styles/ai-assistant.css">
+<link rel="stylesheet" href="styles/ai-write.css">
+<link rel="stylesheet" href="styles/ai-memory.css">
 </head>
 <body>
 <!-- auth-gate.js/signIn()が参照する共通ログインフォーム要素（非表示・値はゲートのフォームから転記） -->
@@ -301,7 +303,8 @@
       <div class="card section-gap" id="aiqCard">
         <h2>AIに質問</h2>
         <div class="muted" style="font-size:12.5px;margin-bottom:10px">
-          売上・仕入データについて日本語で質問できます（下の例をタップすると入力欄に入ります）。回答の金額・件数は必ずデータから集計した値です。
+          売上・仕入データについて日本語で質問できます（下の例をタップすると入力欄に入ります）。回答の金額・件数は必ずデータから集計した値です。<br>
+          修正・削除も頼めます。AIは変更内容を「提案」するだけで、あなたが実行を押すまでデータは変わりません（実行直前に自動バックアップ）。
         </div>
         <div class="tpl-chip-row" id="aiqChipRow">
           <button type="button" class="tpl-chip aiq-chip" data-q="7月のヤフオク1の売上は？">7月のヤフオク1の売上は？</button>
@@ -316,6 +319,8 @@
             <button type="button" class="btn" id="aiqClearBtn">クリア</button>
           </div>
         </div>
+        <!-- AIが覚えていること（pages/ai-memory.js が描画。教わった解釈を次回以降も適用する） -->
+        <div id="aimPanel" class="aim-panel"></div>
       </div>
 
       <!-- 月次推移（直近6ヶ月・appvMonthTotalsで各月計算）：売上=緑棒／粗利=マイナス時は赤 -->
@@ -720,6 +725,12 @@
 <!-- openai-ocr.js: 保管庫スクショの自動リネームOCRで画像最適化(ribreOptimizeOcrImage)を使う -->
 <script src="services/openai-ocr.js"></script>
 <script src="pages/app-v2.js"></script>
+<!-- ai-write.js/ai-memory.js: AI質問の「変更提案（実行は人のクリック＋自動バックアップ）」と学習メモ。
+     ai-assistant.js がロード時にツール定義を取り込むため、必ずその前に読み込むこと。
+     どちらも core.js の sales()/setLS/createLocalSnapshot と app-v2.js の
+     appvFindLocalRowIndex/appvSyncYahoo/appvIsMonthLocked に依存する。 -->
+<script src="pages/ai-write.js"></script>
+<script src="pages/ai-memory.js"></script>
 <!-- ai-assistant.js: 分析ページ「AIに質問」。app-v2.js/servicesの読み込み後である必要がある -->
 <script src="pages/ai-assistant.js"></script>
 </body>

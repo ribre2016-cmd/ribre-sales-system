@@ -1,0 +1,118 @@
+/* RIBRE 売上管理 — 「AIが覚えていること」パネル（pages/ai-memory.js の aimRenderPanel が使う）
+ * 色・角丸・影は styles/app-v2.css の :root カスタムプロパティをそのまま再利用する
+ * （--bg/--card/--border/--text/--sub/--accent/--err/--err-light 等。独自の色は定義しない）。 */
+
+.aim-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+}
+
+.aim-title {
+  font-size: 16px;
+  margin: 0 0 8px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.aim-desc {
+  font-size: 12.5px;
+  color: var(--sub);
+  margin: 0 0 14px;
+  line-height: 1.6;
+}
+
+.aim-empty {
+  font-size: 13px;
+  color: var(--sub);
+  padding: 14px 0;
+  margin: 0;
+}
+
+.aim-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aim-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.aim-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.aim-fact {
+  font-size: 13.5px;
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.aim-note {
+  font-size: 12px;
+  color: var(--sub);
+  margin-top: 3px;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.aim-date {
+  font-size: 11px;
+  color: var(--sub);
+  margin-top: 4px;
+}
+
+.aim-del-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--err-light);
+  background: #fff;
+  color: var(--err);
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.aim-del-btn:hover {
+  background: var(--err-light);
+}
+
+.aim-clear-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  padding: 7px 14px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.aim-clear-btn:hover {
+  background: var(--bg);
+}
+
+@media (max-width: 899px) {
+  .aim-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .aim-del-btn {
+    align-self: flex-end;
+  }
+}
