@@ -89,8 +89,15 @@ function aiqPickFilters(args) {
     amount_min: null,
     amount_max: null
   };
-  if (a.amount_min !== undefined && a.amount_min !== null && a.amount_min !== '') out.amount_min = aiqNum(a.amount_min);
-  if (a.amount_max !== undefined && a.amount_max !== null && a.amount_max !== '') out.amount_max = aiqNum(a.amount_max);
+  // 金額の上下限は「0＝指定なし」として扱う。
+  // モデルはschemaの全項目を埋めようとして、指定が無い場合に amount_max: 0 を送ってくる
+  // ことがある（実際に発生）。これを素直に「上限0円」と解釈すると全件が除外され、
+  // データがあるのに「該当なし」と答えてしまう。金額0の証憑・取引を上限/下限で
+  // 絞り込みたい場面は実務上ないため、0は未指定とみなすのが安全。
+  var minRaw = aiqNum(a.amount_min);
+  var maxRaw = aiqNum(a.amount_max);
+  if (minRaw > 0) out.amount_min = minRaw;
+  if (maxRaw > 0) out.amount_max = maxRaw;
   return out;
 }
 
@@ -390,15 +397,18 @@ var AIQ_FALLBACK_MODEL = 'gpt-4.1';
 var AIQ_MAX_TOOL_ROUNDS = 5; // これを超えるとツールを使わせず、その時点の情報で回答させる
 var aiqActiveModel = AIQ_MODEL;  // 実際に使えたモデル（フォールバック後は固定される）
 var aiqLastUsedModel = '';       // 直近の回答で使ったモデル（根拠行の表示用）
+var aiqOmitTemperature = false;  // temperature非対応モデル向け（初回失敗時に自動でtrueになる）
+var aiqLastModelError = '';      // 既定モデルが使えなかった理由（画面に出して原因調査できるように）
 
-async function aiqPostResponses(model, inputItems, tools, token) {
+async function aiqPostResponses(model, inputItems, tools, token, omitTemperature) {
   var body = {
     model: model,
     instructions: aiqBuildSystemPrompt(),
     input: inputItems,
-    temperature: 0,
     store: false
   };
+  // GPT-5系など temperature を受け付けないモデルがあるため、必要に応じて外せるようにする
+  if (!omitTemperature) body.temperature = 0;
   if (tools && tools.length) {
     body.tools = tools;
     body.tool_choice = 'auto';
@@ -427,7 +437,7 @@ async function aiqCallOpenAI(inputItems, tools) {
   var token = '';
   try { token = (typeof sess === 'function' ? sess().access_token : '') || ''; } catch (e) { token = ''; }
   try {
-    var data = await aiqPostResponses(aiqActiveModel, inputItems, tools, token);
+    var data = await aiqPostResponses(aiqActiveModel, inputItems, tools, token, aiqOmitTemperature);
     aiqLastUsedModel = aiqActiveModel;
     return data;
   } catch (e) {
@@ -435,11 +445,29 @@ async function aiqCallOpenAI(inputItems, tools) {
     if (e && e.aiqUnauthorized) throw e;
     // 既にフォールバック済み、またはフォールバック先自体の失敗ならそのまま投げる
     if (aiqActiveModel === AIQ_FALLBACK_MODEL) throw e;
-    try {
-      console.warn('[RIBRE AI質問] ' + aiqActiveModel + ' が使えないため ' + AIQ_FALLBACK_MODEL + ' へ切り替えます:', e && e.message);
-    } catch (e2) {}
+
+    aiqLastModelError = (e && e.message) ? String(e.message).slice(0, 300) : '不明なエラー';
+    try { console.warn('[RIBRE AI質問] ' + aiqActiveModel + ' の呼び出しに失敗:', aiqLastModelError); } catch (e2) {}
+
+    // 段階1: temperature非対応（GPT-5系に多い）の可能性があるため、同じモデルで
+    // temperatureを外して1度だけ再試行する。これで通れば以降もその形で呼ぶ。
+    if (!aiqOmitTemperature) {
+      try {
+        var retry = await aiqPostResponses(aiqActiveModel, inputItems, tools, token, true);
+        aiqOmitTemperature = true;
+        aiqLastUsedModel = aiqActiveModel;
+        try { console.info('[RIBRE AI質問] temperatureを外して成功したため、以降は付けずに呼びます'); } catch (e3) {}
+        return retry;
+      } catch (e4) {
+        aiqLastModelError = (e4 && e4.message) ? String(e4.message).slice(0, 300) : aiqLastModelError;
+        try { console.warn('[RIBRE AI質問] temperature無しでも失敗:', aiqLastModelError); } catch (e5) {}
+      }
+    }
+
+    // 段階2: それでも駄目ならgpt-4.1へ切り替える（以降このセッションでは固定）
     aiqActiveModel = AIQ_FALLBACK_MODEL;
-    var fb = await aiqPostResponses(aiqActiveModel, inputItems, tools, token);
+    aiqOmitTemperature = false;
+    var fb = await aiqPostResponses(aiqActiveModel, inputItems, tools, token, false);
     aiqLastUsedModel = aiqActiveModel;
     return fb;
   }
@@ -542,6 +570,12 @@ function aiqAppendMessage(container, role, text, toolLog) {
         (aiqLastUsedModel === AIQ_FALLBACK_MODEL && AIQ_MODEL !== AIQ_FALLBACK_MODEL
           ? '（' + AIQ_MODEL + 'が使えないため切替）' : '');
       list.appendChild(modelLi);
+      // 切替が起きた場合は理由もここに出す（devtoolsを開かなくても原因が分かるように）
+      if (aiqLastModelError && aiqLastUsedModel === AIQ_FALLBACK_MODEL && AIQ_MODEL !== AIQ_FALLBACK_MODEL) {
+        var reasonLi = document.createElement('li');
+        reasonLi.textContent = '切替理由: ' + aiqLastModelError;
+        list.appendChild(reasonLi);
+      }
     }
     details.appendChild(list);
     container.appendChild(details);
