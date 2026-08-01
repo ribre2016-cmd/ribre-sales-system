@@ -196,6 +196,12 @@
   function aibLedgerHasHash(ledger, hash) {
     return ledger.some(function (e) { return e && e.hash === hash; });
   }
+  /* 取込済みの記録をすべて消す。ファイルもアプリのデータも消さない。
+   * 取込済み判定はファイルの中身のハッシュで行うため、売上データ側を削除しても
+   * この記録が残っていると「新しいファイルはありません」になる。取り込み直す用。 */
+  function aibClearLedger() {
+    try { localStorage.removeItem(LEDGER_KEY); return true; } catch (e) { return false; }
+  }
   function aibMarkProcessed(id, action) {
     var entry = aibLastItems.get(id);
     if (!entry) return { ok: false, reason: 'not_found' };
@@ -873,10 +879,19 @@
 
     var btnRow = document.createElement('div'); btnRow.className = 'aib-header-actions';
     var rescanBtn = aibMakeButton('🔄 再スキャン', 'aib-btn', function () { aibRenderConnected(container, handlers, info); });
+    /* 取込済みの記録を消して、フォルダ内のファイルを再び一覧へ出す。
+     * 取込済み判定はファイルの中身のハッシュで行うため、売上データ側を削除しても
+     * 記録は残り「新しいファイルはありません」となる。取り込み直したいときに使う。 */
+    var resetBtn = aibMakeButton('取込済みの記録を消す', 'aib-btn aib-btn-ghost', function () {
+      if (!confirm('「取込済み」の記録を消して、フォルダ内のファイルをもう一度一覧に表示します。\n' +
+        'ファイルやデータは削除しません。取り込み直したいときに使ってください。\n\n実行しますか？')) return;
+      aibClearLedger();
+      aibRenderConnected(container, handlers, info);
+    });
     var forgetBtn = aibMakeButton('解除', 'aib-btn aib-btn-ghost', function () {
       aibForgetFolder().then(function () { aibRenderPanel(container, handlers); });
     });
-    btnRow.appendChild(rescanBtn); btnRow.appendChild(forgetBtn);
+    btnRow.appendChild(rescanBtn); btnRow.appendChild(resetBtn); btnRow.appendChild(forgetBtn);
     header.appendChild(folderInfo); header.appendChild(btnRow);
     container.appendChild(header);
 
@@ -932,6 +947,8 @@
   // 「なぜこのアカウントと判定されたか」を確認・検証できるよう公開する
   window.aibDetectAccount = aibDetectAccount;
   window.aibForgetFolder = aibForgetFolder;
+  // 取込済みの記録をクリア（取り込み直したいとき用）
+  window.aibClearLedger = aibClearLedger;
 
   /* テスト用（Node vm サンドボックス）に内部関数へのアクセスを許す。ブラウザ実行には無害。 */
   window.__aibInternal = {
