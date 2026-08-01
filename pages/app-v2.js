@@ -5221,6 +5221,31 @@ function appvReadFileAsText(file, cb) {
   rd.onerror = () => cb('');
   rd.readAsArrayBuffer(file);
 }
+/* CSVの中身とファイル名から取込元チャネルを推定する（取込元の選び忘れ検知用）。
+ * 優先順位は「中身（棚番）＞ファイル名」。中身の方が確実なため。
+ * 判定できない場合は account を空で返し、呼び出し側は何も警告しない
+ * （曖昧な推測で余計な確認を出さない）。 */
+function appvGuessImportAccount(fileName, csvText) {
+  // 1) 中身の棚番から（pages/auto-inbox.js の判定をそのまま使う）
+  try {
+    if (typeof window.aibDetectAccount === 'function' && typeof appvYParseCsv === 'function') {
+      const rows = appvYParseCsv(csvText);
+      const det = window.aibDetectAccount(rows);
+      if (det && det.account) {
+        return { account: det.account, reason: '商品名の棚番 ' + det.votes + '/' + det.sampled + '行が一致' };
+      }
+    }
+  } catch (e) {}
+  // 2) ファイル名から（棚番が無い時期のCSV向け。例: 202607ヤフオク4.csv）
+  const name = String(fileName || '');
+  const mYahoo = name.match(/ヤフオク\s*([1-8])/);
+  if (mYahoo) return { account: 'ヤフオク' + mYahoo[1], reason: 'ファイル名' };
+  if (/メルカリ\s*shops/i.test(name) || /メルカリShops/.test(name)) return { account: 'メルカリShops', reason: 'ファイル名' };
+  if (/メルカリ/.test(name)) return { account: 'メルカリ', reason: 'ファイル名' };
+  if (/ラクマ/.test(name)) return { account: 'ラクマ', reason: 'ファイル名' };
+  return { account: '', reason: '' };
+}
+
 async function appvHandleYahooImport() {
   const fileEl = document.getElementById('impYahooFile');
   const file = fileEl && fileEl.files && fileEl.files[0];
@@ -5229,8 +5254,24 @@ async function appvHandleYahooImport() {
   const forceMonth = (monthEl && /^\d{4}-\d{2}$/.test(monthEl.value)) ? monthEl.value : '';
   if (!file) { alert('売上CSVを選択してください'); return; }
   appvImpSetStatus('impYahooStatus', '取込中…');
-  try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv yahoo csv import'); } catch (e) {}
   appvReadFileAsText(file, async (text) => {
+    // 取込元の選び忘れ防止。CSVの中身（商品名先頭の棚番）とファイル名から
+    // 想定チャネルを推定し、選択中の取込元と食い違うときは警告して確認する。
+    // 実例: 「202607ヤフオク4.csv」を取込元ヤフオク1のまま取り込み、8件が
+    // 誤ってヤフオク1として登録された事故があったため追加した。
+    const guess = appvGuessImportAccount(file.name, text);
+    if (guess.account && guess.account !== account) {
+      const ok = confirm(
+        '⚠ 取込元の選択が違うかもしれません。\n\n' +
+        '　選択中の取込元: ' + account + '\n' +
+        '　CSVからの推定 : ' + guess.account + '（' + guess.reason + '）\n\n' +
+        'このまま「' + account + '」として取り込むと、売上が誤ったチャネルに登録されます。\n' +
+        'キャンセルして「取込元」を選び直すことをおすすめします。\n\n' +
+        'このまま' + account + 'で取り込みますか？'
+      );
+      if (!ok) { appvImpSetStatus('impYahooStatus', '取込を中止しました（取込元を選び直してください）'); return; }
+    }
+    try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv yahoo csv import'); } catch (e) {}
     const r = appvImportYahooCsv(file, text, account, forceMonth);
     if (r.error) { appvImpSetStatus('impYahooStatus', '⚠ ' + r.error); return; }
     let msg = '✅ 取込完了：新規 ' + r.added + '件・補完更新 ' + r.patched + '件・スキップ ' + r.skipped + '件（累計 ' + r.total + '件）';
