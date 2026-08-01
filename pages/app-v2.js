@@ -5288,10 +5288,36 @@ function appvMatchShipping() {
   let matched = 0, unmatched = 0;
   const unmatchedList = [];
   const touched = [];
+
+  /* 配送行×売上行の総当たりは数千×数千＝1千万回規模になり、そのたびに
+   * appvShipNormId/appvNormalizeSlip で文字列を正規化し直すと極端に遅くなる。
+   * 正規化は売上1行につき1回だけ行い、以降は使い回す（判定条件は
+   * appvShipIdHit/appvShipSlipHit と同一のまま）。
+   * 伝票番号は完全一致なので索引を作って総当たりを避ける。 */
+  const idFields = s.map((x) => [x && x.id, x && x.itemId, x && x.memo, x && x.name]
+    .map((f) => appvShipNormId(f)).filter(Boolean));
+  const slipIndex = new Map();
+  s.forEach((x, i) => {
+    [x && x.slip, x && x.invoiceNo, x && x.memo].forEach((f) => {
+      const nv = appvNormalizeSlip(f);
+      if (nv && !slipIndex.has(nv)) slipIndex.set(nv, i);
+    });
+  });
+
   ships.forEach((sh) => {
     let target = null;
-    if (sh.itemId) target = s.find((x) => appvShipIdHit(x, sh.itemId));
-    if (!target && sh.slip) target = s.find((x) => appvShipSlipHit(x, sh.slip));
+    if (sh.itemId) {
+      const id = appvShipNormId(sh.itemId);
+      if (id && id.length >= 4) {
+        for (let i = 0; i < s.length; i++) {
+          if (idFields[i].some((fv) => fv.includes(id))) { target = s[i]; break; }
+        }
+      }
+    }
+    if (!target && sh.slip) {
+      const t = appvNormalizeSlip(sh.slip);
+      if (t && slipIndex.has(t)) target = s[slipIndex.get(t)];
+    }
     if (target && target.matchStatus === '手入力') return; // 手入力保護（旧UIと同じ）
     if (target) {
       if (sh.slip) target.slip = sh.slip;
@@ -5310,7 +5336,10 @@ function appvMatchShipping() {
   // appvSyncYahooShip（appvManualShippingの手入力と同じ経路）を再利用し、後日のYahoo/配送CSV
   // 再取込でLS.salesがyahoo240起点に丸ごと置換された際に照合結果が巻き戻らないようにする
   // （appvManualShippingは既に同じ理由でミラーしているが、自動照合側は抜けていたため追加）。
-  touched.forEach((x) => appvSyncYahooShip(x, x.shipping, x.profit));
+  // 1行ずつappvSyncYahooShipを呼ぶと、そのたびにyahoo240(約1.4MB)を全読み込み・
+  // 全書き出しするため、数千行が一致するとメモリを使い果たしてブラウザが
+  // 「Out of Memory」で落ちる（実際に発生）。まとめて1回で書き換える。
+  appvSyncYahooShipBatch(touched);
   const salesResults = s.map((x) => {
     const shipped = Number(x.shipping || 0) > 0;
     const csvMatched = x.matchStatus === '配送CSV一致' && shipped;
@@ -5687,6 +5716,36 @@ function appvRenderShipMoreRow(body, total, rendered) {
 }
 /* ribre_yahoo_sales240側の同期（旧: pages/app-shipping.js manualShipping 1219-1225行目 smpSyncYahooShip相当と同一。
  * id/itemId一致で同一行を更新し、data-store.js canonical() が旧ストアの値を拾って送料が巻き戻るのを防ぐ）。 */
+/* 複数行ぶんの配送情報をyahoo240へ一括反映する。
+ * appvSyncYahooShipを1行ずつ呼ぶと、そのたびに約1.4MBのJSONを全読み込み・全書き出し
+ * するため、数千行が一致する自動照合ではメモリを使い果たしてブラウザが
+ * 「Out of Memory」で落ちた（実際に発生）。読み書きを1回にまとめる。
+ * 突合はid・itemIdの索引を作って行う（配列の総当たりを避けるため）。 */
+function appvSyncYahooShipBatch(recs) {
+  if (!recs || !recs.length) return;
+  try {
+    const key = 'ribre_yahoo_sales240';
+    const arr = JSON.parse(localStorage.getItem(key) || '[]');
+    if (!Array.isArray(arr) || !arr.length) return;
+    const byId = new Map(), byItemId = new Map();
+    recs.forEach((rec) => {
+      if (rec && rec.id) byId.set(String(rec.id), rec);
+      if (rec && rec.itemId) byItemId.set(String(rec.itemId), rec);
+    });
+    let changed = false;
+    arr.forEach((r) => {
+      const rec = (r.id != null && byId.get(String(r.id))) || (r.itemId != null && byItemId.get(String(r.itemId))) || null;
+      if (!rec) return;
+      r.shipping = rec.shipping; r.ship = rec.shipping; r.profit = rec.profit;
+      if (rec.matchStatus != null) r.matchStatus = rec.matchStatus;
+      if (rec.slip != null) r.slip = rec.slip;
+      if (rec.deliveryCompany != null) r.deliveryCompany = rec.deliveryCompany;
+      changed = true;
+    });
+    if (changed) setLS(key, arr);
+  } catch (e) {}
+}
+
 function appvSyncYahooShip(rec, ship, profit) {
   try {
     const key = 'ribre_yahoo_sales240';
