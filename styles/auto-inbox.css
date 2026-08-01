@@ -125,3 +125,15 @@
   color: var(--muted, #6b7280);
   line-height: 1.5;
 }
+
+/* 取込済みファイルの折りたたみ一覧（ファイル単位で取り込み直すため） */
+.aib-processed { margin-top: 12px; }
+.aib-processed > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--muted, #6b7280);
+  user-select: none;
+  padding: 4px 0;
+}
+.aib-processed > summary:hover { color: var(--accent, #2563eb); }
+.aib-processed .aib-item { opacity: .85; }

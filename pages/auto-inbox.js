@@ -198,9 +198,20 @@
   }
   /* 取込済みの記録をすべて消す。ファイルもアプリのデータも消さない。
    * 取込済み判定はファイルの中身のハッシュで行うため、売上データ側を削除しても
-   * この記録が残っていると「新しいファイルはありません」になる。取り込み直す用。 */
+   * この記録が残っていると「新しいファイルはありません」になる。取り込み直す用。
+   * ※全部消すと配送CSVなど取り直す必要のないものまで再表示されるため、
+   *   通常は aibUnmarkProcessed（ファイル単位）を使うこと。 */
   function aibClearLedger() {
     try { localStorage.removeItem(LEDGER_KEY); return true; } catch (e) { return false; }
+  }
+  /* 指定ファイル1件だけ取込済みの記録を消す。そのファイルだけが一覧へ戻る。 */
+  function aibUnmarkProcessed(hash) {
+    if (!hash) return false;
+    var ledger = aibLoadLedger();
+    var next = ledger.filter(function (e) { return !e || e.hash !== hash; });
+    if (next.length === ledger.length) return false;
+    aibSaveLedger(next);
+    return true;
   }
   function aibMarkProcessed(id, action) {
     var entry = aibLastItems.get(id);
@@ -537,7 +548,7 @@
   }
 
   function aibDoScan() {
-    var result = { items: [], skipped: 0, errors: [], connected: false, supported: aibIsSupported(), capped: false, totalCandidates: 0 };
+    var result = { items: [], processed: [], skipped: 0, errors: [], connected: false, supported: aibIsSupported(), capped: false, totalCandidates: 0 };
     if (!result.supported) return Promise.resolve(result);
 
     return aibLoadHandle().then(function (handle) {
@@ -591,7 +602,22 @@
               var file = cur.file;
               return Promise.resolve(file.arrayBuffer()).then(function (buf) {
                 return aibSha256Hex(buf).then(function (hash) {
-                  if (aibLedgerHasHash(ledger, hash)) { result.skipped++; return; }
+                  // 取込済みのファイルも「もう一度取り込む」ために一覧へ残す。
+                  // 台帳を全部消すと配送CSVまで再表示されてしまうため、
+                  // ファイル単位で選べるようにする。
+                  if (aibLedgerHasHash(ledger, hash)) {
+                    result.skipped++;
+                    var seenEntry = null;
+                    for (var li = 0; li < ledger.length; li++) {
+                      if (ledger[li] && ledger[li].hash === hash) { seenEntry = ledger[li]; break; }
+                    }
+                    result.processed.push({
+                      id: 'aib_' + hash.slice(0, 24), hash: hash, name: file.name,
+                      size: file.size, lastModified: file.lastModified,
+                      at: (seenEntry && seenEntry.at) || 0, action: (seenEntry && seenEntry.action) || ''
+                    });
+                    return;
+                  }
                   var extMatch = file.name.match(/\.([a-z0-9]+)$/i);
                   var ext = extMatch ? extMatch[1].toLowerCase() : '';
                   var kind, note, preview, account = '', accountConfidence = 0, sampleRows = [];
@@ -849,6 +875,36 @@
         if (list && list.length) body.appendChild(aibRenderGroup(kind, list, handlers));
       });
     }
+    /* 取込済みファイルの一覧（折りたたみ）。
+     * 台帳を全部消すと配送CSVなど取り直す必要のないものまで再表示されるため、
+     * ここでファイル単位に「もう一度取り込む」を選べるようにする。 */
+    var processed = res.processed || [];
+    if (processed.length) {
+      processed.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+      var det = document.createElement('details'); det.className = 'aib-processed';
+      var sum2 = document.createElement('summary');
+      sum2.textContent = '取込済みのファイル（' + processed.length + '件）— 取り込み直すときはここから';
+      det.appendChild(sum2);
+      processed.forEach(function (p) {
+        var row = document.createElement('div'); row.className = 'aib-item';
+        var main = document.createElement('div'); main.className = 'aib-item-main';
+        var nm = document.createElement('div'); nm.className = 'aib-item-name'; nm.textContent = p.name;
+        var meta = document.createElement('div'); meta.className = 'aib-item-meta';
+        meta.textContent = aibFormatSize(p.size) + '・' + aibFormatDate(p.lastModified)
+          + (p.at ? '・取込 ' + new Date(p.at).toLocaleString('ja-JP') : '')
+          + (p.action === 'ignored' ? '（無視した分）' : '');
+        main.appendChild(nm); main.appendChild(meta);
+        var act = document.createElement('div'); act.className = 'aib-item-actions';
+        var again = aibMakeButton('もう一度取り込む', 'aib-btn', function () {
+          aibUnmarkProcessed(p.hash);
+          aibRenderConnected(container, handlers, info);
+        });
+        act.appendChild(again);
+        row.appendChild(main); row.appendChild(act);
+        det.appendChild(row);
+      });
+      body.appendChild(det);
+    }
     if (res.capped) {
       var capNote = document.createElement('div'); capNote.className = 'aib-note-warn';
       capNote.textContent = 'フォルダ内に対象ファイルが' + res.totalCandidates + '件あり、最新の' + MAX_FILES + '件のみ表示しています。専用フォルダに分けることをおすすめします。';
@@ -949,6 +1005,8 @@
   window.aibForgetFolder = aibForgetFolder;
   // 取込済みの記録をクリア（取り込み直したいとき用）
   window.aibClearLedger = aibClearLedger;
+  // ファイル単位で取込済みを解除（配送CSV等を巻き込まずに取り込み直す）
+  window.aibUnmarkProcessed = aibUnmarkProcessed;
 
   /* テスト用（Node vm サンドボックス）に内部関数へのアクセスを許す。ブラウザ実行には無害。 */
   window.__aibInternal = {
