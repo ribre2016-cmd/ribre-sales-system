@@ -5282,9 +5282,24 @@ function appvImportShippingCsv(csvText, type) {
 
 /* 配送照合の実行（旧: matchShipping と同一ロジック。ribre_full_sales221(sales())を更新） */
 function appvMatchShipping() {
-  const ships = appvShipRows();
   const s = sales();
-  if (!ships.length) return { error: '先に配送CSVを取込してください' };
+  const rawShips = appvShipRows();
+  if (!rawShips.length) return { error: '先に配送CSVを取込してください' };
+
+  /* ヤマトは2種類のCSVを組み合わせて初めて送料が入る:
+   *   発行済データ(yamato1) = 商品ID ↔ 伝票番号（送料の列は無い）
+   *   運賃明細  (yamato2) = 伝票番号 ↔ 送料（商品IDの列は無い）
+   * 運賃明細は「売上行に伝票番号が入っていること」を前提に伝票番号で突合するため、
+   * 先に発行済データを処理して伝票番号を売上へ書いておく必要がある。
+   * 保存順のまま1回のループで回すと、運賃明細が先に来たときに伝票番号がまだ無く
+   * 送料が入らない（実際に「配送CSV一致なのに送料0」が発生した）。
+   * そこで商品IDを持つ行（発行済データ・佐川）を先に、伝票番号だけの行を後に処理する。 */
+  const ships = rawShips.slice().sort((a, b) => {
+    const ai = a && a.itemId ? 0 : 1;
+    const bi = b && b.itemId ? 0 : 1;
+    return ai - bi;
+  });
+
   let matched = 0, unmatched = 0;
   const unmatchedList = [];
   const touched = [];
@@ -5304,28 +5319,38 @@ function appvMatchShipping() {
     });
   });
 
+  const touchedSet = new Set();
   ships.forEach((sh) => {
     let target = null;
+    let targetIdx = -1;
     if (sh.itemId) {
       const id = appvShipNormId(sh.itemId);
       if (id && id.length >= 4) {
         for (let i = 0; i < s.length; i++) {
-          if (idFields[i].some((fv) => fv.includes(id))) { target = s[i]; break; }
+          if (idFields[i].some((fv) => fv.includes(id))) { target = s[i]; targetIdx = i; break; }
         }
       }
     }
     if (!target && sh.slip) {
       const t = appvNormalizeSlip(sh.slip);
-      if (t && slipIndex.has(t)) target = s[slipIndex.get(t)];
+      if (t && slipIndex.has(t)) { targetIdx = slipIndex.get(t); target = s[targetIdx]; }
     }
     if (target && target.matchStatus === '手入力') return; // 手入力保護（旧UIと同じ）
     if (target) {
-      if (sh.slip) target.slip = sh.slip;
+      if (sh.slip) {
+        target.slip = sh.slip;
+        // 発行状データで売上へ伝票番号が入ったら索引にも反映する。
+        // これをしないと、後続の運賃明細（伝票番号だけを持つ行）が
+        // この売上を見つけられず送料が入らない。
+        const nv = appvNormalizeSlip(sh.slip);
+        if (nv && targetIdx >= 0 && !slipIndex.has(nv)) slipIndex.set(nv, targetIdx);
+      }
       if (sh.shipping) { target.shipping = sh.shipping; target.ship = sh.shipping; target.profit = num(target.amount || target.price) - num(target.fee) - num(sh.shipping); }
       target.deliveryCompany = sh.company;
       target.matchStatus = '配送CSV一致';
       matched++;
-      touched.push(target);
+      // 同じ売上行が発行済データと運賃明細の両方で当たるため重複を除く
+      if (!touchedSet.has(target)) { touchedSet.add(target); touched.push(target); }
     } else {
       unmatched++;
       unmatchedList.push({ company: sh.company, itemId: sh.itemId, slip: sh.slip, shipping: sh.shipping });
