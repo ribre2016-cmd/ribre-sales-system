@@ -5173,17 +5173,26 @@ async function appvAutoInboxImportCsv(item, text) {
     return;
   }
 
-  // 売上CSV。どのアカウント（チャネル）の売上かはCSVの中身から判別できないため
-  // （既存のappvImportYahooCsvも画面の選択に従う仕様）、必ず利用者に確認する。
+  // 売上CSVの取込先アカウント。
+  // ヤフオクのCSVには出品者を示す列が無いが、RIBREの運用では商品タイトル先頭の棚番
+  // （例: 1HC1 → H = ヤフオク8）でアカウントが分かる。auto-inbox.js側が中身を集計して
+  // item.account を判定済みなら、それを既定にして確認するだけで済ませる。
+  // 判定できなかった場合のみ、従来どおり画面の選択に従う。
   const sel = document.getElementById('impYahooAccount');
   if (!sel) throw new Error('売上CSV取込の選択欄が見つかりません');
-  if (item.kind === 'mercari_shops') {
-    const opt = Array.prototype.find.call(sel.options || [], (o) => o.value === 'メルカリShops');
-    if (opt) sel.value = 'メルカリShops';
+  const hasOption = (v) => Array.prototype.some.call(sel.options || [], (o) => o.value === v);
+  if (item.account && hasOption(item.account)) {
+    sel.value = item.account;
+  } else if (item.kind === 'mercari_shops' && hasOption('メルカリShops')) {
+    sel.value = 'メルカリShops';
   }
   const account = sel.value;
   if (!account) throw new Error('取込先のアカウントを選んでください');
-  if (!confirm(item.name + '\nを「' + account + '」の売上として取り込みます。よろしいですか？\n（違う場合はキャンセルして、下の「売上CSV取込」でアカウントを選び直してください）')) {
+  const detectedNote = item.account
+    ? '\n（商品タイトルの棚番から自動判定しました）'
+    : '\n（CSVからは判定できなかったため、画面の選択に従っています）';
+  if (!confirm(item.name + '\nを「' + account + '」の売上として取り込みます。よろしいですか？' + detectedNote +
+      '\n違う場合はキャンセルして、下の「売上CSV取込」でアカウントを選び直してください。')) {
     throw new Error('取込を中止しました');
   }
 

@@ -320,6 +320,67 @@
     if (!checked) return false;
     return (matched / checked) >= 0.7;
   }
+  /* ==================== 出品アカウントの判定（商品タイトルの棚番から） ====================
+   * ヤフオクの売上CSVには出品者アカウントを示す列が無いため（pages/app-v2.js 4825-4834行目の
+   * 読み取り列を参照）、CSVの中身だけではヤフオク1〜8のどれかを区別できない。
+   * ただしRIBREの運用では商品タイトル先頭に棚番が付いており、その形が
+   *   <配送サイズ数字><アカウント英字(ヤフオク1は無し)><種別><棚番数字>   例: 1HC1
+   * になっている。アカウント英字の部分で判別する。
+   *   配送サイズ: 1=ネコポス 2=宅急便コンパクト 3=ヤマト60 4=80 5=100（判定には使わない）
+   *   アカウント: 無し=ヤフオク1、S=2、R=3、N=4、M=5、J=6、Q=7、H=8
+   *   種別      : C=CD、D=DVD、KC=カセットテープ
+   *   末尾      : 棚番（1〜）
+   * 種別が2文字(KC)になりうるため、アカウント英字は「最短一致」で取り、先にKCを試す。
+   * こうすることで 1KC1 は「アカウント無し＋KC(カセット)」＝ヤフオク1、
+   * 1HKC1 は「H＋KC」＝ヤフオク8 と正しく解釈できる。
+   * 1行だけで決めず全行を集計して多数決を取る（棚番の付け忘れ・例外行があっても揺らがない）。
+   * なおヤフオク4は2026年8月頃までは棚番が付いていないため、その時期のCSVは判定不能になる。
+   * 判定できない場合は勝手に決めず、利用者に選んでもらう。 */
+  var AIB_SHELF_ACCOUNT_MAP = {
+    '': 'ヤフオク1', S: 'ヤフオク2', R: 'ヤフオク3', N: 'ヤフオク4',
+    M: 'ヤフオク5', J: 'ヤフオク6', Q: 'ヤフオク7', H: 'ヤフオク8'
+  };
+  // アカウント英字は最短一致(??)。種別はKCを先に試すことで 1KC1 を「無し+KC」と読む
+  var AIB_SHELF_RE = /^\s*([1-9])([A-Za-z]??)(KC|C|D)(\d+)/i;
+  var AIB_ACCOUNT_MIN_VOTES = 3;   // これ未満のサンプルでは判定しない
+  var AIB_ACCOUNT_MIN_RATIO = 0.6; // 最多アカウントがこの割合未満なら判定しない
+
+  function aibDetectAccount(rows) {
+    if (!rows || rows.length < 2) return null;
+    var header = rows[0];
+    var idxName = aibFindIndex(header, ['商品名', 'タイトル', '取扱内容'], 2);
+    if (idxName < 0) return null;
+    var votes = {}, total = 0;
+    rows.slice(1).forEach(function (r) {
+      var title = String((r && r[idxName]) || '');
+      var m = AIB_SHELF_RE.exec(title);
+      if (!m) return;
+      var letter = String(m[2] || '').toUpperCase();
+      var acc = AIB_SHELF_ACCOUNT_MAP[letter];
+      if (!acc) return; // 未知の英字は勝手に割り当てない
+      votes[acc] = (votes[acc] || 0) + 1;
+      total++;
+    });
+    if (total < AIB_ACCOUNT_MIN_VOTES) return null;
+    var best = null, bestN = 0;
+    Object.keys(votes).forEach(function (k) { if (votes[k] > bestN) { best = k; bestN = votes[k]; } });
+    if (!best) return null;
+    var ratio = bestN / total;
+    if (ratio < AIB_ACCOUNT_MIN_RATIO) return null;
+    return { account: best, votes: bestN, sampled: total, ratio: ratio };
+  }
+
+  /* ヘッダー配列から候補語のいずれかを含む列位置を探す（pages/app-v2.js の appvYFindIndex と同規則） */
+  function aibFindIndex(header, cands, fallback) {
+    for (var i = 0; i < header.length; i++) {
+      var cell = String(header[i] || '');
+      for (var j = 0; j < cands.length; j++) {
+        if (cell.indexOf(cands[j]) >= 0) return i;
+      }
+    }
+    return typeof fallback === 'number' ? fallback : -1;
+  }
+
   function aibClassifyCsv(rows) {
     if (!rows.length) return { kind: 'unknown', note: 'CSVが空です（ヘッダー行もありません）。', rowCount: 0 };
     var header = rows[0];
@@ -330,9 +391,20 @@
     var amountMatch = aibHasAny(header, AMOUNT_VOCAB);
     var genericSalesLike = idMatch && (dateMatch || amountMatch);
     if (yahooSignal || genericSalesLike) {
+      var det = aibDetectAccount(rows);
+      if (det) {
+        return {
+          kind: 'yahoo_sales',
+          account: det.account,
+          accountConfidence: det.ratio,
+          note: '売上CSVとして検出しました。商品タイトルの棚番から「' + det.account + '」と判定しました（'
+            + det.votes + '/' + det.sampled + '行が一致）。',
+          rowCount: dataRows.length
+        };
+      }
       return {
         kind: 'yahoo_sales',
-        note: '売上CSVとして検出しました（列見出しが一致）。取込時に対象アカウント（ヤフオク1〜8／メルカリ／ラクマ等）を選んでください。',
+        note: '売上CSVとして検出しました（列見出しが一致）。商品タイトルの棚番からはアカウントを判定できなかったため、取込時に対象アカウント（ヤフオク1〜8／メルカリ／ラクマ等）を選んでください。',
         rowCount: dataRows.length
       };
     }
@@ -439,13 +511,17 @@
                   if (aibLedgerHasHash(ledger, hash)) { result.skipped++; return; }
                   var extMatch = file.name.match(/\.([a-z0-9]+)$/i);
                   var ext = extMatch ? extMatch[1].toLowerCase() : '';
-                  var kind, note, preview;
+                  var kind, note, preview, account = '', accountConfidence = 0;
                   if (ext === 'csv') {
                     var text = aibDecodeText(buf);
                     var rows = aibParseCsv(text);
                     var cls = aibClassifyCsv(rows);
                     kind = cls.kind; note = cls.note;
+                    account = cls.account || '';
+                    accountConfidence = cls.accountConfidence || 0;
                     preview = KIND_LABEL[kind] + (typeof cls.rowCount === 'number' ? '・' + cls.rowCount + '行' : '');
+                    // 棚番から出品アカウントが判明した場合はひと目で分かるようにする
+                    if (account) preview += '・' + account;
                   } else {
                     kind = 'evidence';
                     note = '証憑（' + ext.toUpperCase() + '）として送信できます。';
@@ -453,7 +529,10 @@
                   }
                   var id = 'aib_' + hash.slice(0, 24);
                   newItemsMap.set(id, { fh: cur.fh, name: file.name, size: file.size, lastModified: file.lastModified, kind: kind, hash: hash });
-                  result.items.push({ id: id, name: file.name, kind: kind, size: file.size, lastModified: file.lastModified, preview: preview, note: note });
+                  result.items.push({
+                    id: id, name: file.name, kind: kind, size: file.size, lastModified: file.lastModified,
+                    preview: preview, note: note, account: account, accountConfidence: accountConfidence
+                  });
                 });
               }, function (e) {
                 result.errors.push({ name: file.name, note: '読み込みに失敗しました（他のアプリで使用中の可能性があります）: ' + ((e && e.message) || e) });
@@ -736,6 +815,9 @@
   window.aibReadFileText = aibReadFileText;
   window.aibReadFileBase64 = aibReadFileBase64;
   window.aibRenderPanel = aibRenderPanel;
+  // 棚番→出品アカウント判定。取込先の自動選択に使うほか、
+  // 「なぜこのアカウントと判定されたか」を確認・検証できるよう公開する
+  window.aibDetectAccount = aibDetectAccount;
   window.aibForgetFolder = aibForgetFolder;
 
   /* テスト用（Node vm サンドボックス）に内部関数へのアクセスを許す。ブラウザ実行には無害。 */
