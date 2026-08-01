@@ -151,32 +151,47 @@ function purchases() { return get(LS.purchases, []); }
 function evidences() { return get(LS.ev, []); }
 function candidates() { return get(LS.cand, []); }
 function createLocalSnapshot(reason) {
+  const salesRows = sales();
+  const yahooRows = get('ribre_yahoo_sales240', []);
+  // salesとyahoo240はほぼ常に同一内容。両方を丸ごと持つとスナップショット1件で
+  // 売上2コピー分になり、3世代で6コピーになって容量を圧迫する（実際に
+  // quota超過で取込が失敗した）。同一ならyahooSalesはnullにして重複を持たない。
+  // 復元側は snap.yahooSales || snap.sales で読むこと。
+  const sameYahoo = JSON.stringify(salesRows) === JSON.stringify(yahooRows);
   const snap = {
     reason: String(reason || 'manual'),
     createdAt: new Date().toISOString(),
     createdAtLocal: new Date().toLocaleString('ja-JP'),
-    sales: sales(),
+    sales: salesRows,
     purchases: purchases(),
-    yahooSales: get('ribre_yahoo_sales240', []),
+    yahooSales: sameYahoo ? null : yahooRows,
     evidences: evidences(),
     candidates: candidates()
   };
   const rows = get('ribre_auto_snapshots_v1', []);
   rows.unshift(snap);
-  try {
-    localStorage.setItem('ribre_auto_snapshots_v1', JSON.stringify(rows.slice(0, 3)));
-  } catch (e) {
+  // 3世代入らなければ2→1と減らす。世代数を減らしてでも「直前の状態」は
+  // 完全な形で残す（中身を捨てて件数だけにすると復元できなくなるため）。
+  const keeps = [3, 2, 1];
+  for (let i = 0; i < keeps.length; i++) {
     try {
-      const light = rows.slice(0, 5).map((x) => ({
-        reason: x.reason,
-        createdAt: x.createdAt,
-        createdAtLocal: x.createdAtLocal,
-        salesCount: (x.sales || []).length,
-        purchasesCount: (x.purchases || []).length
-      }));
-      localStorage.setItem('ribre_auto_snapshots_v1', JSON.stringify(light));
-    } catch (err) {}
+      localStorage.setItem('ribre_auto_snapshots_v1', JSON.stringify(rows.slice(0, keeps[i])));
+      return snap;
+    } catch (e) {
+      if (!ribreIsQuotaError(e)) break;
+    }
   }
+  // 1件すら入らない場合のみ、件数だけの記録に落とす（復元不可・記録用）
+  try {
+    const light = rows.slice(0, 5).map((x) => ({
+      reason: x.reason,
+      createdAt: x.createdAt,
+      createdAtLocal: x.createdAtLocal,
+      salesCount: (x.sales || []).length,
+      purchasesCount: (x.purchases || []).length
+    }));
+    localStorage.setItem('ribre_auto_snapshots_v1', JSON.stringify(light));
+  } catch (err) {}
   return snap;
 }
 /* 既定のSupabase接続（公開用 publishable キー。RLSで保護）。設定画面で上書きも可能 */

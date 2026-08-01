@@ -5136,6 +5136,23 @@ function appvShipRows() { try { return JSON.parse(localStorage.getItem('ribre_sh
 // （生のsetItemだと「exceeded the quota」でそのまま失敗していた）
 function appvSaveShipRows(arr) { setLS('ribre_shipping_rows230', (arr || []).slice(-10000)); }
 
+/* 売上取込のあとに配送照合を再実行する。保存済みの配送行（前月分で未一致のまま
+ * 残っているものを含む）を全件、売上全件と突き合わせるので、今回入れた売上に
+ * 過去の配送行が一致するようになる。
+ * 配送データが1件も無い場合は何もしない（売上取込のたびにエラーを出さないため）。
+ * 戻り値: 実行したら {matched, unmatched}、実行しなければ null。 */
+function appvAutoRematchShipping() {
+  try {
+    if (typeof appvShipRows !== 'function' || !appvShipRows().length) return null;
+    const m = appvMatchShipping();
+    if (!m || m.error) return null;
+    if (typeof appvRenderShipPersistentTable === 'function') appvRenderShipPersistentTable();
+    return m;
+  } catch (e) {
+    return null;
+  }
+}
+
 /* 配送CSVの種類をファイル名から判定する。
  * 中身からの判定（appvDetectShipType）は列位置ベースのヒューリスティックで、
  * ヤマトの送り状発行済データを佐川と誤判定する実例が出たため、ファイル名に
@@ -5311,6 +5328,13 @@ async function appvHandleYahooImport() {
     if (r.error) { appvImpSetStatus('impYahooStatus', '⚠ ' + r.error); return; }
     let msg = '✅ 取込完了：新規 ' + r.added + '件・補完更新 ' + r.patched + '件・スキップ ' + r.skipped + '件（累計 ' + r.total + '件）';
     if (r.reverted) msg += '　🔒 ロック中の月のため ' + r.reverted + '件は取り込みませんでした';
+    // 売上を入れたら配送照合も自動で走らせる。保存済みの配送データ（前月に取り込んで
+    // 相手の売上が無く未一致だった分を含む）を全件、売上全件と突き合わせるため、
+    // 今回入れた売上に対して過去の配送行が一致するようになる。
+    // 従来は配送CSVを取り込んだときしか照合が走らず、売上を後から入れても
+    // 未一致のままだった。
+    const rm = appvAutoRematchShipping();
+    if (rm) msg += '　🚚 配送照合：一致 ' + rm.matched + '件・未一致 ' + rm.unmatched + '件';
     appvImpSetStatus('impYahooStatus', msg);
     await appvAfterWrite();
     const push = await appvPushCloudSafe();
@@ -5394,6 +5418,9 @@ async function appvAutoInboxImportCsv(item, text) {
   if (r && r.error) throw new Error(r.error);
   let msg = '✅ ' + item.name + ' 取込完了：新規 ' + r.added + '件・補完更新 ' + r.patched + '件・スキップ ' + r.skipped + '件';
   if (r.reverted) msg += '　🔒 ロック中の月のため ' + r.reverted + '件は取り込みませんでした';
+  // 手動取込と同じく、売上を入れたら保存済みの配送データと再照合する
+  const rm = appvAutoRematchShipping();
+  if (rm) msg += '　🚚 配送照合：一致 ' + rm.matched + '件・未一致 ' + rm.unmatched + '件';
   appvImpSetStatus('impYahooStatus', msg);
   await appvAfterWrite();
   const push = await appvPushCloudSafe();

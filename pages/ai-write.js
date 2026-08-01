@@ -433,7 +433,10 @@ async function aiwUndoLastApply() {
   try {
     setLS(LS.sales, snap.sales || []);
     setLS(LS.purchases, snap.purchases || []);
-    localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(snap.yahooSales || []));
+    // yahooSalesはsalesと同一内容ならnullで保存される（容量節約。services/core.js
+    // createLocalSnapshot参照）。nullのときはsalesで復元すること。[]で復元すると
+    // yahoo240が空になり、CSV再取込で売上が消える事故につながる。
+    setLS('ribre_yahoo_sales240', snap.yahooSales || snap.sales || []);
     setLS(LS.ev, snap.evidences || []);
     setLS(LS.cand, snap.candidates || []);
   } catch (e) {
