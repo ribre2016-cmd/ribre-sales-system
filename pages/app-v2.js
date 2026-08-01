@@ -121,6 +121,9 @@ function appvGotoPage(page) {
     var ihEl = document.getElementById('importHistoryPanel');
     if (ihEl) { try { window.aihRenderPanel(ihEl); } catch (e) {} }
   }
+  // 配送データをクラウドから取得（他の端末で取り込んだ運賃明細などを反映する）。
+  // 1セッション1回だけ。取得できた分があれば照合し直して送料を埋める。
+  if (page === 'import') appvPullShippingOnce();
   if (page === 'analysis' && typeof appvRenderProvPanel === 'function') appvRenderProvPanel();
   if (page === 'analysis' && typeof appvRenderAnalysisPage === 'function') appvRenderAnalysisPage();
   if (page === 'settings') {
@@ -5225,6 +5228,31 @@ function appvCompactStorage() {
   return Math.max(0, before - after);
 }
 
+/* ==================== 配送データのクラウド同期（pages/shipping-sync.js） ====================
+ * 配送データは従来このブラウザのlocalStorageにしか無く、別の端末で取り込んだ
+ * 運賃明細がこちらに反映されなかった（6/30発送の商品の送料が入らない実例が発生）。
+ * 取込ページを開いたときに1回だけクラウドから取得し、取り込んだ後に送信する。 */
+var appvShippingPulled = false;
+async function appvPullShippingOnce() {
+  if (appvShippingPulled) return;
+  if (typeof window.svsPullShippingRows !== 'function') return;
+  appvShippingPulled = true; // 失敗しても連打しない（次回ページ遷移で再試行される作りにはしない）
+  try {
+    const r = await window.svsPullShippingRows();
+    if (r && r.ok && r.added > 0) {
+      appvToast('☁ 他の端末の配送データ ' + r.added + '件を取り込みました');
+      // 取得できた分で送料が埋まる可能性があるため照合し直す
+      const m = appvAutoRematchShipping();
+      if (m) appvImpSetStatus('impShipStatus', '☁ 同期後に再照合：一致 ' + m.matched + '件・不一致 ' + m.unmatched + '件');
+    }
+  } catch (e) { /* 同期できなくても取込作業は続けられるようにする */ }
+}
+/* 配送データをクラウドへ送る。失敗しても取込自体は成功扱いのままにする。 */
+async function appvPushShippingSafe() {
+  if (typeof window.svsPushShippingRows !== 'function') return null;
+  try { return await window.svsPushShippingRows(); } catch (e) { return null; }
+}
+
 /* 「再照合する」ボタン。取り込み済みの配送データだけで照合をやり直す。
  * 「取込＋照合する」はファイル必須のため、売上を後から入れたときや未一致を
  * 解消したいときに、CSVを選び直さず照合だけ実行できるようにする。 */
@@ -5240,6 +5268,7 @@ async function appvHandleShipRematch() {
   if (!m || m.error) { appvImpSetStatus('impShipStatus', '⚠ ' + ((m && m.error) || '照合に失敗しました')); return; }
   appvRenderShipPersistentTable();
   appvImpSetStatus('impShipStatus', '✅ 照合完了：一致 ' + m.matched + '件・不一致 ' + m.unmatched + '件');
+  await appvPushShippingSafe();
   await appvAfterWrite();
   const push = await appvPushCloudSafe();
   if (push && push.ok) appvToast('☁ クラウドに同期しました');
@@ -5552,6 +5581,7 @@ async function appvAutoInboxImportCsv(item, text) {
     await appvAfterWrite();
     const push = await appvPushCloudSafe();
     if (push && push.ok) appvToast('☁ クラウドに同期しました');
+    await appvPushShippingSafe();
     appvToast('📦 配送CSVを取り込みました（' + item.name + '）');
     return;
   }
@@ -5889,6 +5919,7 @@ async function appvHandleShipImport() {
     if (m.error) { appvImpSetStatus('impShipStatus', '⚠ ' + m.error); return; }
     appvRenderShipPersistentTable();
     appvImpSetStatus('impShipStatus', '✅ 照合完了：一致 ' + m.matched + '件・不一致 ' + m.unmatched + '件');
+    await appvPushShippingSafe();
     await appvAfterWrite();
     await appvRenderTodos();
     const push = await appvPushCloudSafe();
