@@ -5134,7 +5134,77 @@ function appvDetectShipType(rows) {
 function appvShipRows() { try { return JSON.parse(localStorage.getItem('ribre_shipping_rows230') || '[]') || []; } catch (e) { return []; } }
 // setLS経由にして容量不足時に自動バックアップを削って書き直せるようにする
 // （生のsetItemだと「exceeded the quota」でそのまま失敗していた）
-function appvSaveShipRows(arr) { setLS('ribre_shipping_rows230', (arr || []).slice(-10000)); }
+function appvSaveShipRows(arr) { setLS('ribre_shipping_rows230', (arr || []).map(appvTrimShipRow).slice(-10000)); }
+
+/* ==================== 保存領域の圧縮 ====================
+ * localStorageは1オリジン約5MB。実測では
+ *   配送行1535KB / 売上1403KB / yahoo240 1403KB(売上の複製) / 照合結果646KB = 計約5MB
+ * で上限に達し、売上CSV取込が失敗した。復元可能な情報を落とさずに削れる分を削る。 */
+
+/* 配送行のraw（CSV1行まるごと）を切り詰める。
+ * 照合に実際に使う列は以下だけで、いずれも短い値:
+ *   yamato1: 0(商品ID) / 3(伝票番号) / 27(商品ID予備)
+ *   yamato2: 4(伝票番号) / 11(運賃)
+ *   sagawa : 4(商品ID) / 10(運賃)
+ * 住所・品名などの長い列は照合に一切使わないため空文字にする。
+ * 配列のまま・列位置も保つ（keyOfのArray.isArray判定と、旧UIのraw[27]参照を壊さない）。
+ * ただしrawを空けると「伝票番号も商品IDも無い行」の重複判定キー（raw.join('')）が
+ * 衝突しうるため、元の行から算出した短いハッシュ rk を残し、keyOfはそれを優先する。 */
+var APPV_SHIP_KEEP_COLS = [0, 3, 4, 10, 11, 27];
+function appvShipRowHash(arr) {
+  var s = (arr || []).join('');
+  var h = 5381;
+  for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36) + '_' + s.length.toString(36);
+}
+function appvTrimShipRow(r) {
+  if (!r || !Array.isArray(r.raw)) return r;
+  if (r.rk && r.raw.length <= 28) return r; // 既に圧縮済み
+  var keep = {};
+  APPV_SHIP_KEEP_COLS.forEach(function (i) {
+    var s = String(r.raw[i] == null ? '' : r.raw[i]);
+    keep[i] = s.length > 60 ? s.slice(0, 60) : s;
+  });
+  var trimmed = [];
+  for (var i = 0; i <= 27; i++) trimmed.push(keep[i] !== undefined ? keep[i] : '');
+  var out = {};
+  for (var k in r) { if (Object.prototype.hasOwnProperty.call(r, k)) out[k] = r[k]; }
+  out.rk = r.rk || appvShipRowHash(r.raw); // 元の行から算出（圧縮前に必ず作る）
+  out.raw = trimmed;
+  return out;
+}
+
+/* 既存データを一括で圧縮する。取込のたびに新規分だけ削っても、既に保存済みの
+ * 大きなデータは減らないため、容量が足りないときにこれを呼んで作り直す。
+ * 戻り値: 削減できたおおよそのバイト数。 */
+function appvCompactStorage() {
+  var before = 0, after = 0;
+  function sizeOf(k) { try { return (localStorage.getItem(k) || '').length; } catch (e) { return 0; } }
+
+  // 1) 配送行のrawを切り詰める
+  try {
+    before += sizeOf('ribre_shipping_rows230');
+    var rows = appvShipRows();
+    if (rows.length) localStorage.setItem('ribre_shipping_rows230', JSON.stringify(rows.map(appvTrimShipRow)));
+    after += sizeOf('ribre_shipping_rows230');
+  } catch (e) {}
+
+  // 2) 照合結果は表示にstatusしか使っていない（appvRenderShipPersistentTableは
+  //    itemIdとstatusのみ参照）。company/slip/nameは書き込むだけで誰も読まないので落とす。
+  try {
+    before += sizeOf('ribre_shipping_results230');
+    var res = appvShipResults();
+    if (res.length) {
+      var slim = res.map(function (x) {
+        return { itemId: x.itemId || '', status: x.status || '', shipping: x.shipping || 0 };
+      });
+      localStorage.setItem('ribre_shipping_results230', JSON.stringify(slim));
+    }
+    after += sizeOf('ribre_shipping_results230');
+  } catch (e) {}
+
+  return Math.max(0, before - after);
+}
 
 /* 売上取込のあとに配送照合を再実行する。保存済みの配送行（前月分で未一致のまま
  * 残っているものを含む）を全件、売上全件と突き合わせるので、今回入れた売上に
@@ -5198,7 +5268,9 @@ function appvImportShippingCsv(csvText, type) {
     if (obj.itemId || obj.slip || obj.shipping) mapped.push(obj);
   });
   const prev = appvShipRows();
-  const keyOf = (r) => r.type + '|' + (appvNormalizeSlip(r.slip) || String(r.itemId || '') || ('c' + (Array.isArray(r.raw) ? r.raw.join('') : String(r.raw || ''))));
+  // 伝票番号・商品IDが無い行の重複判定は行内容そのもので行う。rawは容量削減のため
+  // 照合に使う列以外を空にしているので、圧縮前に算出した rk（行のハッシュ）を優先する。
+  const keyOf = (r) => r.type + '|' + (appvNormalizeSlip(r.slip) || String(r.itemId || '') || ('c' + (r.rk || (Array.isArray(r.raw) ? r.raw.join('') : String(r.raw || '')))));
   const merged = new Map();
   prev.forEach((r) => merged.set(keyOf(r), r));
   mapped.forEach((r) => merged.set(keyOf(r), r));
@@ -5243,7 +5315,10 @@ function appvMatchShipping() {
     const shipped = Number(x.shipping || 0) > 0;
     const csvMatched = x.matchStatus === '配送CSV一致' && shipped;
     const status = csvMatched ? '一致' : (shipped ? '匿名配送' : '未一致');
-    return { status: status, company: x.deliveryCompany || '', itemId: x.itemId || x.id || '', slip: x.slip || '', shipping: x.shipping || 0, name: x.name || '' };
+    // 表示側(appvRenderShipPersistentTable)が読むのは itemId と status のみ。
+    // company/slip/name も持たせていたが誰も読まず、売上件数ぶん保存されて
+    // 646KBを占めていたため落とした（容量不足で取込が失敗したため）。
+    return { status: status, itemId: x.itemId || x.id || '', shipping: x.shipping || 0 };
   });
   appvSaveShipResults(salesResults);
   return { matched: matched, unmatched: unmatched, unmatchedList: unmatchedList.slice(0, 100) };
@@ -5648,7 +5723,7 @@ async function appvManualShipping(itemId, val) {
   if (ri >= 0) {
     results[ri].status = '手入力';
     results[ri].shipping = v;
-    results[ri].name = s[idx].name || results[ri].name;
+    // nameは保存しない（表示側が読まないため容量削減で廃止した）
     appvSaveShipResults(results);
   }
   appvRenderShipPersistentTable();

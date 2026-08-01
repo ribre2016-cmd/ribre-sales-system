@@ -121,6 +121,19 @@ function setLS(k, v) {
           if (!ribreIsQuotaError(e2)) throw e2;
         }
       }
+      // スナップショットを全部消しても足りない場合、保存済みデータ自体を圧縮する
+      // （配送行のrawの切り詰め・照合結果の不要フィールド削除。実測で約2MB削減）。
+      // 実装は pages/app-v2.js 側にあるため、読み込まれている場合のみ実行する。
+      try {
+        if (typeof window !== 'undefined' && typeof window.appvCompactStorage === 'function') {
+          if (window.appvCompactStorage() > 0) {
+            localStorage.setItem(k, text);
+            return;
+          }
+        }
+      } catch (e3) {
+        if (!ribreIsQuotaError(e3)) throw e3;
+      }
       const err = new Error(
         'ブラウザの保存領域が不足しています（' + k + '）。自動バックアップを削除しても足りませんでした。' +
         '不要な月のデータを整理するか、別のブラウザ/端末でお試しください。'

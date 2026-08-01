@@ -412,7 +412,23 @@
     return out;
   }
 
-  function aibClassifyCsv(rows) {
+  /* 配送CSVの種類。ファイル名の手がかり（app-v2.js の appvDetectShipTypeByName。
+   * 発行済データ→ヤマト送り状、unchinjyoho/運賃→ヤマト運賃明細、佐川→佐川）を
+   * 優先し、無ければ中身の列位置から判定する。中身の判定はヤマトの送り状発行済
+   * データを佐川と誤判定する実例があったため、ファイル名が勝つ順序にしている。
+   * 判定の実体はapp-v2.js側に一本化し、ここでは持たない（二重管理を避ける）。 */
+  function aibShipTypeOfWithName(rows, fileName) {
+    try {
+      if (fileName && typeof window.appvDetectShipTypeByName === 'function') {
+        var byName = window.appvDetectShipTypeByName(fileName);
+        if (byName) return { type: byName, reason: 'ファイル名' };
+      }
+    } catch (e) {}
+    var byContent = aibShipTypeOf(rows);
+    return byContent ? { type: byContent, reason: 'CSVの中身' } : { type: null, reason: '' };
+  }
+
+  function aibClassifyCsv(rows, fileName) {
     if (!rows.length) return { kind: 'unknown', note: 'CSVが空です（ヘッダー行もありません）。', rowCount: 0 };
     var header = rows[0];
     var dataRows = rows.slice(1);
@@ -460,13 +476,22 @@
         sampleRows: samples
       };
     }
-    var shipType = aibShipTypeOf(rows);
+    var shipGuess = aibShipTypeOfWithName(rows, fileName);
+    var shipType = shipGuess.type;
+    var shipNote = function () {
+      return '配送CSV（' + SHIP_TYPE_LABEL[shipType] + '）として検出しました（' + shipGuess.reason + 'から判定）。';
+    };
+    /* ファイル名から判定できたものは中身の弱いシグナルより確実なので最優先。
+     * 中身だけの判定は、ヤマトの送り状発行済データを佐川と誤判定する実例があった。 */
+    if (shipType && shipGuess.reason === 'ファイル名') {
+      return { kind: 'shipping', note: shipNote(), rowCount: dataRows.length, shipType: shipType };
+    }
     /* yamato2/sagawaは「数値列＋ID/伝票列」の2条件一致が必要な強いシグナルなので先に判定してよいが、
      * yamato1は「0列目 or 27列目がID『らしい』文字列」という1条件だけの弱いシグナルで、
      * メルカリShops固定列（0列目=ID）の値とも構造的に衝突しうる。そのため
      * 「メルカリShops構造判定 → 残ったyamato1判定」の順にして弱いシグナルを後回しにする。 */
     if (shipType === 'yamato2' || shipType === 'sagawa') {
-      return { kind: 'shipping', note: '配送CSV（' + SHIP_TYPE_LABEL[shipType] + '）として検出しました。', rowCount: dataRows.length, shipType: shipType };
+      return { kind: 'shipping', note: shipNote(), rowCount: dataRows.length, shipType: shipType };
     }
     if (aibMercariShopsLike(rows)) {
       return {
@@ -476,7 +501,7 @@
       };
     }
     if (shipType === 'yamato1') {
-      return { kind: 'shipping', note: '配送CSV（' + SHIP_TYPE_LABEL[shipType] + '）として検出しました。', rowCount: dataRows.length, shipType: shipType };
+      return { kind: 'shipping', note: shipNote(), rowCount: dataRows.length, shipType: shipType };
     }
     return { kind: 'unknown', note: '列見出しから種類を判定できませんでした。取込対象外です（手動でご確認ください）。', rowCount: dataRows.length };
   }
@@ -567,7 +592,7 @@
                   if (ext === 'csv') {
                     var text = aibDecodeText(buf);
                     var rows = aibParseCsv(text);
-                    var cls = aibClassifyCsv(rows);
+                    var cls = aibClassifyCsv(rows, file.name);
                     kind = cls.kind; note = cls.note;
                     account = cls.account || '';
                     accountConfidence = cls.accountConfidence || 0;
