@@ -3269,6 +3269,93 @@ async function appvTaxDocsDownload(key) {
     appvToast('ダウンロードに失敗しました: ' + e.message);
   }
 }
+/* ==================== 税理士送付ファイルのプレビュー ====================
+ * ダウンロードせずに中身を確認できるようにする。Storageは認証必須なので直接srcには
+ * 指定できず、fetchしてblob URL化してから表示する（pages/mf-evidence.js の
+ * プレビューと同じ方式）。blob URLとキーイベントは閉じるときに必ず解放する。 */
+function appvTaxDocsClosePreview() {
+  const old = document.querySelector('.appv-taxpv-overlay');
+  if (old && typeof old.__close === 'function') old.__close();
+  else if (old) old.remove();
+}
+
+async function appvTaxDocsPreview(key, displayName, btn) {
+  const cr = appvCreds();
+  if (!cr) { appvToast('ログインすると使えます'); return; }
+  if (btn) { btn.disabled = true; }
+  try {
+    const r = await fetch(cr.url + '/storage/v1/object/' + APPV_TAX_DOCS_BUCKET + '/' + key, {
+      headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok }
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+
+    appvTaxDocsClosePreview(); // 既に開いていれば先に後始末（リスナー・blobの解放）
+    const url = URL.createObjectURL(blob);
+    const isPdf = /\.pdf$/i.test(key);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'appv-taxpv-overlay';
+    const box = document.createElement('div');
+    box.className = 'appv-taxpv-box';
+
+    const head = document.createElement('div');
+    head.className = 'appv-taxpv-head';
+    const title = document.createElement('div');
+    title.className = 'appv-taxpv-title';
+    title.textContent = displayName || key; // ファイル名はtextContentで入れる（HTML化しない）
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'tax-docs-btn';
+    closeBtn.textContent = '✕ 閉じる';
+    head.appendChild(title);
+    head.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'appv-taxpv-body';
+    let viewer;
+    if (isPdf) {
+      viewer = document.createElement('iframe');
+      viewer.className = 'appv-taxpv-frame';
+      viewer.src = url;
+    } else {
+      viewer = document.createElement('img');
+      viewer.className = 'appv-taxpv-img';
+      viewer.src = url;
+      viewer.alt = displayName || key;
+    }
+    body.appendChild(viewer);
+
+    const foot = document.createElement('div');
+    foot.className = 'appv-taxpv-foot';
+    const dl = document.createElement('button');
+    dl.className = 'tax-docs-btn';
+    dl.textContent = '⬇ ダウンロード';
+    dl.onclick = () => appvTaxDocsDownload(key);
+    foot.appendChild(dl);
+
+    box.appendChild(head);
+    box.appendChild(body);
+    box.appendChild(foot);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    function close() {
+      document.removeEventListener('keydown', onKey);
+      try { URL.revokeObjectURL(url); } catch (e) {}
+      overlay.remove();
+    }
+    overlay.__close = close; // 別のプレビューに置き換わるときも確実に後始末できるようにする
+    closeBtn.onclick = close;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    document.addEventListener('keydown', onKey);
+  } catch (e) {
+    appvToast('プレビューに失敗しました: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; }
+  }
+}
+
 /* 一覧のファイル名クリックでリネームする（おまけ機能）。保存後はクラウドpush・共有マニフェスト更新・再描画を行う。 */
 async function appvTaxDocsRename(key) {
   const cr = appvCreds();
@@ -3385,6 +3472,15 @@ async function appvRenderTaxDocs() {
     sizeTd.textContent = appvTaxDocsFmtSize(f.size);
     const opTd = document.createElement('td');
     opTd.style.textAlign = 'center';
+    // プレビュー（PDF/画像のみ）。ダウンロードせずに中身を確認できるようにする
+    if (/\.(pdf|png|jpe?g)$/i.test(f.key)) {
+      const pvBtn = document.createElement('button');
+      pvBtn.className = 'tax-docs-btn';
+      pvBtn.textContent = '👁プレビュー';
+      pvBtn.title = 'ダウンロードせずに内容を確認';
+      pvBtn.onclick = () => appvTaxDocsPreview(f.key, f.name || f.key, pvBtn);
+      opTd.appendChild(pvBtn);
+    }
     const dlBtn = document.createElement('button');
     dlBtn.className = 'tax-docs-btn';
     dlBtn.textContent = '⬇DL';
