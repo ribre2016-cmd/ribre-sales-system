@@ -85,3 +85,43 @@
   .aib-item-actions { width: 100%; }
   .aib-item-actions .aib-btn { flex: 1; }
 }
+
+/* 取込前の中身プレビュー（折りたたみ）。
+   「本当にこのアカウントのCSVか」を目視で確かめてから取り込めるようにする。 */
+.aib-item-sample { margin-top: 6px; }
+.aib-item-sample > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--accent, #2563eb);
+  user-select: none;
+}
+.aib-item-sample > summary:hover { text-decoration: underline; }
+.aib-sample-table {
+  width: 100%;
+  margin-top: 6px;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+.aib-sample-table th,
+.aib-sample-table td {
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.aib-sample-table th {
+  color: var(--muted, #6b7280);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.aib-sample-table th:nth-child(1), .aib-sample-table td:nth-child(1) { width: 22%; }
+.aib-sample-table th:nth-child(3), .aib-sample-table td:nth-child(3) { width: 18%; }
+.aib-sample-amount { text-align: right; white-space: nowrap; }
+.aib-sample-hint {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted, #6b7280);
+  line-height: 1.5;
+}

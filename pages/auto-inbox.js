@@ -385,6 +385,33 @@
     return typeof fallback === 'number' ? fallback : -1;
   }
 
+  /* 取込前の目視確認用に、先頭数件の日付・商品名・金額を抜き出す。
+   * 列位置は取込本体（pages/app-v2.js 4828-4830行目）と同じ語彙で探すため、
+   * ここで見えている値が実際に取り込まれる値と一致する。 */
+  var AIB_SAMPLE_MAX = 5;
+  function aibSampleRows(rows) {
+    if (!rows || rows.length < 2) return [];
+    var header = rows[0];
+    var idxDate = aibFindIndex(header, ['完了日', '落札日', '終了日時', '取扱日'], 1);
+    var idxName = aibFindIndex(header, ['商品名', 'タイトル', '取扱内容'], 2);
+    var idxAmount = aibFindIndex(header, ['決済金額', '落札価格', '売上金額', '合計'], 3);
+    var out = [];
+    for (var i = 1; i < rows.length && out.length < AIB_SAMPLE_MAX; i++) {
+      var r = rows[i];
+      if (!r) continue;
+      var name = String((idxName >= 0 && r[idxName]) || '').trim();
+      var date = String((idxDate >= 0 && r[idxDate]) || '').trim();
+      var amount = String((idxAmount >= 0 && r[idxAmount]) || '').trim();
+      if (!name && !date && !amount) continue;
+      out.push({
+        date: date.slice(0, 20),
+        name: name.length > 60 ? name.slice(0, 60) + '…' : name,
+        amount: amount.slice(0, 20)
+      });
+    }
+    return out;
+  }
+
   function aibClassifyCsv(rows) {
     if (!rows.length) return { kind: 'unknown', note: 'CSVが空です（ヘッダー行もありません）。', rowCount: 0 };
     var header = rows[0];
@@ -396,6 +423,7 @@
     var genericSalesLike = idMatch && (dateMatch || amountMatch);
     if (yahooSignal || genericSalesLike) {
       var det = aibDetectAccount(rows);
+      var samples = aibSampleRows(rows);
       if (det) {
         return {
           kind: 'yahoo_sales',
@@ -403,13 +431,15 @@
           accountConfidence: det.ratio,
           note: '売上CSVとして検出しました。商品タイトルの棚番から「' + det.account + '」と判定しました（'
             + det.votes + '/' + det.sampled + '行が一致）。',
-          rowCount: dataRows.length
+          rowCount: dataRows.length,
+          sampleRows: samples
         };
       }
       return {
         kind: 'yahoo_sales',
         note: '売上CSVとして検出しました（列見出しが一致）。商品タイトルの棚番からはアカウントを判定できなかったため、取込時に対象アカウント（ヤフオク1〜8／メルカリ／ラクマ等）を選んでください。',
-        rowCount: dataRows.length
+        rowCount: dataRows.length,
+        sampleRows: samples
       };
     }
     var shipType = aibShipTypeOf(rows);
@@ -515,7 +545,7 @@
                   if (aibLedgerHasHash(ledger, hash)) { result.skipped++; return; }
                   var extMatch = file.name.match(/\.([a-z0-9]+)$/i);
                   var ext = extMatch ? extMatch[1].toLowerCase() : '';
-                  var kind, note, preview, account = '', accountConfidence = 0;
+                  var kind, note, preview, account = '', accountConfidence = 0, sampleRows = [];
                   if (ext === 'csv') {
                     var text = aibDecodeText(buf);
                     var rows = aibParseCsv(text);
@@ -523,6 +553,7 @@
                     kind = cls.kind; note = cls.note;
                     account = cls.account || '';
                     accountConfidence = cls.accountConfidence || 0;
+                    sampleRows = cls.sampleRows || [];
                     preview = KIND_LABEL[kind] + (typeof cls.rowCount === 'number' ? '・' + cls.rowCount + '行' : '');
                     // 棚番から出品アカウントが判明した場合はひと目で分かるようにする
                     if (account) preview += '・' + account;
@@ -535,7 +566,8 @@
                   newItemsMap.set(id, { fh: cur.fh, name: file.name, size: file.size, lastModified: file.lastModified, kind: kind, hash: hash });
                   result.items.push({
                     id: id, name: file.name, kind: kind, size: file.size, lastModified: file.lastModified,
-                    preview: preview, note: note, account: account, accountConfidence: accountConfidence
+                    preview: preview, note: note, account: account, accountConfidence: accountConfidence,
+                    sampleRows: sampleRows
                   });
                 });
               }, function (e) {
@@ -666,6 +698,40 @@
     metaEl.textContent = aibFormatSize(item.size) + '・' + aibFormatDate(item.lastModified) + (item.preview ? '・' + item.preview : '');
     var noteEl = document.createElement('div'); noteEl.className = 'aib-item-note'; noteEl.textContent = item.note || '';
     main.appendChild(nameEl); main.appendChild(metaEl); main.appendChild(noteEl);
+
+    /* 中身のプレビュー。取り込む前に「本当にこのアカウントのCSVか」を目視で
+     * 確かめられるようにする（判定は多数決なので、根拠となる実データを見せる）。
+     * 表形式ではなく折りたたみにして、普段は邪魔にならないようにする。 */
+    if (item.sampleRows && item.sampleRows.length) {
+      var det = document.createElement('details'); det.className = 'aib-item-sample';
+      var sum = document.createElement('summary');
+      sum.textContent = '中身を確認（先頭' + item.sampleRows.length + '件）';
+      det.appendChild(sum);
+      var tbl = document.createElement('table'); tbl.className = 'aib-sample-table';
+      var thead = document.createElement('thead');
+      var htr = document.createElement('tr');
+      ['日付', '商品名', '金額'].forEach(function (h) {
+        var th = document.createElement('th'); th.textContent = h; htr.appendChild(th);
+      });
+      thead.appendChild(htr); tbl.appendChild(thead);
+      var tbody = document.createElement('tbody');
+      item.sampleRows.forEach(function (s) {
+        var tr = document.createElement('tr');
+        var td1 = document.createElement('td'); td1.textContent = s.date || '';
+        var td2 = document.createElement('td'); td2.textContent = s.name || '';
+        var td3 = document.createElement('td'); td3.className = 'aib-sample-amount'; td3.textContent = s.amount || '';
+        tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      det.appendChild(tbl);
+      if (item.account) {
+        var hint = document.createElement('div'); hint.className = 'aib-sample-hint';
+        hint.textContent = '商品名の先頭（例: 1HC1 → H＝ヤフオク8）から判定しています。違っていればキャンセルして手動で選んでください。';
+        det.appendChild(hint);
+      }
+      main.appendChild(det);
+    }
 
     var actions = document.createElement('div'); actions.className = 'aib-item-actions';
 
