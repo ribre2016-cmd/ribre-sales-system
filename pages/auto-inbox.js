@@ -779,8 +779,36 @@
     var main = document.createElement('div'); main.className = 'aib-item-main';
     var nameEl = document.createElement('div'); nameEl.className = 'aib-item-name'; nameEl.textContent = item.name;
     var metaEl = document.createElement('div'); metaEl.className = 'aib-item-meta';
-    metaEl.textContent = aibFormatSize(item.size) + '・' + aibFormatDate(item.lastModified) + (item.preview ? '・' + item.preview : '');
-    var noteEl = document.createElement('div'); noteEl.className = 'aib-item-note'; noteEl.textContent = item.note || '';
+    // 判定された取込先（例: ヤフオク8）はバッジにして目立たせる。
+    // 取り込む前にここだけ見れば正しい先か判断できるようにするため。
+    var metaText = aibFormatSize(item.size) + '・' + aibFormatDate(item.lastModified);
+    if (item.preview) {
+      // preview末尾に付けている「・ヤフオク8」はバッジ側に出すので本文からは省く
+      var previewText = item.account ? item.preview.replace('・' + item.account, '') : item.preview;
+      metaText += '・' + previewText;
+    }
+    metaEl.textContent = metaText;
+    if (item.account) {
+      var accBadge = document.createElement('span');
+      accBadge.className = 'aib-account-badge';
+      accBadge.textContent = item.account;
+      metaEl.appendChild(document.createTextNode(' '));
+      metaEl.appendChild(accBadge);
+    }
+
+    var noteEl = document.createElement('div'); noteEl.className = 'aib-item-note';
+    // 「…から『ヤフオク8』と判定しました」のアカウント名部分を強調する
+    if (item.account && item.note && item.note.indexOf('「' + item.account + '」') >= 0) {
+      var parts = item.note.split('「' + item.account + '」');
+      noteEl.appendChild(document.createTextNode(parts[0]));
+      var strong = document.createElement('span');
+      strong.className = 'aib-account-strong';
+      strong.textContent = item.account;
+      noteEl.appendChild(strong);
+      noteEl.appendChild(document.createTextNode(parts.slice(1).join('「' + item.account + '」')));
+    } else {
+      noteEl.textContent = item.note || '';
+    }
     main.appendChild(nameEl); main.appendChild(metaEl); main.appendChild(noteEl);
 
     /* 中身のプレビュー。取り込む前に「本当にこのアカウントのCSVか」を目視で

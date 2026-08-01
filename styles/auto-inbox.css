@@ -137,3 +137,25 @@
 }
 .aib-processed > summary:hover { color: var(--accent, #2563eb); }
 .aib-processed .aib-item { opacity: .85; }
+
+/* 判定された取込先アカウント（例: ヤフオク8）を目立たせる。
+   取り込む前にここだけ見れば正しい先か判断できるようにするため。 */
+.aib-account-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+  color: #fff;
+  background: var(--accent, #2563eb);
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.aib-account-strong {
+  font-weight: 700;
+  color: var(--accent, #2563eb);
+  background: var(--accent-light, #eff6ff);
+  border-radius: 4px;
+  padding: 0 4px;
+}
