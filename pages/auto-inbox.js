@@ -94,6 +94,15 @@
   var aibDirHandle = null; // IndexedDBから読み込んだ/選択直後のディレクトリハンドル（メモリキャッシュ）
   var aibLastItems = new Map(); // 直近のaibScan()結果: id -> {fh, name, size, lastModified, kind, hash}
   var aibScanPromise = null; // 実行中のスキャンPromise（二重スキャン防止のため共有する）
+  var aibLastPanel = null; // 直近に描画したパネル {container, handlers, info}（再描画用）
+
+  /* 直近に描画した受信箱を描き直す。aibRenderResult は引数に container/info を
+   * 持たないため、そこから再描画したいときにこれを使う。 */
+  function aibRerenderLastPanel() {
+    if (!aibLastPanel || !aibLastPanel.container) return false;
+    aibRenderConnected(aibLastPanel.container, aibLastPanel.handlers, aibLastPanel.info);
+    return true;
+  }
 
   /* ==================== 0. サポート判定 ==================== */
   function aibIsSupported() {
@@ -896,8 +905,10 @@
         main.appendChild(nm); main.appendChild(meta);
         var act = document.createElement('div'); act.className = 'aib-item-actions';
         var again = aibMakeButton('もう一度取り込む', 'aib-btn', function () {
+          // この関数には container/info が無い（引数は body/handlers/res のみ）。
+          // 直近に描画したパネルを覚えておき、それを使って再描画する。
           aibUnmarkProcessed(p.hash);
-          aibRenderConnected(container, handlers, info);
+          aibRerenderLastPanel();
         });
         act.appendChild(again);
         row.appendChild(main); row.appendChild(act);
@@ -926,6 +937,9 @@
   }
 
   function aibRenderConnected(container, handlers, info) {
+    // 直近の描画対象を覚えておく。aibRenderResult 側（引数に container/info が無い）
+    // から再描画したいときに使う
+    aibLastPanel = { container: container, handlers: handlers, info: info };
     aibClearEl(container);
     var header = document.createElement('div'); header.className = 'aib-header';
     var folderInfo = document.createElement('div'); folderInfo.className = 'aib-folder-info';
