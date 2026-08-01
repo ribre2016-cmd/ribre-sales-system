@@ -72,6 +72,33 @@ function sanitizeEvidenceList(v) {
   const rows = Array.isArray(v) ? v : [];
   return rows.map(sanitizeEvidenceRecord).slice(0, 100);
 }
+/* localStorageの容量不足を解消するため、捨てても復旧可能なものから順に消す。
+ * 消す順: 自動スナップショット（3世代→2→1→0）。スナップショットは
+ * 「直前の状態に戻す」ための保険であり、クラウド同期済みの本体データより
+ * 優先度が低い。keep=残す世代数。戻り値は実際に減らせたかどうか。
+ *
+ * 背景: スナップショットは sales/purchases/yahooSales/evidences/candidates の
+ * 完全コピーを3世代持つ。salesとyahooSalesはほぼ同一内容のため実質6コピーになり、
+ * 数千行の環境では容易に数MBへ達してブラウザ上限(5〜10MB)を超える。
+ * 実際に「ribre_yahoo_sales240 exceeded the quota」で売上CSV取込が失敗した。 */
+function ribreFreeStorage(keep) {
+  const K = 'ribre_auto_snapshots_v1';
+  try {
+    const rows = JSON.parse(localStorage.getItem(K) || '[]');
+    if (!Array.isArray(rows) || rows.length <= keep) {
+      if (keep <= 0 && localStorage.getItem(K)) { localStorage.removeItem(K); return true; }
+      return false;
+    }
+    if (keep <= 0) localStorage.removeItem(K);
+    else localStorage.setItem(K, JSON.stringify(rows.slice(0, keep)));
+    return true;
+  } catch (e) {
+    try { localStorage.removeItem(K); return true; } catch (e2) { return false; }
+  }
+}
+function ribreIsQuotaError(e) {
+  return !!(e && (e.name === 'QuotaExceededError' || e.code === 22 || String(e.message || '').includes('quota')));
+}
 function setLS(k, v) {
   const isEv = isEvidenceKey(k);
   const payload = isEv ? sanitizeEvidenceList(v) : v;
@@ -80,8 +107,27 @@ function setLS(k, v) {
     localStorage.setItem(k, text);
     return;
   } catch (e) {
-    const isQuota = !!(e && (e.name === 'QuotaExceededError' || e.code === 22 || String(e.message || '').includes('quota')));
-    if (!isEv || !isQuota) throw e;
+    if (!ribreIsQuotaError(e)) throw e;
+    // 証憑以外（売上・仕入など本体データ）は間引けないので、代わりに
+    // スナップショットを削って空きを作り、同じ内容で書き直す。
+    if (!isEv) {
+      const steps = [2, 1, 0];
+      for (let i = 0; i < steps.length; i++) {
+        if (!ribreFreeStorage(steps[i])) continue;
+        try {
+          localStorage.setItem(k, text);
+          return;
+        } catch (e2) {
+          if (!ribreIsQuotaError(e2)) throw e2;
+        }
+      }
+      const err = new Error(
+        'ブラウザの保存領域が不足しています（' + k + '）。自動バックアップを削除しても足りませんでした。' +
+        '不要な月のデータを整理するか、別のブラウザ/端末でお試しください。'
+      );
+      err.ribreQuota = true;
+      throw err;
+    }
   }
   const rows = sanitizeEvidenceList(v);
   const attempts = [100, 80, 60, 40, 20, 0];

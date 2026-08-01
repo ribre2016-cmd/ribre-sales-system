@@ -4699,7 +4699,10 @@ function appvYIsGarbled(s) {
 function appvYRows() { try { return JSON.parse(localStorage.getItem('ribre_yahoo_sales240') || '[]') || []; } catch (e) { return []; } }
 function appvYSave(arr) {
   const data = arr.slice(0, 20000);
-  localStorage.setItem('ribre_yahoo_sales240', JSON.stringify(data));
+  // 生のlocalStorage.setItemだと容量不足時にそのまま例外になり、しかもLS.sales側が
+  // 未更新のまま中断して両ストアが食い違う。setLS経由にすると容量不足時に
+  // 自動バックアップを削って書き直すため、取込が容量で失敗しにくくなる。
+  setLS('ribre_yahoo_sales240', data);
   setLS(LS.sales, data);
 }
 /* 並び順（旧: Y_SALES_ACCOUNT_ORDER/yAccountRank/ySortImportedSalesRows と同一） */
@@ -5129,7 +5132,25 @@ function appvDetectShipType(rows) {
 }
 /* 配送CSVの保存先(旧: shipRows/saveShipRows と同一キー ribre_shipping_rows230) */
 function appvShipRows() { try { return JSON.parse(localStorage.getItem('ribre_shipping_rows230') || '[]') || []; } catch (e) { return []; } }
-function appvSaveShipRows(arr) { localStorage.setItem('ribre_shipping_rows230', JSON.stringify((arr || []).slice(-10000))); }
+// setLS経由にして容量不足時に自動バックアップを削って書き直せるようにする
+// （生のsetItemだと「exceeded the quota」でそのまま失敗していた）
+function appvSaveShipRows(arr) { setLS('ribre_shipping_rows230', (arr || []).slice(-10000)); }
+
+/* 配送CSVの種類をファイル名から判定する。
+ * 中身からの判定（appvDetectShipType）は列位置ベースのヒューリスティックで、
+ * ヤマトの送り状発行済データを佐川と誤判定する実例が出たため、ファイル名に
+ * 明確な手がかりがある場合はそちらを優先する。
+ *   発行済データ / b2 → yamato1（送り状データ。商品IDと伝票番号を持つ）
+ *   unchinjyoho / 運賃 → yamato2（運賃明細。伝票番号と運賃を持つ）
+ *   佐川 / sagawa      → sagawa
+ * 判定できなければ null を返し、呼び出し側は中身の判定にフォールバックする。 */
+function appvDetectShipTypeByName(fileName) {
+  const n = String(fileName || '').toLowerCase();
+  if (/発行済データ|発行済み?データ|b2data|\bb2\b/.test(String(fileName || '')) || /hakkouzumi|hakkozumi/.test(n)) return 'yamato1';
+  if (/unchinjyoho|unchin|運賃/.test(String(fileName || '')) || /unchinjyoho/.test(n)) return 'yamato2';
+  if (/佐川|sagawa/.test(String(fileName || '')) || /sagawa/.test(n)) return 'sagawa';
+  return null;
+}
 function appvSaveShipResults(arr) { localStorage.setItem('ribre_shipping_results230', JSON.stringify((arr || []).slice(0, 10000))); }
 
 /* 配送CSVの取込（旧: importShippingCsv と同一ロジック） */
@@ -5312,8 +5333,27 @@ function appvRenderAutoInbox() {
 
 async function appvAutoInboxImportCsv(item, text) {
   if (item.kind === 'shipping') {
+    // 種類はファイル名を優先し、判定できなければ中身から。中身の判定は列位置ベースで
+    // ヤマトの送り状発行済データを佐川と誤判定する実例があったため。
+    // 最終的に何で取り込むかは必ず利用者に確認する（違うパーサーで取り込むと
+    // 商品ID・伝票番号・送料が取れず、照合結果が壊れるため）。
+    const SHIP_LABEL = { yamato1: 'ヤマト送り状（発行済データ）', yamato2: 'ヤマト運賃明細', sagawa: '佐川急便' };
+    let shipType = (typeof appvDetectShipTypeByName === 'function' && appvDetectShipTypeByName(item.name)) || null;
+    let reason = shipType ? 'ファイル名' : '';
+    if (!shipType && typeof appvParseCsv === 'function' && typeof appvDetectShipType === 'function') {
+      shipType = appvDetectShipType(appvParseCsv(text));
+      reason = shipType ? 'CSVの中身' : '';
+    }
+    if (!shipType) throw new Error('配送CSVの種類を判別できませんでした。下の「配送照合」から種類を選んで取り込んでください');
+    if (!confirm(
+      item.name + '\nを「' + (SHIP_LABEL[shipType] || shipType) + '」として取り込みます。よろしいですか？\n' +
+      '（' + reason + 'から判定しました）\n' +
+      '違う場合はキャンセルして、下の「配送照合」で種類を選んで取り込んでください。'
+    )) {
+      throw new Error('取込を中止しました');
+    }
     try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before auto-inbox shipping csv'); } catch (e) {}
-    const r = appvImportShippingCsv(text, 'auto');
+    const r = appvImportShippingCsv(text, shipType);
     if (r && r.error) throw new Error(r.error);
     if (typeof appvMatchShipping === 'function') appvMatchShipping();
     if (typeof appvRenderShipPersistentTable === 'function') appvRenderShipPersistentTable();
@@ -5600,7 +5640,14 @@ async function appvHandleShipImport() {
   const rd = new FileReader();
   rd.onload = async () => {
     const text = String(rd.result || '');
-    const r = appvImportShippingCsv(text, type);
+    // 「自動判別」のときはファイル名の手がかりを先に使う。中身の列位置による判定は
+    // ヤマトの送り状発行済データを佐川と誤判定する実例があったため。
+    let useType = type;
+    if (type === 'auto' && typeof appvDetectShipTypeByName === 'function') {
+      const byName = appvDetectShipTypeByName(file.name);
+      if (byName) useType = byName;
+    }
+    const r = appvImportShippingCsv(text, useType);
     if (r.error) { appvImpSetStatus('impShipStatus', '⚠ ' + r.error); return; }
     appvImpSetStatus('impShipStatus', '取込OK（' + r.imported + '件・累計' + r.total + '件）。照合しています…');
     const m = appvMatchShipping();
