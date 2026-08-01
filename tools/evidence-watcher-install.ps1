@@ -172,11 +172,15 @@ Remove-ExistingTask | Out-Null
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
   -Argument ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $WatcherPs1)
 
-# 30分おきに無期限で繰り返す。RepetitionDurationを指定しないと環境によっては
-# 一定時間で繰り返しが止まってしまうため、明示的に「無期限」を指定する。
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+# 30分おきに繰り返す。RepetitionDurationを指定しないと環境によっては一定時間で
+# 繰り返しが止まるため明示するが、[TimeSpan]::MaxValue は不可。
+# タスクスケジューラのXML期間表現の範囲外（P99999999DT23H59M59S）となり
+# 「The task XML contains a value which is incorrectly formatted or out of range」
+# で登録に失敗する（実際に登録できず、設定ファイルだけ作られる事象が発生した）。
+# 10年を指定して実質無期限とする。
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
   -RepetitionInterval (New-TimeSpan -Minutes 30) `
-  -RepetitionDuration ([TimeSpan]::MaxValue)
+  -RepetitionDuration (New-TimeSpan -Days 3650)
 
 # 現在ログオン中のユーザーとして、ログオンしている間だけ実行する
 # （＝PCの電源が入っていてログインしている時だけ動く。仕様として想定通り）
@@ -196,6 +200,18 @@ try {
     -ErrorAction Stop | Out-Null
 } catch {
   Write-Host ('タスクの登録に失敗しました: {0}' -f $_.Exception.Message)
+  exit 1
+}
+
+# 登録できたことを実際に確認してから「完了」と表示する。
+# 設定ファイルはタスク登録より前に書いているため、ここで確認しないと
+# 「設定はあるがタスクが無い」状態に気づけない（実際に発生した）。
+$registered = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if (-not $registered) {
+  Write-Host ''
+  Write-Host 'タスクの登録を確認できませんでした。'
+  Write-Host '設定ファイルは作成済みなので、下記コマンドで手動実行はできます。'
+  Write-Host ('  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $WatcherPs1)
   exit 1
 }
 
