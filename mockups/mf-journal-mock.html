@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MF仕訳自動作成（画面案・モック）</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0; font-family: "Yu Gothic", "Meiryo", system-ui, sans-serif;
+  background: #eef2f7; color: #0f172a; padding-top: 54px;
+}
+/* ===== 常時警告バナー（最重要・全画面固定） ===== */
+.warnbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: #7f1d1d; color: #fff; padding: 10px 16px; text-align: center;
+  font-size: 13px; font-weight: 900; letter-spacing: .2px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.25);
+}
+.warnbar b { color: #fecaca; }
+.page { max-width: 1320px; margin: 0 auto; padding: 18px 22px 60px; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 18px; background: #123a7a; color: #fff; border-radius: 8px; margin-bottom: 14px;
+}
+.topbar h1 { margin: 0; font-size: 19px; }
+.topbar .sub { font-size: 11px; opacity: .85; font-weight: 700; margin-top: 3px; }
+.tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 2px solid #cbd5e1; }
+.tab-btn {
+  padding: 10px 18px; border: 1px solid #cbd5e1; border-bottom: none; border-radius: 8px 8px 0 0;
+  background: #e2e8f0; color: #475569; font-weight: 900; font-size: 13px; cursor: pointer;
+}
+.tab-btn.active { background: #fff; color: #123a7a; border-color: #123a7a; }
+.tabpage { display: none; }
+.tabpage.active { display: block; animation: fade .15s ease; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+.panel { background: #fff; border: 1px solid #dbe3ef; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 14px rgba(15,23,42,.05); margin-bottom: 16px; }
+.panel-head { padding: 13px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap: wrap; }
+.panel-head h2 { margin: 0; font-size: 15px; }
+.panel-head .desc { font-size: 11px; color: #64748b; font-weight: 700; margin-top: 3px; }
+.panel-body { padding: 14px 16px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th { background: #eaf1fb; color: #334155; text-align: left; padding: 8px 8px; border: 1px solid #cbd5e1; white-space: nowrap; }
+td { padding: 7px 8px; border: 1px solid #e2e8f0; vertical-align: middle; }
+td.num, th.num { text-align: right; }
+tr:nth-child(even) td { background: #fafcff; }
+
+.chip { display: inline-block; font-size: 10.5px; font-weight: 900; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.chip-gray { background: #e2e8f0; color: #475569; }
+.chip-yellow { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.chip-red { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+.chip-green { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.chip-blue { background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; }
+
+.fakeselect {
+  display: inline-block; width: 100%; padding: 7px 10px; border: 1.5px dashed #f59e0b;
+  border-radius: 6px; background: #fffbeb; color: #92400e; font-weight: 800; font-size: 12px;
+}
+.fakeselect.mini { font-size: 11px; padding: 5px 8px; }
+
+.note { font-size: 12px; color: #64748b; font-weight: 700; line-height: 1.6; margin-top: 8px; }
+.note.warn { color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 8px 10px; }
+.note.danger { color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px 10px; font-weight: 900; }
+
+.switch-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.switch { position: relative; width: 44px; height: 24px; background: #cbd5e1; border-radius: 999px; flex: none; opacity: .6; cursor: not-allowed; }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.switch-label { font-weight: 900; font-size: 13px; }
+.switch-label small { display:block; font-weight: 700; color: #64748b; font-size: 11px; margin-top: 2px; }
+
+.field-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.field-row label { font-size: 12px; font-weight: 900; color: #334155; }
+select.real, input.real {
+  border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 9px; font: inherit; font-weight: 800; background: #fff;
+}
+.checkline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; padding: 4px 0; }
+.checkline input { transform: scale(1.1); }
+
+/* プレビュー: 仕訳カード */
+.jcard { border: 1px solid #dbe3ef; border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
+.jcard-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; }
+.jcard-head .title { font-weight: 900; font-size: 13px; }
+.jcard-body { padding: 12px 14px; }
+.jcard.blocked { opacity: .75; }
+.jcard.done { opacity: .7; }
+.memo { font-size: 12px; color: #334155; font-weight: 700; background: #f1f5f9; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
+.balance-row { display: flex; gap: 18px; align-items: center; font-size: 12.5px; font-weight: 900; margin-top: 8px; padding: 8px 10px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; color: #166534; }
+.datalink { font-size: 11.5px; color: #94a3b8; font-weight: 800; margin-top: 8px; }
+
+.confirm-box { background: #fef2f2; border: 1.5px solid #fecaca; border-radius: 8px; padding: 14px 16px; }
+.confirm-box .row { display: flex; gap: 10px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+.confirm-box input[type=text] { border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-weight: 800; width: 260px; }
+.confirm-box button { border: 0; border-radius: 6px; padding: 10px 18px; font-weight: 900; font-size: 13px; }
+.btn-confirm { background: #94a3b8; color: #fff; cursor: not-allowed; }
+.btn-confirm.enabled { background: #b91c1c; color: #fff; cursor: pointer; }
+.btn-ghost { background: #e2e8f0; color: #0f172a; }
+
+.checklist-group { margin-bottom: 14px; }
+.checklist-group h3 { font-size: 12.5px; color: #1d4ed8; margin: 0 0 6px; }
+
+.footer-badge { text-align: center; font-size: 11px; color: #94a3b8; margin-top: 24px; font-weight: 700; }
+.a-status { font-size: 10.5px; font-weight: 900; padding: 2px 7px; border-radius: 999px; background:#fee2e2; color:#991b1b; }
+
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; font-size: 12.5px; font-weight: 800; padding: 10px 18px; border-radius: 20px; opacity: 0; transition: .25s; pointer-events: none; z-index: 200; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
+.toast.show { opacity: .96; }
+
+@media (max-width: 900px) {
+  table { font-size: 11px; }
+  .tabs { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<div class="warnbar">⚠ これはモック（画面案）です。実データ・実APIには一切接続していません。勘定科目・金額はすべて架空のサンプルです。</div>
+
+<div class="page">
+  <div class="topbar">
+    <div>
+      <h1>MF仕訳自動作成（設計モック）</h1>
+      <div class="sub">docs/MF_JOURNAL_PLAN.md（2026-08-01策定）に基づく画面案 ／ 実装は未着手・税理士確認待ち</div>
+    </div>
+    <span class="chip chip-red">実装前・設計のみ</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-t="settings" onclick="go('settings')">① 設定（マッピング）</button>
+    <button class="tab-btn" data-t="preview" onclick="go('preview')">② プレビュー</button>
+    <button class="tab-btn" data-t="history" onclick="go('history')">③ 実行履歴</button>
+    <button class="tab-btn" data-t="check" onclick="go('check')">④ 確認事項</button>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- ① 設定（マッピング）                                         -->
+  <!-- ============================================================ -->
+  <section class="tabpage active" id="t-settings">
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>勘定科目マッピング設定</h2>
+          <div class="desc">勘定科目マッピングは会社共通の経営判断です。オーナー＋税理士の承認が必須（設計書§5.1）。ここでの選択はすべてサンプル表示です。</div>
+        </div>
+        <span class="chip chip-gray">最終更新: —（未設定）</span>
+      </div>
+      <div class="panel-body">
+        <table>
+          <thead>
+            <tr><th>用途</th><th>借/貸</th><th>勘定科目</th><th>補助</th><th>税区分</th><th>状態</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>売掛金 <span class="note" style="margin:0">accounts_receivable</span></td>
+              <td>借方</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td>チャネル名</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td><span class="chip chip-gray">未設定</span></td>
+            </tr>
+            <tr>
+              <td>支払手数料 <span class="note" style="margin:0">platform_fee</span></td>
+              <td>借方</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td>チャネル名</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td><span class="chip chip-gray">未設定</span></td>
+            </tr>
+            <tr>
+              <td>荷造運賃 <span class="note" style="margin:0">shipping_cost</span></td>
+              <td>借方</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td>—</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td><span class="chip chip-gray">未設定</span></td>
+            </tr>
+            <tr>
+              <td>売上高 <span class="note" style="margin:0">sales_revenue</span></td>
+              <td>貸方</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td>チャネル名</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td><span class="chip chip-gray">未設定</span></td>
+            </tr>
+            <tr>
+              <td>仕入高 <span class="note" style="margin:0">purchase</span></td>
+              <td>借方</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td>—</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td><span class="chip chip-gray">未設定</span></td>
+            </tr>
+            <tr>
+              <td>相手勘定（現金/普通預金/未払金） <span class="note" style="margin:0">cash</span></td>
+              <td>貸方</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td>買取先コード</td>
+              <td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>
+              <td><span class="chip chip-yellow">要確認: どれになるか未定（§4-B(e)）</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="note">プルダウンは <code>GET /accounts</code> <code>/sub_accounts</code> <code>/taxes</code> <code>/trade_partners</code> から取得する想定（設計書§5.1）。IDの手打ちはさせない。本画面はモックのため実際の候補は表示していません。</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>チャネル別設定（channel_map）</h2>
+          <div class="desc">チャネルごとに補助科目と「手数料・送料の相殺有無」を持たせる設計（設計書§4-A(a)）。相殺か否かは税理士・オーナー確認事項#9で未確定です。</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <table>
+          <thead><tr><th>チャネル</th><th>補助科目</th><th>送料相殺フラグ</th><th>状態</th></tr></thead>
+          <tbody id="channel-rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>有効化</h2></div>
+      <div class="panel-body">
+        <div class="switch-row">
+          <div class="switch"></div>
+          <div class="switch-label">仕訳自動作成を有効化する
+            <small>既定OFF（設計書§6-1）。税理士承認が完了するまで有効化できません。</small>
+          </div>
+        </div>
+        <div class="note warn">⚠ 有効化トグルは本モックでは操作できません（常にOFF固定表示）。実装時も、承認前は403で拒否する想定です（設計書§6-1）。</div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ② プレビュー                                                  -->
+  <!-- ============================================================ -->
+  <section class="tabpage" id="t-preview">
+
+    <div class="panel">
+      <div class="panel-head"><h2>対象期間・種別</h2></div>
+      <div class="panel-body">
+        <div class="field-row">
+          <label>対象月</label>
+          <select class="real"><option>2026年07月（サンプル）</option></select>
+          <span class="note" style="margin:0">対象データ件数: 35件（サンプル）</span>
+        </div>
+        <div class="checkline"><input type="checkbox" checked disabled> EC売上（月次チャネル別集計）— Phase 2 で対応</div>
+        <div class="checkline" style="opacity:.55"><input type="checkbox" disabled> 仕入（買取）— Phase 3 で対応予定・現在は未実装</div>
+        <div class="checkline" style="opacity:.55"><input type="checkbox" disabled> 経費 — Phase 3 で対応予定・現在は未実装（支払先ごとの明示マッピング登録行のみ対象）</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>事前チェック</h2><div class="desc">設計書§6-4（事前スキャン）・§6-5（月ロック）に対応</div></div>
+      <div class="panel-body">
+        <table>
+          <thead><tr><th>チェック項目</th><th>結果（サンプル）</th></tr></thead>
+          <tbody>
+            <tr><td>当月の既存仕訳件数</td><td>12件（サンプル）</td></tr>
+            <tr><td>同一source_keyの重複疑い</td><td><span class="chip chip-green">0件（サンプル・実測前）</span></td></tr>
+            <tr><td>日付・金額が近い既存仕訳</td><td><span class="chip chip-yellow">1件 要目視確認（サンプル）</span></td></tr>
+            <tr><td>会計期間の締め状態</td><td><span class="chip chip-green">未締め（サンプル）</span></td></tr>
+            <tr><td>write_min_date との比較</td><td><span class="chip chip-green">対象月は範囲内（サンプル）</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>作成予定の仕訳（3パターン例）</h2></div>
+      <div class="panel-body">
+
+        <!-- パターン1: 作成可 -->
+        <div class="jcard">
+          <div class="jcard-head">
+            <span class="title">ヤフオク1 ／ 2026-07</span>
+            <span class="chip chip-green">作成可</span>
+          </div>
+          <div class="jcard-body">
+            <div class="memo">摘要: 2026-07 ヤフオク1 EC売上（RIBRE自動作成 / 対象35件）</div>
+            <table>
+              <thead><tr><th>借/貸</th><th>勘定科目</th><th>補助</th><th>税区分</th><th class="num">金額（税抜・サンプル）</th></tr></thead>
+              <tbody>
+                <tr><td>借方</td><td>売掛金</td><td>ヤフオク1</td><td>対象外</td><td class="num">999,999円</td></tr>
+                <tr><td>借方</td><td>支払手数料</td><td>ヤフオク1</td><td>課税仕入10%</td><td class="num">999,999円</td></tr>
+                <tr><td>借方</td><td>荷造運賃</td><td>—</td><td>課税仕入10%</td><td class="num">999,999円</td></tr>
+                <tr><td>貸方</td><td>売上高</td><td>ヤフオク1</td><td>課税売上10%</td><td class="num">999,999円</td></tr>
+              </tbody>
+            </table>
+            <div class="datalink">🔗 元データ 35件を見る（モック・リンク無効）</div>
+          </div>
+        </div>
+
+        <!-- パターン2: 作成済み -->
+        <div class="jcard done">
+          <div class="jcard-head">
+            <span class="title">メルカリ ／ 2026-07</span>
+            <span class="chip chip-gray">作成済み（journal #999999）</span>
+          </div>
+          <div class="jcard-body">
+            <div class="memo">摘要: 2026-07 メルカリ EC売上（RIBRE自動作成 / 対象20件）</div>
+            <div class="note">既に <code>source_key</code> のUNIQUE制約でclaim済み（status=created）のため、今回はスキップされます（設計書§5.2）。</div>
+          </div>
+        </div>
+
+        <!-- パターン3: 設定不足 -->
+        <div class="jcard blocked">
+          <div class="jcard-head">
+            <span class="title">ラクマ ／ 2026-07</span>
+            <span class="chip chip-yellow">設定不足</span>
+          </div>
+          <div class="jcard-body">
+            <div class="note warn">ラクマの補助科目が未設定です。「① 設定（マッピング）」タブの channel_map で設定してください。設定が完了するまでこの仕訳は作成できません。</div>
+          </div>
+        </div>
+
+        <div class="balance-row">
+          借方合計 999,999円　＝　貸方合計 999,999円　　差額 0円　✓ 貸借一致（サンプル・設計書§6-7）
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>確定</h2></div>
+      <div class="panel-body">
+        <div class="confirm-box">
+          <div class="note danger">確定するとMFへ仕訳が作成されます。作成後の取消は「直前の実行のUndo」機能（設計書§8）に限られ、一般的な削除ボタンは公開しません。</div>
+          <div class="row">
+            <label style="font-weight:900;font-size:12.5px">確認のため「作成する」と入力してください</label>
+          </div>
+          <div class="row">
+            <input type="text" id="confirm-input" placeholder="作成する" oninput="checkConfirm()">
+            <button class="btn-confirm" id="confirm-btn" onclick="mockConfirm()">作成する（モック）</button>
+          </div>
+          <div class="note">プレビュー取得後にデータが変わっていた場合、確定時はサーバー側で409エラーとして拒否される設計です（設計書§6-2）。有効化（①タブ）が完了していない限り、実際にはこの操作自体が403で拒否されます（設計書§6-1）。本モックのボタンはAPIを一切呼び出しません。</div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ③ 実行履歴                                                    -->
+  <!-- ============================================================ -->
+  <section class="tabpage" id="t-history">
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>実行履歴（サンプル）</h2>
+          <div class="desc">source_key単位のclaim〜作成結果を記録する想定（設計書§5.2・§6-10）。行はすべてサンプルです。</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <table>
+          <thead><tr><th>実行日時</th><th>対象</th><th>状態</th><th>journal_id</th><th>備考</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>2026-07-05 10:03（サンプル）</td>
+              <td>ヤフオク2 EC売上 2026-06</td>
+              <td><span class="chip chip-green">created</span></td>
+              <td>#999999</td>
+              <td>正常に作成（サンプル）</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td>2026-07-05 10:04（サンプル）</td>
+              <td>ヤフオク3 EC売上 2026-06</td>
+              <td><span class="chip chip-red">failed</span></td>
+              <td>—</td>
+              <td>4xxエラー（サンプル。内容は要実測）</td>
+              <td><button class="btn-ghost" disabled style="border:0;border-radius:6px;padding:6px 10px;font-weight:800;font-size:11.5px">明示的に再試行（モック・無効）</button></td>
+            </tr>
+            <tr>
+              <td>2026-07-05 10:05（サンプル）</td>
+              <td>ヤフオク4 EC売上 2026-06</td>
+              <td><span class="chip chip-yellow">uncertain</span></td>
+              <td>不明</td>
+              <td>タイムアウト/5xxで作成有無が不明（設計書§5.2）</td>
+              <td><button class="btn-ghost" disabled style="border:0;border-radius:6px;padding:6px 10px;font-weight:800;font-size:11.5px">MF側を確認（モック・無効）</button></td>
+            </tr>
+            <tr>
+              <td>2026-07-05 10:06（サンプル）</td>
+              <td>メルカリ EC売上 2026-06</td>
+              <td><span class="chip chip-gray">stale <span title="このステータス名は計画書に明記なし">※</span></span></td>
+              <td>—</td>
+              <td>プレビュー取得後に元データが変化し409で拒否（サンプル。設計書§6-2の帰結として提案する表示分類）</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td>2026-07-05 10:07（サンプル）</td>
+              <td>ラクマ EC売上 2026-06</td>
+              <td><span class="chip chip-gray">unmapped <span title="このステータス名は計画書に明記なし">※</span></span></td>
+              <td>—</td>
+              <td>補助科目未設定のため作成前にスキップ（設定タブ参照）</td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="note warn">uncertain の行は<b>自動再試行しません</b>。証憑の二重添付より仕訳の二重計上の方が遥かに深刻なため、真偽確定は当月の仕訳をMF側でGETしmemoの <code>[ribre] key=&lt;source_key&gt;</code> を突合して人が判断します（設計書§5.2）。</div>
+        <div class="note">※ stale／unmapped は本モックで分かりやすさのために提案した表示ラベルです。計画書§5.2で定義されているのは claimed / created / failed / uncertain（＋§8のdeleted）のみのため、実装時にDBのstatus値とどう対応させるかは<b>計画外（要検討）</b>です。</div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ④ 確認事項                                                    -->
+  <!-- ============================================================ -->
+  <section class="tabpage" id="t-check">
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>税理士・オーナーへの確認事項（14項目）</h2>
+          <div class="desc">設計書§10。回答が揃うまでPhase 2（EC売上仕訳の作成）に進みません。すべて未チェックです。</div>
+        </div>
+        <span class="chip chip-red">回答待ち 0/14</span>
+      </div>
+      <div class="panel-body">
+
+        <div class="checklist-group">
+          <h3>税制</h3>
+          <div class="checkline"><input type="checkbox" disabled> 1. 課税事業者か免税事業者か。課税なら税抜経理方式か税込経理方式か</div>
+          <div class="checkline"><input type="checkbox" disabled> 2. EC売上の税区分は課税売上10%でよいか。軽減税率・非課税・輸出（海外落札）はあるか</div>
+          <div class="checkline"><input type="checkbox" disabled> 3. 税抜の丸めは切捨てでよいか</div>
+          <div class="checkline"><input type="checkbox" disabled> 4. 🔴 古物商が個人から買い取る場合の invoice_kind はどれか（古物商特例の適用有無）</div>
+        </div>
+
+        <div class="checklist-group">
+          <h3>勘定科目</h3>
+          <div class="checkline"><input type="checkbox" disabled> 5. §4-Aの4科目でよいか。実際に使っている科目名・補助科目の付け方</div>
+          <div class="checkline"><input type="checkbox" disabled> 6. チャネル（ヤフオク1〜8/メルカリ/ラクマ等）は補助科目・部門・区別なしのどれか</div>
+          <div class="checkline"><input type="checkbox" disabled> 7. 買取の相手勘定は現金/普通預金/未払金のどれか。買取先ごとに違うか</div>
+          <div class="checkline"><input type="checkbox" disabled> 8. 仕入の科目は「仕入高」でよいか。送料は仕入原価に含めるか</div>
+        </div>
+
+        <div class="checklist-group">
+          <h3>取引の実態</h3>
+          <div class="checkline"><input type="checkbox" disabled> 9. 🔴 手数料・送料は売上金から相殺されて入金されるか、別途支払っているか。チャネルごとに違うか</div>
+          <div class="checkline"><input type="checkbox" disabled> 10. 売掛金の入金消込は誰がどう行っているか</div>
+        </div>
+
+        <div class="checklist-group">
+          <h3>運用</h3>
+          <div class="checkline"><input type="checkbox" disabled> 11. 仕訳の粒度は「月次チャネル別集計」でよいか、「1商品1仕訳」を望むか</div>
+          <div class="checkline"><input type="checkbox" disabled> 12. 自動作成する仕訳と税理士が入力する仕訳の境界線をどう引くか（二重計上防止の最終防衛線は運用ルール）</div>
+          <div class="checkline"><input type="checkbox" disabled> 13. 過去何ヶ月分まで遡って作成してよいか（write_min_date の初期値）</div>
+          <div class="checkline"><input type="checkbox" disabled> 14. 現金レシート（MFクラウド経費アプリ）とこのシステムの経費行が重複していないか</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>API仕様の未確認事項（A1〜A9）</h2>
+          <div class="desc">設計書§11。特にA1〜A3が解決するまで、実データへの仕訳作成は絶対に実行しません。</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <table>
+          <thead><tr><th>#</th><th>内容</th><th>影響</th></tr></thead>
+          <tbody>
+            <tr><td><span class="a-status">A1</span></td><td>branchに消費税額を明示指定できるフィールドがあるか</td><td>設計の根幹</td></tr>
+            <tr><td><span class="a-status">A2</span></td><td>MFが tax_value をどう算出するか</td><td>1円ズレ</td></tr>
+            <tr><td><span class="a-status">A3</span></td><td>貸借が税込ベースで合わない場合APIは拒否するか受理するか</td><td>不整合仕訳</td></tr>
+            <tr><td>A4</td><td>tokenレスポンスに scope が含まれるか</td><td>権限の自動判定可否</td></tr>
+            <tr><td>A5</td><td>事業所（office）識別子を取得できるか</td><td>事業所取り違えの検知</td></tr>
+            <tr><td>A6</td><td>締め済み会計期間へのPOST/DELETEの挙動</td><td>前期保護</td></tr>
+            <tr><td>A7</td><td>POST /journals のレスポンスに id が含まれるか</td><td>証憑即添付の前提</td></tr>
+            <tr><td>A8</td><td>未登録の trade_partner_code を送った場合の挙動</td><td>取引先マッピング設計</td></tr>
+            <tr><td>A9</td><td>429の形式と Retry-After の有無</td><td>バックオフ実装</td></tr>
+          </tbody>
+        </table>
+        <div class="note danger">🔴 A1〜A3が解決するまで、実データに対する仕訳作成は絶対に実行しない（設計書§11・§3）。Phase 0（テスト仕訳1件を作成→即GET→即削除して実測）が全ての前提。</div>
+      </div>
+    </div>
+
+  </section>
+
+  <div class="footer-badge">これは見た目確認用のモックアップです。実データ・実APIには接続していません。数値・科目名はすべて架空のサンプルです。</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ---- タブ切替（表示の出し分けのみ。データ取得・計算は一切行わない） ----
+  function go(t) {
+    document.querySelectorAll('.tabpage').forEach(el => el.classList.toggle('active', el.id === 't-' + t));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.toggle('active', el.dataset.t === t));
+    window.scrollTo(0, 0);
+  }
+
+  // ---- チャネル別設定行の描画（サンプル文字列を並べているだけ） ----
+  var channels = ['ヤフオク1','ヤフオク2','ヤフオク3','ヤフオク4','ヤフオク5','ヤフオク6','ヤフオク7','ヤフオク8','メルカリ','ラクマ'];
+  var rowsHtml = channels.map(function(c) {
+    return '<tr><td>' + c + '</td>' +
+      '<td><span class="fakeselect mini">▾ （税理士確認後に設定）</span></td>' +
+      '<td><span class="fakeselect mini">▾ 未設定（相殺/非相殺 要確認 §10-9）</span></td>' +
+      '<td><span class="chip chip-gray">未設定</span></td></tr>';
+  }).join('');
+  document.getElementById('channel-rows').innerHTML = rowsHtml;
+
+  // ---- 確定ボタン: 「作成する」と一致した時だけ有効化。押しても何も送信しない ----
+  function checkConfirm() {
+    var v = document.getElementById('confirm-input').value.trim();
+    var btn = document.getElementById('confirm-btn');
+    btn.classList.toggle('enabled', v === '作成する');
+  }
+  function mockConfirm() {
+    var v = document.getElementById('confirm-input').value.trim();
+    if (v !== '作成する') return;
+    toast('これはモックです。実際の書き込みは行われません。');
+  }
+
+  var _t;
+  function toast(msg) {
+    var el = document.getElementById('toast');
+    el.textContent = msg; el.classList.add('show');
+    clearTimeout(_t); _t = setTimeout(function () { el.classList.remove('show'); }, 2200);
+  }
+</script>
+</body>
+</html>
