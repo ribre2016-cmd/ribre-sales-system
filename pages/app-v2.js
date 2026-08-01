@@ -5206,6 +5206,26 @@ function appvCompactStorage() {
   return Math.max(0, before - after);
 }
 
+/* 「再照合する」ボタン。取り込み済みの配送データだけで照合をやり直す。
+ * 「取込＋照合する」はファイル必須のため、売上を後から入れたときや未一致を
+ * 解消したいときに、CSVを選び直さず照合だけ実行できるようにする。 */
+async function appvHandleShipRematch() {
+  const rows = (typeof appvShipRows === 'function' && appvShipRows()) || [];
+  if (!rows.length) {
+    appvImpSetStatus('impShipStatus', '⚠ 配送データがまだありません。先に配送CSVを取り込んでください');
+    return;
+  }
+  appvImpSetStatus('impShipStatus', '照合しています…（配送データ' + rows.length + '件）');
+  try { if (typeof createLocalSnapshot === 'function') createLocalSnapshot('before appv shipping rematch'); } catch (e) {}
+  const m = appvMatchShipping();
+  if (!m || m.error) { appvImpSetStatus('impShipStatus', '⚠ ' + ((m && m.error) || '照合に失敗しました')); return; }
+  appvRenderShipPersistentTable();
+  appvImpSetStatus('impShipStatus', '✅ 照合完了：一致 ' + m.matched + '件・不一致 ' + m.unmatched + '件');
+  await appvAfterWrite();
+  const push = await appvPushCloudSafe();
+  if (push && push.ok) appvToast('☁ クラウドに同期しました');
+}
+
 /* 売上取込のあとに配送照合を再実行する。保存済みの配送行（前月分で未一致のまま
  * 残っているものを含む）を全件、売上全件と突き合わせるので、今回入れた売上に
  * 過去の配送行が一致するようになる。
@@ -6431,6 +6451,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (impYahooBtn) impYahooBtn.addEventListener('click', appvHandleYahooImport);
   const impShipBtn = document.getElementById('impShipBtn');
   if (impShipBtn) impShipBtn.addEventListener('click', appvHandleShipImport);
+
+  const impShipRematchBtn = document.getElementById('impShipRematchBtn');
+  if (impShipRematchBtn) impShipRematchBtn.addEventListener('click', appvHandleShipRematch);
 
   const provSaveBtn = document.getElementById('provSaveBtn');
   if (provSaveBtn) provSaveBtn.addEventListener('click', appvSaveProvPanel);
