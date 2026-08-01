@@ -933,6 +933,40 @@ function appvExportReportExcel() {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+/* Excelを作って「税理士送付ファイル」へ保存する（ダウンロードはしない）。
+ * 中身は appvExportReportExcel と同一。保存先の月は取引ページで選んでいる月に合わせる
+ * （台帳・設定ページの「対象月」ではなく、出力した月へ入れたいため）。
+ * 同じ月に何度も出すと同名で増えるので、ファイル名に日時を付けて世代を残す。 */
+async function appvExportReportExcelToTaxDocs() {
+  const btn = document.getElementById('ledgerCsvToTaxBtn');
+  const monthEl = document.getElementById('monthFilter');
+  const month = (monthEl && monthEl.value) || 'all';
+  const all = month === 'all';
+  if (typeof appvCreds === 'function' && !appvCreds()) { appvToast('ログインすると使えます'); return; }
+  if (btn) { btn.disabled = true; }
+  try {
+    const salesAll = get(LS.sales, []);
+    const purchasesAll = get(LS.purchases, []);
+    const months = all ? ['all'] : appvFiscalMonthsUpTo(month);
+    const sheets = months.map((mo) => ({
+      name: mo === 'all' ? '全期間' : (+mo.slice(5, 7)) + '月',
+      rows: appvBuildReportSheetRows(mo, salesAll, purchasesAll)
+    }));
+    const xlsxBytes = appvBuildXlsx(sheets);
+    const stamp = new Date().toLocaleString('sv-SE').replace(/[-: ]/g, '').slice(0, 12); // YYYYMMDDhhmm
+    const fileName = 'RIBRE_売上仕入レポート_' + (all ? '全期間' : month) + '_' + stamp + '.xlsx';
+    const file = new File([xlsxBytes], fileName, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    // 全期間のときは保存先の月を指定できないので、画面の対象月（無ければ今月）に従う
+    await appvTaxDocsUpload([file], all ? '' : month);
+  } catch (e) {
+    appvToast('税理士送付ファイルへの保存に失敗しました: ' + ((e && e.message) || e));
+  } finally {
+    if (btn) { btn.disabled = false; }
+  }
+}
+
 /* 旧: smpCopyShippingOnly(app-simple.js 3194-3213行目)と同一。全件表示相当(acc='all')なので
  * SMP_SHIP_COPY_ACCS(ヤフオク1〜8・メルカリShops)に絞り込み、smpSortShippingCopyRows
  * (3165-3177行目)と同じ規則で並べ替え、送料の数値だけを改行区切りでコピーする。 */
@@ -977,8 +1011,10 @@ function appvUpdateLedgerSalesToolsVisibility() {
   const show = appvLedgerTab === 'all' || appvLedgerTab === 'sale';
   const csvBtn = document.getElementById('ledgerCsvBtn');
   const shipBtn = document.getElementById('ledgerShipCopyBtn');
+  const toTaxBtn = document.getElementById('ledgerCsvToTaxBtn');
   if (csvBtn) csvBtn.style.display = show ? 'inline-block' : 'none';
   if (shipBtn) shipBtn.style.display = show ? 'inline-block' : 'none';
+  if (toTaxBtn) toTaxBtn.style.display = show ? 'inline-block' : 'none';
 }
 
 function appvRenderLedger() {
@@ -3190,13 +3226,18 @@ function appvTaxDocsNamePrompt(file, ocr) {
 }
 /* ファイルをStorageへアップロードし、インデックスへ登録してクラウドへpushする。複数ファイルを順番に処理する。
  * 画像(image/*)はアップロード前にOCRし、学習辞書に一致すれば自動リネーム、無ければ入力モーダルでユーザーに確認する。 */
-async function appvTaxDocsUpload(files) {
+/* files: FileList または File[]。
+ * monthOverride: 保存先の月(YYYY-MM)を明示したいとき。取引ページのExcel出力から
+ * 呼ぶ場合、台帳・設定ページの「対象月」ではなく出力した月へ入れたいため。
+ * 省略時は従来どおり画面の対象月（無ければ今月）を使う。 */
+async function appvTaxDocsUpload(files, monthOverride) {
   const cr = appvCreds();
   if (!cr) { appvToast('ログインすると使えます'); return; }
   const list = Array.isArray(files) ? files : Array.prototype.slice.call(files || []);
   if (!list.length) return;
   const monthEl = document.getElementById('taxDocsMonth');
-  const month = (monthEl && monthEl.value) || appvCurrentMonth();
+  const month = (/^\d{4}-\d{2}$/.test(String(monthOverride || '')) ? monthOverride : null)
+    || (monthEl && monthEl.value) || appvCurrentMonth();
   const statusEl = document.getElementById('taxDocsStatus');
   let okCount = 0, ngCount = 0;
   let lastSavedName = '';
@@ -6452,6 +6493,9 @@ document.addEventListener('DOMContentLoaded', () => {
   appvUpdateLedgerSalesToolsVisibility();
   const ledgerCsvBtn = document.getElementById('ledgerCsvBtn');
   if (ledgerCsvBtn) ledgerCsvBtn.addEventListener('click', appvExportReportExcel);
+
+  const ledgerCsvToTaxBtn = document.getElementById('ledgerCsvToTaxBtn');
+  if (ledgerCsvToTaxBtn) ledgerCsvToTaxBtn.addEventListener('click', appvExportReportExcelToTaxDocs);
   const ledgerShipCopyBtn = document.getElementById('ledgerShipCopyBtn');
   if (ledgerShipCopyBtn) ledgerShipCopyBtn.addEventListener('click', appvCopyShippingOnly);
   const profitYearSel = document.getElementById('profitYearSel');
