@@ -4713,16 +4713,13 @@ function appvYAccountRank(name) {
   const idx = APPV_Y_SALES_ACCOUNT_ORDER.indexOf(normalized);
   return idx >= 0 ? idx : 999;
 }
+/* 取込後の並び順。
+ * 以前はアカウント順（ヤフオク1→2→…）でまとめ直していたが、
+ * 「CSVの順番通りに並んでほしい」という運用上の要望により、並べ替えをやめて
+ * 取り込んだ順（既存行はそのまま、新規行はCSVの行順で末尾に追加）を維持する。
+ * アカウントごとに見たい場合は、配送照合の「アカウントで絞り込み」で切り替える。 */
 function appvYSortImportedSalesRows(rows) {
-  return (rows || []).map((row, idx) => ({ row, idx })).sort((a, b) => {
-    const accountDiff = appvYAccountRank(a.row.shop) - appvYAccountRank(b.row.shop);
-    if (accountDiff) return accountDiff;
-    const ao = Number(a.row.order);
-    const bo = Number(b.row.order);
-    const orderDiff = (Number.isFinite(ao) && ao > 0 ? ao : a.idx + 1) - (Number.isFinite(bo) && bo > 0 ? bo : b.idx + 1);
-    if (orderDiff) return orderDiff;
-    return a.idx - b.idx;
-  }).map((x) => x.row);
+  return rows || [];
 }
 
 /* ---- 通常モードの締め月保護（旧: services/app-main-v2.js isMonthClosed 15-18行目 と同一ロジック） ----
@@ -4953,7 +4950,11 @@ function appvImportYahooCsv(file, csvText, account, forceMonth) {
     if (!itemId) { skipped++; return; }
     const status = String(r[idxStatus] || '');
     const pay = String(r[idxPay] || '');
-    if (status.includes('受取連絡待ち') || /キャンセル|cancel/i.test(status) || pay.includes('現金振り込み')) { skipped++; return; }
+    // 売上が確定していない行は取り込まない。
+    // 「審査中」は決済審査の途中で確定していないため除外する（実例: 落札直後の
+    // ブルーレイが審査中のまま取り込まれ、配送照合でも未一致として残っていた）。
+    if (status.includes('受取連絡待ち') || status.includes('審査中')
+      || /キャンセル|cancel/i.test(status) || pay.includes('現金振り込み')) { skipped++; return; }
     const amount = appvYNum(r[idxAmount]);
     const rawDateVal = String(r[idxDate] || '');
     const dateStr = (isMercariShops && !/\d{4}[\/\-年]\d{1,2}/.test(rawDateVal)) ? today() : appvYDate(rawDateVal);
@@ -5667,7 +5668,15 @@ function appvShipVisibleSalesRows() {
   const monthEl = document.getElementById('impShipFilterMonth');
   const monFilter = (monthEl && monthEl.value) || 'all';
   if (monFilter !== 'all') arr = arr.filter((r) => (r.month || String(r.date || '').slice(0, 7)) === monFilter);
-  return arr.map((row, idx) => ({ row: row, idx: idx })).sort((a, b) => {
+  // 並べ替えはしない。保存されている順（＝CSVの取込順）のまま表示する。
+  // アカウントごとに見たいときは上の「アカウントで絞り込み」を使う。
+  return arr;
+}
+/* 旧仕様（アカウント順→CSV順）の並べ替え。CSV順優先へ変更したため未使用だが、
+ * 元の規則が分かるよう残す。戻す場合は appvShipVisibleSalesRows の return を
+ * この関数に通す形に差し替える。 */
+function appvShipSortByAccountLegacy(arr) {
+  return (arr || []).map((row, idx) => ({ row: row, idx: idx })).sort((a, b) => {
     const ra = appvChannelOrderKey(a.row.shop), rb = appvChannelOrderKey(b.row.shop);
     if (ra !== rb) return ra - rb;
     const oa = appvCsvOrder(a.row, a.idx + 1), ob = appvCsvOrder(b.row, b.idx + 1);
