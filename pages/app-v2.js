@@ -4713,13 +4713,31 @@ function appvYAccountRank(name) {
   const idx = APPV_Y_SALES_ACCOUNT_ORDER.indexOf(normalized);
   return idx >= 0 ? idx : 999;
 }
-/* 取込後の並び順。
- * 以前はアカウント順（ヤフオク1→2→…）でまとめ直していたが、
- * 「CSVの順番通りに並んでほしい」という運用上の要望により、並べ替えをやめて
- * 取り込んだ順（既存行はそのまま、新規行はCSVの行順で末尾に追加）を維持する。
- * アカウントごとに見たい場合は、配送照合の「アカウントで絞り込み」で切り替える。 */
+/* 売上行の正しい並び順:「アカウント順（ヤフオク1〜8→メルカリShops）」が外側、
+ * その中は「CSVの行順（order）」。
+ *
+ * 重要: 保存時に並べ替えても維持されない。services/data-store.js の hydrate() が
+ * クラウドから `order=client_id.asc`（IDの文字列順）で取得した内容で localStorage を
+ * 丸ごと置き換えるため、ページを開くたびに並びが崩れる。
+ * そのため「表示するときに毎回並べ替える」のが正しい（appvSortSalesForDisplay）。
+ * 取込直後の見た目を整えるためにここでも同じ規則で並べておく。 */
+function appvSortSalesForDisplay(rows) {
+  return (rows || []).map((row, idx) => ({ row, idx })).sort((a, b) => {
+    const accountDiff = appvYAccountRank(a.row.shop) - appvYAccountRank(b.row.shop);
+    if (accountDiff) return accountDiff;
+    const ao = Number(a.row.order);
+    const bo = Number(b.row.order);
+    const av = Number.isFinite(ao) && ao > 0 ? ao : Number.MAX_SAFE_INTEGER;
+    const bv = Number.isFinite(bo) && bo > 0 ? bo : Number.MAX_SAFE_INTEGER;
+    if (av !== bv) return av - bv;
+    // orderが無い古い行同士は日付→元の位置で安定させる
+    const ad = String(a.row.date || ''), bd = String(b.row.date || '');
+    if (ad !== bd) return ad < bd ? -1 : 1;
+    return a.idx - b.idx;
+  }).map((x) => x.row);
+}
 function appvYSortImportedSalesRows(rows) {
-  return rows || [];
+  return appvSortSalesForDisplay(rows);
 }
 
 /* ---- 通常モードの締め月保護（旧: services/app-main-v2.js isMonthClosed 15-18行目 と同一ロジック） ----
@@ -5668,21 +5686,9 @@ function appvShipVisibleSalesRows() {
   const monthEl = document.getElementById('impShipFilterMonth');
   const monFilter = (monthEl && monthEl.value) || 'all';
   if (monFilter !== 'all') arr = arr.filter((r) => (r.month || String(r.date || '').slice(0, 7)) === monFilter);
-  // 並べ替えはしない。保存されている順（＝CSVの取込順）のまま表示する。
-  // アカウントごとに見たいときは上の「アカウントで絞り込み」を使う。
-  return arr;
-}
-/* 旧仕様（アカウント順→CSV順）の並べ替え。CSV順優先へ変更したため未使用だが、
- * 元の規則が分かるよう残す。戻す場合は appvShipVisibleSalesRows の return を
- * この関数に通す形に差し替える。 */
-function appvShipSortByAccountLegacy(arr) {
-  return (arr || []).map((row, idx) => ({ row: row, idx: idx })).sort((a, b) => {
-    const ra = appvChannelOrderKey(a.row.shop), rb = appvChannelOrderKey(b.row.shop);
-    if (ra !== rb) return ra - rb;
-    const oa = appvCsvOrder(a.row, a.idx + 1), ob = appvCsvOrder(b.row, b.idx + 1);
-    if (oa !== ob) return oa - ob;
-    return a.idx - b.idx;
-  }).map((x) => x.row);
+  // 表示のたびに並べ替える。保存順はhydrate（クラウドのclient_id順）で毎回崩れるため、
+  // 保存側の並びには依存しない。規則はアカウント順→CSV行順。
+  return appvSortSalesForDisplay(arr);
 }
 function appvRenderShipPersistentTable() {
   const wrap = document.getElementById('impShipUnmatchWrap');
