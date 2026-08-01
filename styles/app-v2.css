@@ -422,3 +422,17 @@ table.expense-grid .exp-del-btn:hover{color:var(--err); background:var(--err-lig
   .appv-taxpv-overlay { padding: 8px; }
   .appv-taxpv-box { height: 92vh; }
 }
+
+/* 折りたたみカードの見出し（取込ページの「取込履歴とチャネル訂正」等）。
+   普段使わない機能を畳んでおき、下のカードへのスクロールを妨げないため。 */
+.imp-collapse-summary {
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 700;
+  user-select: none;
+  list-style: revert;
+}
+.imp-collapse-summary:hover { color: var(--accent); }
+
+/* 配送照合の明細表は行数が多いので高さを制限してカード内でスクロールさせる */
+#impShipUnmatchWrap { max-height: 420px; overflow: auto; }

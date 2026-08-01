@@ -202,13 +202,6 @@
         <div id="autoInboxPanel"></div>
       </div>
 
-      <!-- ============ 取込履歴とチャネル訂正（pages/import-history.js） ============
-           取込元を間違えて取り込んだ分を、取込単位でまとめて訂正・削除できる。 -->
-      <div class="card section-gap">
-        <h2>取込履歴とチャネル訂正</h2>
-        <div id="importHistoryPanel"></div>
-      </div>
-
       <div class="card section-gap">
         <h2>売上CSV取込</h2>
         <div class="muted" style="margin-bottom:10px">ヤフオク・メルカリ・ラクマ等の売上CSVを取り込みます。重複する商品IDは自動で最新の内容にまとめます。</div>
@@ -253,12 +246,12 @@
             <span>不一致: <strong class="num" id="impShipUnmatchCount">0</strong>件</span>
           </div>
           <label id="impShipFilterShipOnlyWrap" style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#92400e;margin-bottom:10px;cursor:pointer">
-            <input type="checkbox" id="impShipFilterShipOnly" onchange="appvRenderShipPersistentTable()">
+            <input type="checkbox" id="impShipFilterShipOnly" onchange="appvShipResetRenderLimit()">
             ⚠ 送料未入力だけ表示（匿名配送は除く）
           </label>
           <div class="tx-field" id="impShipFilterAccWrap">
             <label>アカウントで絞り込み・並び替え</label>
-            <select id="impShipFilterAcc" onchange="appvRenderShipPersistentTable()">
+            <select id="impShipFilterAcc" onchange="appvShipResetRenderLimit()">
               <option value="all">すべて（アカウント順にまとめて表示）</option>
               <optgroup label="ヤフオク">
                 <option value="ヤフオク1">ヤフオク1</option>
@@ -280,7 +273,7 @@
           </div>
           <div class="tx-field" id="impShipFilterMonthWrap">
             <label>年月で絞り込み</label>
-            <select id="impShipFilterMonth" onchange="appvRenderShipPersistentTable()"></select>
+            <select id="impShipFilterMonth" onchange="appvShipResetRenderLimit()"></select>
           </div>
           <div class="table-scroll" id="impShipUnmatchWrap" style="display:none;">
             <table>
@@ -298,10 +291,23 @@
         <button class="btn" data-action="goto-evidence">証憑ページを開く →</button>
       </div>
 
-      <div class="card">
+      <div class="card section-gap">
         <h2>OCR取込</h2>
         <div class="muted" style="margin-bottom:10px">レシート・請求書のOCR取込は証憑ページで行います。</div>
         <button class="btn" data-action="goto-evidence">証憑ページで貼り付ける →</button>
+      </div>
+
+      <!-- ============ 取込履歴とチャネル訂正（pages/import-history.js） ============
+           取込元を間違えて取り込んだ分を、取込単位でまとめて訂正・削除できる。
+           普段は使わない機能なので最下部・折りたたみで置く（開いたときだけ描画）。 -->
+      <div class="card">
+        <details id="importHistoryDetails">
+          <summary class="imp-collapse-summary">取込履歴とチャネル訂正</summary>
+          <div class="muted" style="font-size:12.5px;margin:8px 0 4px">
+            取込元を間違えて取り込んだ分を、CSV単位でまとめて直せます。
+          </div>
+          <div id="importHistoryPanel"></div>
+        </details>
       </div>
     </section>
 

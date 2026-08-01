@@ -5458,6 +5458,10 @@ function appvRenderShipPersistentTable() {
   if (!rows.length) { wrap.style.display = 'none'; appvSetText('impShipMatchCount', '0'); appvSetText('impShipUnmatchCount', '0'); return; }
   wrap.style.display = 'block';
   let matched = 0, unmatched = 0;
+  // 全件（3000行超になることがある）を一度に描画すると取込ページが極端に長くなり、
+  // 下のメール取込・OCR取込までスクロールできなくなる。件数の集計は全行で行い、
+  // 表に出す行数だけ段階的に増やす。
+  let renderedCount = 0;
   rows.forEach((r) => {
     const itemId = r.itemId || r.id || '';
     const res = itemId ? resultByItemId[String(itemId)] : null;
@@ -5466,6 +5470,9 @@ function appvRenderShipPersistentTable() {
     if (status === '未一致' && !appvNeedsShip(r)) status = r.matchStatus || '手入力';
     if (status === '一致' || status === '手入力') matched++;
     else if (status === '未一致') unmatched++;
+    // 集計は全行、描画は上限まで
+    if (renderedCount >= appvShipRenderLimit) return;
+    renderedCount++;
     const tr = document.createElement('tr');
     const level = status === '未一致' ? 'err' : (status === '一致' || status === '手入力') ? 'ok' : 'info';
     const tdStatus = document.createElement('td'); const b = document.createElement('span'); b.className = 'badge ' + level; b.textContent = status; tdStatus.appendChild(b);
@@ -5490,6 +5497,34 @@ function appvRenderShipPersistentTable() {
   });
   appvSetText('impShipMatchCount', String(matched));
   appvSetText('impShipUnmatchCount', String(unmatched));
+  appvRenderShipMoreRow(body, rows.length, renderedCount);
+}
+
+/* 表示件数の上限と「さらに表示」。フィルタ操作のたびに上限は初期値へ戻す
+ * （絞り込み直後に前の「もっと見る」状態が残ると意図が読めなくなるため）。 */
+var APPV_SHIP_RENDER_STEP = 100;
+var appvShipRenderLimit = APPV_SHIP_RENDER_STEP;
+function appvShipResetRenderLimit() {
+  appvShipRenderLimit = APPV_SHIP_RENDER_STEP;
+  if (typeof appvRenderShipPersistentTable === 'function') appvRenderShipPersistentTable();
+}
+function appvRenderShipMoreRow(body, total, rendered) {
+  if (rendered >= total) return;
+  const tr = document.createElement('tr');
+  const td = document.createElement('td');
+  td.colSpan = 6;
+  td.style.textAlign = 'center';
+  td.style.padding = '10px';
+  const btn = document.createElement('button');
+  btn.className = 'btn sm';
+  btn.textContent = 'さらに' + Math.min(APPV_SHIP_RENDER_STEP, total - rendered) + '件表示（' + rendered + '/' + total + '件）';
+  btn.onclick = () => {
+    appvShipRenderLimit += APPV_SHIP_RENDER_STEP;
+    appvRenderShipPersistentTable();
+  };
+  td.appendChild(btn);
+  tr.appendChild(td);
+  body.appendChild(tr);
 }
 /* ribre_yahoo_sales240側の同期（旧: pages/app-shipping.js manualShipping 1219-1225行目 smpSyncYahooShip相当と同一。
  * id/itemId一致で同一行を更新し、data-store.js canonical() が旧ストアの値を拾って送料が巻き戻るのを防ぐ）。 */
