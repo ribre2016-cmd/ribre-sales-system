@@ -147,7 +147,11 @@
       profit: (x.profit != null && x.profit !== '') ? n(x.profit) : n(x.amount),
       slip_number: x.slip || x.slip_number || '', shipping_company: x.deliveryCompany || x.shipping_company || '',
       status: x.matchStatus || x.status || '', memo: x.memo || '',
-      evidence_url: x.evidenceUrl || x.evidence_url || '', source: x.source || 'app'
+      evidence_url: x.evidenceUrl || x.evidence_url || '', source: x.source || 'app',
+      // CSVの行番号。並び順（アカウント順→CSV行順）の維持に必要。
+      // これを送らないとhydrateでlocalStorageを置き換えた時に order が消え、
+      // 並びが日付順へ崩れる（要 supabase_sales_csv_order.sql）。
+      csv_order: (function () { var v = Number(x.order != null ? x.order : x.csv_order); return Number.isFinite(v) && v > 0 ? v : null; })()
     };
   }
   function mapSaleIn(x) {
@@ -158,7 +162,9 @@
       name: x.item_name || '', amount: n(x.amount), fee: n(x.fee),
       shipping: n(x.shipping_fee), ship: n(x.shipping_fee), profit: n(x.profit),
       slip: x.slip_number || '', deliveryCompany: x.shipping_company || '',
-      matchStatus: x.status || '', memo: x.memo || '', evidenceUrl: x.evidence_url || '', source: x.source || 'Supabase'
+      matchStatus: x.status || '', memo: x.memo || '', evidenceUrl: x.evidence_url || '', source: x.source || 'Supabase',
+      // CSVの行番号。これを復元しないとページを開くたびに並び順が崩れる
+      order: (function () { var v = Number(x.csv_order); return Number.isFinite(v) && v > 0 ? v : undefined; })()
     };
   }
   function mapPurchaseOut(x) {
