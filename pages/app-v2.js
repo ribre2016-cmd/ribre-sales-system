@@ -5659,7 +5659,13 @@ function appvShipResults() { try { return JSON.parse(localStorage.getItem('ribre
 function appvNeedsShip(r) {
   if (num(r.ship || r.shipping || 0) > 0) return false;
   const ms = String(r.matchStatus || '');
-  if (ms === '手入力' || ms === '匿名配送' || ms === '配送CSV一致' || ms === '配送一致') return false;
+  // 「配送CSV一致」は送料が入っていなくても付く。ヤマトの送り状(発行済データ)は
+  // 商品ID↔伝票番号だけを持ち運賃の列が無いため、送り状だけ当たった時点で
+  // このステータスになるため。よってここで「送料不要」とみなしてはいけない
+  // （実例: 6/30発送で運賃が先月の運賃明細にある商品が、送料0のまま
+  //  「配送CSV一致」となり不一致にも数えられず埋もれていた）。
+  // 手入力・匿名配送は送料が発生しない/確定済みなので従来どおり除外する。
+  if (ms === '手入力' || ms === '匿名配送') return false;
   if (String(r.memo || '').includes('匿名')) return false;
   return true;
 }
@@ -5716,13 +5722,21 @@ function appvRenderShipPersistentTable() {
     let status = res ? res.status : '未一致';
     // 結果ストアが未一致のままでも、売上行側で解消済み（送料入力済み/手入力/匿名等）なら実態を優先
     if (status === '未一致' && !appvNeedsShip(r)) status = r.matchStatus || '手入力';
+    // 送り状（発行済データ）だけ当たって運賃がまだ入っていない状態を区別して見せる。
+    // 例: 6/30発送の商品は運賃が先月の運賃明細にあるため、その明細を取り込むまで
+    // 送料が入らない。単なる「未一致」より状況が分かるようにする。
+    if (status === '未一致' && String(r.matchStatus || '') === '配送CSV一致' && num(r.ship || r.shipping || 0) === 0) {
+      status = '送料待ち';
+    }
     if (status === '一致' || status === '手入力') matched++;
-    else if (status === '未一致') unmatched++;
+    else if (status === '未一致' || status === '送料待ち') unmatched++;
     // 集計は全行、描画は上限まで
     if (renderedCount >= appvShipRenderLimit) return;
     renderedCount++;
     const tr = document.createElement('tr');
-    const level = status === '未一致' ? 'err' : (status === '一致' || status === '手入力') ? 'ok' : 'info';
+    // 送料待ちは「運賃明細をまだ取り込んでいない」ことを示すので警告色にする
+    const level = (status === '未一致' || status === '送料待ち') ? 'err'
+      : (status === '一致' || status === '手入力') ? 'ok' : 'info';
     const tdStatus = document.createElement('td'); const b = document.createElement('span'); b.className = 'badge ' + level; b.textContent = status; tdStatus.appendChild(b);
     const tdDate = document.createElement('td'); tdDate.textContent = r.date || '';
     const tdName = document.createElement('td'); tdName.textContent = r.name || '';
