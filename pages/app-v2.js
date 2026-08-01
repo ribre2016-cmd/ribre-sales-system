@@ -5231,7 +5231,19 @@ function appvReadFileAsText(file, cb) {
  * 判定できない場合は account を空で返し、呼び出し側は何も警告しない
  * （曖昧な推測で余計な確認を出さない）。 */
 function appvGuessImportAccount(fileName, csvText) {
-  // 1) 中身の棚番から（pages/auto-inbox.js の判定をそのまま使う）
+  const name = String(fileName || '');
+
+  /* 1) ファイル名がヤフオク以外のプラットフォームを示している場合は、それを最優先する。
+   * 棚番の英字はヤフオクのアカウントしか表していないため、メルカリShops等の
+   * CSVに棚番付き商品名が入っていると、中身の判定が「ヤフオク5」等と誤認する。
+   * ファイル名でプラットフォームが分かるならその誤認より確実。
+   * 例: メルカリShopsの売上CSVは「202607-202607_report.csv」の形式で出力される。 */
+  if (/メルカリ\s*shops/i.test(name) || /メルカリShops/.test(name)) return { account: 'メルカリShops', reason: 'ファイル名' };
+  if (/^\d{6}\s*-\s*\d{6}_report/i.test(name)) return { account: 'メルカリShops', reason: 'ファイル名（メルカリShopsの出力形式）' };
+  if (/メルカリ/.test(name)) return { account: 'メルカリ', reason: 'ファイル名' };
+  if (/ラクマ/.test(name)) return { account: 'ラクマ', reason: 'ファイル名' };
+
+  // 2) 中身の棚番から（pages/auto-inbox.js の判定をそのまま使う）。ヤフオク1〜8の識別用。
   try {
     if (typeof window.aibDetectAccount === 'function' && typeof appvYParseCsv === 'function') {
       const rows = appvYParseCsv(csvText);
@@ -5241,13 +5253,10 @@ function appvGuessImportAccount(fileName, csvText) {
       }
     }
   } catch (e) {}
-  // 2) ファイル名から（棚番が無い時期のCSV向け。例: 202607ヤフオク4.csv）
-  const name = String(fileName || '');
+
+  // 3) ファイル名のヤフオク表記（棚番が無い時期のCSV向け。例: 202607ヤフオク4.csv）
   const mYahoo = name.match(/ヤフオク\s*([1-8])/);
   if (mYahoo) return { account: 'ヤフオク' + mYahoo[1], reason: 'ファイル名' };
-  if (/メルカリ\s*shops/i.test(name) || /メルカリShops/.test(name)) return { account: 'メルカリShops', reason: 'ファイル名' };
-  if (/メルカリ/.test(name)) return { account: 'メルカリ', reason: 'ファイル名' };
-  if (/ラクマ/.test(name)) return { account: 'ラクマ', reason: 'ファイル名' };
   return { account: '', reason: '' };
 }
 

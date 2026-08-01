@@ -421,6 +421,24 @@
     var dateMatch = aibHasAny(header, DATE_VOCAB);
     var amountMatch = aibHasAny(header, AMOUNT_VOCAB);
     var genericSalesLike = idMatch && (dateMatch || amountMatch);
+
+    /* メルカリShopsの構造判定は、汎用の売上見出し判定より先に行う。
+     * 棚番の英字はヤフオクのアカウントしか表さないため、メルカリShopsのCSVを
+     * 先に売上CSVとして拾ってしまうと、商品名に棚番が付いている場合に
+     * 「ヤフオク5」等と誤ってアカウント判定してしまう。
+     * ただしヤフオク固有語（オークションID・落札日等）があるものはメルカリでは
+     * ありえないので、そちらが先。 */
+    if (!yahooSignal && aibMercariShopsLike(rows)) {
+      return {
+        kind: 'mercari_shops',
+        account: 'メルカリShops',
+        note: '列位置からメルカリShops形式と判定しました（見出し文言では判定できない形式のため）。'
+          + 'メルカリShopsのCSVはファイル名に販路が入らない（例: 202607-202607_report.csv）ため、中身で判定しています。',
+        rowCount: dataRows.length,
+        sampleRows: aibSampleRows(rows)
+      };
+    }
+
     if (yahooSignal || genericSalesLike) {
       var det = aibDetectAccount(rows);
       var samples = aibSampleRows(rows);
