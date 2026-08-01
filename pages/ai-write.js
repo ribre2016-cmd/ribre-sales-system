@@ -19,7 +19,7 @@
  *    ai-assistant.js自身もcore.jsのnum()に依存せず自己完結させているのと同じ理由）。
  *    amount_min/amount_max が 0 の場合は「指定なし」として扱う点も同一。
  *  - 危険な操作（更新・削除の実行）は必ず以下の安全策を全て通ってから行う:
- *      1. 行数上限（AIW_MAX_ROWS=10件）を超える提案は実行不可
+ *      1. 行数上限（修正50件・削除10件）を超える提案は実行不可
  *      2. 0件マッチは ok:false（黙って成功しない）
  *      3. 締め済み月(appvIsMonthLocked)の行は必ずblockedへ（絶対に変更しない）
  *      4. appvFindLocalRowIndexが一意に特定できない行(-1)は必ずblockedへ
@@ -175,8 +175,16 @@ function aiwFingerprint(row) {
   try { return JSON.stringify(row); } catch (e) { return 'x_' + Date.now() + '_' + Math.random(); }
 }
 
-/* ==================== 安全策の定数 ==================== */
-var AIW_MAX_ROWS = 10;
+/* ==================== 安全策の定数 ====================
+ * 1回の提案で扱える行数の上限。削除と修正で分ける:
+ *  - 削除は取り返しがつきにくいので10件のまま
+ *  - 修正は取込元チャネルの一括訂正のような正当な用途で10件では足りない
+ *    （実例: CSV1本を誤ったチャネルで取り込み、その分をまとめて直したい）。
+ *    実行前に全行を画面で確認でき、直前に自動バックアップも取り、
+ *    「元に戻す」もあるため、50件までは安全に扱えると判断した。 */
+var AIW_MAX_ROWS_UPDATE = 50;
+var AIW_MAX_ROWS_DELETE = 10;
+var AIW_MAX_ROWS = AIW_MAX_ROWS_DELETE; // 後方互換（外部公開値は厳しい方を維持）
 var AIW_PROPOSAL_TTL_MS = 10 * 60 * 1000; // 10分
 var AIW_AUDIT_KEY = 'ribre_ai_write_audit_v1';
 var AIW_AUDIT_CAP = 50;
@@ -246,10 +254,12 @@ function aiwBuildProposal(kind, args) {
   if (!matched.length) {
     return { ok: false, kind: kind, rows: [], blocked: [], filters: f, summary: '指定した条件に一致するデータが見つかりませんでした。条件を確認してください。' };
   }
-  if (matched.length > AIW_MAX_ROWS) {
+  var maxRows = (kind === 'delete') ? AIW_MAX_ROWS_DELETE : AIW_MAX_ROWS_UPDATE;
+  if (matched.length > maxRows) {
     return {
       ok: false, kind: kind, rows: [], blocked: [], filters: f,
-      summary: '該当件数が' + matched.length + '件です。安全のため一度に' + AIW_MAX_ROWS + '件を超える変更は提案できません。月・チャネル・取引先・金額範囲などで条件を絞り込んでください。'
+      summary: '該当件数が' + matched.length + '件です。安全のため一度に' + maxRows + '件を超える'
+        + (kind === 'delete' ? '削除' : '修正') + 'は提案できません。月・チャネル・取引先・金額範囲などで条件を絞り込んでください。'
     };
   }
 
@@ -646,6 +656,8 @@ if (typeof window !== 'undefined') {
   window.aiwGetAuditLog = aiwGetAuditLog;
   // テスト・デバッグ用（scratchpadのtest-ai-write.jsが利用）
   window.AIW_MAX_ROWS = AIW_MAX_ROWS;
+  window.AIW_MAX_ROWS_UPDATE = AIW_MAX_ROWS_UPDATE;
+  window.AIW_MAX_ROWS_DELETE = AIW_MAX_ROWS_DELETE;
   window.AIW_PROPOSAL_TTL_MS = AIW_PROPOSAL_TTL_MS;
   window.aiwPickFilters = aiwPickFilters;
   window.aiwProposals = aiwProposals;

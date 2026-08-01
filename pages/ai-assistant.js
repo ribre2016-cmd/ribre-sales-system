@@ -355,7 +355,7 @@ var AIQ_TOOLS = [
         shop: { type: 'string', description: 'sales専用。チャネル名の完全一致（例: ヤフオク1, メルカリ, ラクマ）' },
         vendor: { type: 'string', description: 'purchases/expenses専用。仕入先・取引先名の完全一致（例: ブックオフ）' },
         name_contains: { type: 'string', description: '商品名の部分一致（大文字小文字区別なし）' },
-        memo_contains: { type: 'string', description: 'メモの部分一致（大文字小文字区別なし）' },
+        memo_contains: { type: 'string', description: 'メモの部分一致（大文字小文字区別なし）。CSV取込行のメモには取込元ファイル名が入るため、ファイル名の一部（例: 202607ヤフオク4）を渡せばその取込分だけを絞り込める' },
         amount_min: { type: 'number', description: '金額の下限（sales=amount, purchases/expenses=total）' },
         amount_max: { type: 'number', description: '金額の上限' },
         group_by: { type: 'string', enum: ['none', 'month', 'shop', 'vendor'], description: '内訳の単位。shopはsales専用、vendorはpurchases/expenses専用' }
@@ -380,7 +380,7 @@ var AIQ_TOOLS = [
         shop: { type: 'string' },
         vendor: { type: 'string' },
         name_contains: { type: 'string' },
-        memo_contains: { type: 'string' },
+        memo_contains: { type: 'string', description: 'メモの部分一致。CSV取込行のメモには取込元ファイル名が入る（例: 202607ヤフオク4）' },
         amount_min: { type: 'number' },
         amount_max: { type: 'number' },
         limit: { type: 'integer', description: '返す件数の上限。既定20・最大100' },
@@ -408,7 +408,7 @@ var AIQ_TOOLS = [
         shop: { type: 'string' },
         vendor: { type: 'string' },
         name_contains: { type: 'string' },
-        memo_contains: { type: 'string' },
+        memo_contains: { type: 'string', description: 'メモの部分一致。CSV取込行のメモには取込元ファイル名が入る（例: 202607ヤフオク4）' },
         amount_min: { type: 'number' },
         amount_max: { type: 'number' },
         set: {
@@ -443,7 +443,7 @@ var AIQ_TOOLS = [
         shop: { type: 'string' },
         vendor: { type: 'string' },
         name_contains: { type: 'string' },
-        memo_contains: { type: 'string' },
+        memo_contains: { type: 'string', description: 'メモの部分一致。CSV取込行のメモには取込元ファイル名が入る（例: 202607ヤフオク4）' },
         amount_min: { type: 'number' },
         amount_max: { type: 'number' }
       },
@@ -473,6 +473,11 @@ function aiqBuildSystemPrompt() {
     '金額の意味: amount=税込の売上総額（グロス）。fee=プラットフォーム手数料。shipping=送料。profit=amount-fee-shipping。' +
       'purchases/expensesの金額はtotalフィールド。',
     '「明細」（まとめ売り一括入力）行はツールの戻り値の中で既に除外されている（旧UIのKPI集計と同じ規則）。この点は特に断る必要はない。',
+    'CSVから取り込んだ売上のmemoには取込元のファイル名が入っている（形式:「ヤフオク売上CSV / <ファイル名>」）。' +
+      'そのため「どのCSVで取り込んだ行か」はmemo_containsにファイル名（一部でも可。例: 202607ヤフオク4）を渡せば特定できる。' +
+      '取込元チャネルを間違えて取り込んだ行を直したい、といった依頼ではこれを使うこと。' +
+      '利用者がファイル名を言わない場合は、まずlist_rowsでmemoを見て候補のファイル名を提示してから確認するとよい。' +
+      '「ファイル名が分からないので直せない」と即答してはいけない。',
     '今日の日付（日本時間）: ' + aiqTodayJst() + '。「今月」「先月」「今年度」等の相対的な期間はこの日付を基準に西暦月(YYYY-MM)へ変換してからquery_data/list_rowsに渡すこと。',
     '最重要ルール: 金額・件数は必ずquery_dataまたはlist_rowsの戻り値の数値をそのまま使うこと。自分で暗算・推計・合算しない。' +
       '複数のツール結果を組み合わせる場合も、足し算・引き算・割り算は戻ってきた数値同士の単純な演算に留め、' +
