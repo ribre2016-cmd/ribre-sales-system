@@ -5349,7 +5349,15 @@ async function appvAutoInboxImportCsv(item, text) {
   await appvAfterWrite();
   const push = await appvPushCloudSafe();
   if (push && push.ok) appvToast('☁ クラウドに同期しました');
-  appvToast('📥 売上CSVを取り込みました');
+  // 何が起きたかを通知にも出す。「取り込みました」だけだと、既に取込済みのCSVを
+  // もう一度流したときに新規0件だったのか気づけないため（実際に分かりにくいと指摘あり）。
+  if (r.added === 0 && r.patched === 0) {
+    appvToast('📥 ' + account + '：新規0件（このCSVは既に取込済みです）');
+  } else if (r.added === 0) {
+    appvToast('📥 ' + account + '：新規0件・既存' + r.patched + '件を更新（取込済みのCSVです）');
+  } else {
+    appvToast('📥 ' + account + '：新規' + r.added + '件・更新' + r.patched + '件を取り込みました');
+  }
 }
 
 /* 証憑は別ページ(mf-evidence.html)が担当するため、ファイルを引き渡して遷移する。
