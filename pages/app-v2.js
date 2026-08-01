@@ -116,6 +116,11 @@ function appvGotoPage(page) {
   if (page === 'import' && typeof appvRenderShipPersistentTable === 'function') appvRenderShipPersistentTable();
   // 受信箱（監視フォルダの新着CSV/証憑）。起動時ではなく取込ページを開いたときだけ描画する
   if (page === 'import' && typeof appvRenderAutoInbox === 'function') appvRenderAutoInbox();
+  // 取込履歴とチャネル訂正（取込元を間違えた分をまとめて直す・削除する）
+  if (page === 'import' && typeof window.aihRenderPanel === 'function') {
+    var ihEl = document.getElementById('importHistoryPanel');
+    if (ihEl) { try { window.aihRenderPanel(ihEl); } catch (e) {} }
+  }
   if (page === 'analysis' && typeof appvRenderProvPanel === 'function') appvRenderProvPanel();
   if (page === 'analysis' && typeof appvRenderAnalysisPage === 'function') appvRenderAnalysisPage();
   if (page === 'settings') {

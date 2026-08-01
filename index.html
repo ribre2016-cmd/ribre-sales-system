@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="styles/ai-write.css">
 <link rel="stylesheet" href="styles/ai-memory.css">
 <link rel="stylesheet" href="styles/auto-inbox.css">
+<link rel="stylesheet" href="styles/import-history.css">
 </head>
 <body>
 <!-- auth-gate.js/signIn()が参照する共通ログインフォーム要素（非表示・値はゲートのフォームから転記） -->
@@ -199,6 +200,13 @@
           フォルダを一度指定しておくと、次回から新しいCSV・証憑を自動で見つけてここに並べます（PCのChrome / Edge専用）。
         </div>
         <div id="autoInboxPanel"></div>
+      </div>
+
+      <!-- ============ 取込履歴とチャネル訂正（pages/import-history.js） ============
+           取込元を間違えて取り込んだ分を、取込単位でまとめて訂正・削除できる。 -->
+      <div class="card section-gap">
+        <h2>取込履歴とチャネル訂正</h2>
+        <div id="importHistoryPanel"></div>
       </div>
 
       <div class="card section-gap">
@@ -744,6 +752,8 @@
      appvFindLocalRowIndex/appvSyncYahoo/appvIsMonthLocked に依存する。 -->
 <!-- auto-inbox.js: 取込ページの受信箱（監視フォルダの新着検出）。app-v2.jsのハンドラから使う -->
 <script src="pages/auto-inbox.js"></script>
+<!-- import-history.js: 取込履歴とチャネル一括訂正。app-v2.js/core.jsの後である必要がある -->
+<script src="pages/import-history.js"></script>
 <script src="pages/ai-write.js"></script>
 <script src="pages/ai-memory.js"></script>
 <!-- ai-assistant.js: 分析ページ「AIに質問」。app-v2.js/servicesの読み込み後である必要がある -->
