@@ -176,11 +176,23 @@ async function txwGateSignup() {
     document.getElementById('password').value = p;
     var roleEl = document.getElementById('role');
     if (roleEl) roleEl.value = 'tax_advisor';
-    if (typeof window.signUp === 'function') { await window.signUp(); }
-    else { msgEl.textContent = '新規登録機能が見つかりません'; return; }
-  } catch (err) { msgEl.textContent = '登録に失敗しました'; return; }
+    if (typeof window.signUp !== 'function') { msgEl.textContent = '新規登録機能が見つかりません'; return; }
+    // signUp() は失敗しても例外を投げず、結果を隠し要素 #settingsList に書くだけ。
+    // そのまま「登録しました」と出すと、実際は失敗しているのに成功したように見えてしまう
+    // （メール重複・パスワードが短い等）。結果を読んで判定する。
+    var out = document.getElementById('settingsList');
+    if (out) out.innerHTML = '';
+    await window.signUp();
+    var text = out ? (out.textContent || '') : '';
+    if (text && text.indexOf('登録しました') < 0) {
+      msgEl.style.color = '#b91c1c';
+      msgEl.textContent = '登録できませんでした: ' + text.replace(/\s*(ERROR|OK)\s*$/, '').trim();
+      return;
+    }
+  } catch (err) { msgEl.style.color = '#b91c1c'; msgEl.textContent = '登録に失敗しました'; return; }
   msgEl.style.color = '#15803d';
-  msgEl.textContent = '登録しました。続けて「ログイン」を押してください。';
+  msgEl.textContent = '登録しました。続けて「ログイン」を押してください。'
+    + '（確認メールが届いた場合は、先にメール内のリンクを開いてください）';
 }
 
 function txwLogout() {
