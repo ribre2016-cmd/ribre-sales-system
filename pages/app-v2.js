@@ -898,6 +898,42 @@ function appvBuildReportSheetRows(month, salesAll, purchasesAll) {
     .concat(purRows);
 }
 /* 決算月=2月 → 年度は3月開始。選択月が属する年度の3月から選択月までのYYYY-MMリストを返す */
+/* ==================== 年度（3月〜翌2月）とレポート出力 ====================
+ * 決算月=2月のため、年度は3月開始。「2026年度」= 2026-03〜2027-02。
+ * 期（第N期）: 2026年度（令和8年3月〜令和9年2月）= 10期。年度が1つ進むごとに+1。
+ * ファイル名は「物販売上管理表26_10期.xlsx」の形式（26 = 年度開始年の下2桁）。 */
+var APPV_FISCAL_BASE_YEAR = 2026; // この年度が
+var APPV_FISCAL_BASE_TERM = 10;   // この期にあたる
+function appvFiscalStartYear(month) {
+  const y = +String(month).slice(0, 4), m = +String(month).slice(5, 7);
+  if (!y || !m) return null;
+  return m >= 3 ? y : y - 1;
+}
+function appvFiscalTerm(startYear) {
+  return APPV_FISCAL_BASE_TERM + (startYear - APPV_FISCAL_BASE_YEAR);
+}
+/* 年度の12ヶ月（3月〜翌2月）のYYYY-MMリスト */
+function appvFiscalMonthsOfYear(startYear) {
+  const list = [];
+  for (let i = 0; i < 12; i++) {
+    const mo = ((2 + i) % 12) + 1;
+    const yy = startYear + (mo >= 3 ? 0 : 1);
+    list.push(yy + '-' + String(mo).padStart(2, '0'));
+  }
+  return list;
+}
+/* 売上・仕入のいずれかにデータがある月だけを返す（空シートを作らないため） */
+function appvFiscalMonthsWithData(startYear, salesAll, purchasesAll) {
+  const has = {};
+  const mark = (r) => {
+    const m = String((r && (r.month || r.date)) || '').slice(0, 7);
+    if (m) has[m] = 1;
+  };
+  (salesAll || []).forEach(mark);
+  (purchasesAll || []).forEach(mark);
+  return appvFiscalMonthsOfYear(startYear).filter((m) => has[m]);
+}
+
 function appvFiscalMonthsUpTo(month) {
   const y = +month.slice(0, 4), m = +month.slice(5, 7);
   if (!y || !m) return [month];
@@ -912,25 +948,53 @@ function appvFiscalMonthsUpTo(month) {
   }
   return list;
 }
-function appvExportReportExcel() {
+/* レポートExcelの中身とファイル名を作る（ダウンロードと税理士送付で共通）。
+ * 選んだ月が属する**年度（3月〜翌2月）の全12ヶ月**が対象。ただし空シートを
+ * 作らないため、売上・仕入のどちらかにデータがある月だけをシート化する。
+ * 「全期間」選択時は従来どおり1シート。
+ * 戻り値: {bytes, fileName, sheetCount, startYear, term} または {error} */
+function appvBuildReportWorkbook() {
   const monthEl = document.getElementById('monthFilter');
   const month = (monthEl && monthEl.value) || 'all';
   const all = month === 'all';
   const salesAll = get(LS.sales, []);
   const purchasesAll = get(LS.purchases, []);
-  // 月選択時は年度開始(3月)から選択月まで1ヶ月=1シートで出力（最新月がアクティブ）。全期間は1シート。
-  const months = all ? ['all'] : appvFiscalMonthsUpTo(month);
+
+  if (all) {
+    const sheets = [{ name: '全期間', rows: appvBuildReportSheetRows('all', salesAll, purchasesAll) }];
+    return {
+      bytes: appvBuildXlsx(sheets),
+      fileName: '物販売上管理表_全期間.xlsx',
+      sheetCount: 1, startYear: null, term: null
+    };
+  }
+
+  const startYear = appvFiscalStartYear(month);
+  if (!startYear) return { error: '対象月が正しくありません' };
+  const months = appvFiscalMonthsWithData(startYear, salesAll, purchasesAll);
+  if (!months.length) {
+    return { error: (startYear + '年度（' + startYear + '年3月〜' + (startYear + 1) + '年2月）にデータがありません') };
+  }
   const sheets = months.map((mo) => ({
-    name: mo === 'all' ? '全期間' : (+mo.slice(5, 7)) + '月',
+    name: (+mo.slice(5, 7)) + '月',
     rows: appvBuildReportSheetRows(mo, salesAll, purchasesAll)
   }));
-  const xlsxBytes = appvBuildXlsx(sheets);
-  const blob = new Blob([xlsxBytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const term = appvFiscalTerm(startYear);
+  // 例: 2026年度・10期 → 物販売上管理表26_10期.xlsx
+  const fileName = '物販売上管理表' + String(startYear).slice(2) + '_' + term + '期.xlsx';
+  return { bytes: appvBuildXlsx(sheets), fileName: fileName, sheetCount: sheets.length, startYear: startYear, term: term };
+}
+
+function appvExportReportExcel() {
+  const wb = appvBuildReportWorkbook();
+  if (wb.error) { appvToast('⚠ ' + wb.error); return; }
+  const blob = new Blob([wb.bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'RIBRE_売上仕入レポート_' + (all ? '全期間' : month) + '.xlsx';
+  a.download = wb.fileName;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  appvToast('📥 ' + wb.fileName + '（' + wb.sheetCount + 'シート）');
 }
 
 /* Excelを作って「税理士送付ファイル」へ保存する（ダウンロードはしない）。
@@ -945,17 +1009,12 @@ async function appvExportReportExcelToTaxDocs() {
   if (typeof appvCreds === 'function' && !appvCreds()) { appvToast('ログインすると使えます'); return; }
   if (btn) { btn.disabled = true; }
   try {
-    const salesAll = get(LS.sales, []);
-    const purchasesAll = get(LS.purchases, []);
-    const months = all ? ['all'] : appvFiscalMonthsUpTo(month);
-    const sheets = months.map((mo) => ({
-      name: mo === 'all' ? '全期間' : (+mo.slice(5, 7)) + '月',
-      rows: appvBuildReportSheetRows(mo, salesAll, purchasesAll)
-    }));
-    const xlsxBytes = appvBuildXlsx(sheets);
+    const wb = appvBuildReportWorkbook();
+    if (wb.error) { appvToast('⚠ ' + wb.error); return; }
+    // 同じ年度を何度出しても上書きせず世代が残るよう、保存名には日時を付ける
     const stamp = new Date().toLocaleString('sv-SE').replace(/[-: ]/g, '').slice(0, 12); // YYYYMMDDhhmm
-    const fileName = 'RIBRE_売上仕入レポート_' + (all ? '全期間' : month) + '_' + stamp + '.xlsx';
-    const file = new File([xlsxBytes], fileName, {
+    const fileName = wb.fileName.replace(/\.xlsx$/, '') + '_' + stamp + '.xlsx';
+    const file = new File([wb.bytes], fileName, {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     });
     // 全期間のときは保存先の月を指定できないので、画面の対象月（無ければ今月）に従う
