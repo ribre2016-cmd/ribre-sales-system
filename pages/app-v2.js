@@ -5148,19 +5148,34 @@ async function appvRenderCloseChecklist() {
   const shipUnmatch = appvShipUnmatchCountForMonth(month);
   const closed = appvIsMonthClosed(month);
 
-  wrap.appendChild(appvChecklistRow('📎', coverageOk, '証憑カバー率' + (coveragePct != null ? '（' + coveragePct + '%）' : '（取得不可）'), '証憑ページへ', () => { window.location.href = '/mf-evidence?from=app'; }));
+  // 証憑カバー率は「参考」。締めをブロックしない（2026-08-02 利用者判断で変更）。
+  // 分母がその月の全仕訳なので、売掛金の回収・振込手数料・受取利息・振替など
+  // そもそも別途の証憑が無い仕訳まで数に入り、構造上100%にならない。
+  // どの仕訳に証憑が要るかは会計上の判断なので、アプリ側で一律に強制しない。
+  wrap.appendChild(appvChecklistRow('📎', coverageOk, '証憑カバー率' + (coveragePct != null ? '（' + coveragePct + '%）' : '（取得不可）') + '　※参考', '証憑ページへ', () => { window.location.href = '/mf-evidence?from=app'; }));
   wrap.appendChild(appvChecklistRow('🔗', matchingPending === 0, 'マッチング未処理（' + (matchingPending == null ? '?' : matchingPending) + '件）', '証憑ページへ', () => { window.location.href = '/mf-evidence?from=app'; }));
   wrap.appendChild(appvChecklistRow('📋', boxTodo === 0, 'Box入力待ち（' + (boxTodo == null ? '?' : boxTodo) + '件）', '証憑ページへ', () => { window.location.href = '/mf-evidence?from=app'; }));
   wrap.appendChild(appvChecklistRow('🚚', shipUnmatch === 0, '配送照合の不一致（' + shipUnmatch + '件）', '取込ページへ', () => appvGotoPage('import')));
   wrap.appendChild(appvChecklistRow('🔒', closed, '締め状態: ' + (closed ? '締め済み' : '未締め'), null, null));
 
-  const allOk = coverageOk !== false && matchingPending === 0 && boxTodo === 0 && shipUnmatch === 0;
+  // 締めの可否は、アプリが責任を持てる3項目だけで判定する（証憑カバー率は含めない）
+  const allOk = matchingPending === 0 && boxTodo === 0 && shipUnmatch === 0;
   if (closeBtn) {
     closeBtn.disabled = closed || !allOk;
     closeBtn.style.display = closed ? 'none' : 'inline-block';
   }
   if (reopenBtn) reopenBtn.style.display = closed ? 'inline-block' : 'none';
-  if (statusEl) statusEl.textContent = closed ? '✅ ' + appvMonthLabel(month) + 'は締め済みです' : (allOk ? '全項目クリア。月締めを完了できます' : '未完了の項目があります');
+  if (statusEl) {
+    if (closed) {
+      statusEl.textContent = '✅ ' + appvMonthLabel(month) + 'は締め済みです';
+    } else if (!allOk) {
+      statusEl.textContent = '未完了の項目があります';
+    } else if (coverageOk === false) {
+      statusEl.textContent = '月締めを完了できます（証憑カバー率は参考値のため締めは止めません）';
+    } else {
+      statusEl.textContent = '全項目クリア。月締めを完了できます';
+    }
+  }
 }
 /* 月締め実行（旧: services/app-main-v2.js closeMonth 19-35行目と同一処理）。
  * 対象月のsales行のmemoへ[LOCK]を付与。実行前にcreateLocalSnapshotでスナップショットを取る。 */
