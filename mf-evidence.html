@@ -117,9 +117,11 @@
       <label style="display:flex;align-items:center;gap:6px;white-space:nowrap"><input id="mfFilterBoxTodo" type="checkbox"> Box入力待ちのみ</label>
       <button class="green" onclick="mfLoadLedger()">絞り込み</button>
       <button class="secondary" onclick="mfScanDuplicates()">重複チェック</button>
+      <button class="secondary" onclick="mfCheckAwaitingReason()">マッチ待ちの理由</button>
     </div>
     <div class="safe-hint ok">Box入力 = MFのBox画面で取引日・取引先・金額を入力済みにしたらチェック（電帳法要件の管理用）</div>
     <div id="mfDupResult"></div>
+    <div id="mfAwaitingResult"></div>
     <div id="mfLedgerList" class="list"></div>
   </div>
 </main>

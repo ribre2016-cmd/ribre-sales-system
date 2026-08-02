@@ -11,7 +11,11 @@
    ```
 
    ローカル確認用に別途登録する場合は開発環境のURLも追加する。
-3. 必要スコープ: `mfc/accounting/voucher.write`, `mfc/accounting/journal.read`
+3. 必要スコープ: `mfc/accounting/voucher.write`, `mfc/accounting/journal.read`,
+   `mfc/accounting/transaction.read`（2026-08-02追加。「マッチ待ちの理由」表示で
+   未仕訳の明細を読むためだけに使う読み取り専用。明細の作成・仕訳化はしない）
+   - **既に連携済みの場合は再連携が必要**。古いトークンにはこのスコープが無いため、
+     明細APIが403を返す。「マッチ待ちの理由」ボタンだけが使えず、他の機能は影響なし
 4. 発行された `Client ID` / `Client Secret` を控える。
 
 > NOTE: OAuth2 の authorize/token エンドポイントURLは

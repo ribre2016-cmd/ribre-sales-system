@@ -20,7 +20,11 @@ const MF_TOKEN_URL = 'https://api.biz.moneyforward.com/token';
 //   servers: - url: https://api-accounting.moneyforward.com
 const MF_ACCOUNTING_API_BASE = 'https://api-accounting.moneyforward.com';
 
-const MF_SCOPE = 'mfc/accounting/voucher.write mfc/accounting/journal.read';
+// transaction.read は「マッチ待ちの証憑が何を待っているのか」を明細から調べるために追加した
+// （2026-08-02）。読み取り専用で、明細の作成・仕訳化はしない。
+// 既に連携済みの環境ではこのスコープを持たないトークンが保存されているため、明細APIは
+// 403を返す。呼び出し側は403を「再連携が必要」として扱うこと（他の機能は影響を受けない）。
+const MF_SCOPE = 'mfc/accounting/voucher.write mfc/accounting/journal.read mfc/accounting/transaction.read';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -166,6 +170,37 @@ async function postVoucher({ accessToken, journalId, fileName, fileDataBase64 })
   return data;
 }
 
+// 未仕訳の明細を取得する（読み取り専用）。
+// 用途: 「マッチ待ち」の証憑が、まだ仕訳になっていない明細を待っているのかを判定する。
+// 出典: https://developers.api-accounting.moneyforward.com/v3/openapi.yaml
+//   GET /api/v3/transactions（scope: mfc/accounting/transaction.read）
+//   start_date と end_date の差は366日以内という制約がある。
+// 注意: 明細に証憑を添付するAPIは存在しない（PostVouchersRequestはjournal_idのみで
+//   transaction_idを受け付けず、Transaction.voucher_file_idsは取得専用）。
+//   そのため本関数は「待ち理由の表示」にしか使えない。
+async function fetchUnjournalizedTransactions({ accessToken, startDate, endDate, perPage = 500 }) {
+  const params = new URLSearchParams({
+    start_date: startDate,
+    end_date: endDate,
+    per_page: String(perPage),
+    page: '1',
+  });
+  // journalizing_statuses は配列パラメータ。openapi.yaml で explode: true（style既定=form）
+  // と指定されているため、ブラケット無しで同名キーを繰り返す形式が正しい。
+  params.append('journalizing_statuses', 'none');
+  const res = await fetch(`${MF_ACCOUNTING_API_BASE}/api/v3/transactions?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = (data && (data.error || data.message)) || `HTTP ${res.status}`;
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
+  }
+  return Array.isArray(data.transactions) ? data.transactions : [];
+}
+
 module.exports = {
   MF_AUTHORIZE_URL,
   MF_TOKEN_URL,
@@ -178,4 +213,5 @@ module.exports = {
   refreshAccessToken,
   getAccessToken,
   postVoucher,
+  fetchUnjournalizedTransactions,
 };

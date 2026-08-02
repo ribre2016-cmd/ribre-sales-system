@@ -566,6 +566,9 @@ async function runManualMatch({ accessToken, evidenceId, journalId }) {
 module.exports = {
   getAccessToken,
   NotConnectedError,
+  fetchAwaitingMatchEvidence,
+  normalizeText,
+  VENDOR_DATE_MARGIN_DAYS,
   fetchBoxSavedEvidence,
   fetchEvidenceById,
   updateEvidence,

@@ -30,6 +30,35 @@
   の2種類でグループ化して表示する。削除は行わず、残す候補（最初に登録された方）を
   示すだけ。取引先の正規化規則はサーバー側 `normalizeVendorForDup` と一致させている。
 
+### 「マッチ待ち」が何を待っているのか台帳に表示できるようにした
+- 発端: Vercelの証憑がマッチ待ちのまま動かないという報告。MFの実データを調べたところ
+  明細 `VERCEL INC. 2026-07-13 3,362円` が **未仕訳** で、対応する仕訳が存在しなかった
+  （同期間の仕訳298件を全走査してVercelを含むものは0件）。証憑は仕訳に添付する
+  仕組みなので、仕訳ができるまで進まないのが正しい動作だった。
+- **MF公式OpenAPI仕様書を取得して確認した事実**
+  （`https://developers.api-accounting.moneyforward.com/v3/openapi.yaml`）:
+  - 証憑を書き込める口は `POST /api/v3/vouchers` のみ。パラメータは `journal_id`(nullable)
+    と `voucher_files` だけで、**`transaction_id` は受け付けない**
+  - `Transaction.voucher_file_ids` は存在するが**取得専用**。書き込むエンドポイントは無い
+  - → **明細に証憑を添付するAPIは存在しない**。仕訳登録を待つ以外の道は無い
+  - `DELETE /api/v3/vouchers`（証憑の添付解除）は存在する。ただし `journal_id` と
+    `voucher_file_id` の**両方が必須**なので、仕訳に紐づいていないファイルは対象外。
+    付け替えるエンドポイントも無い（`PUT /journals` に証憑欄なし）
+  - → 「未紐付けで先にBoxへ上げて後で紐付ける」は不可能。今の awaiting_match 方式が正しい
+    （以前の「一度送ったら解除もできない」という説明は不正確だったので訂正）
+- 実装: `GET /api/mf/awaiting-reason`（読み取り専用・書き込み一切なし）。
+  awaiting_match の証憑ごとに、未仕訳の明細（`GET /transactions`、
+  `journalizing_statuses=none`）を取引先名＋日付±45日で照合し、
+  「未仕訳の明細を待っています」か「該当する明細が無い」かを返す。
+  台帳ページに「マッチ待ちの理由」ボタンを追加。
+- **スコープ追加**: `mfc/accounting/transaction.read` を `MF_SCOPE` に追加。
+  **既存トークンには含まれないので再連携が必要**。未再連携なら明細APIが403を返すので、
+  その場合は「再連携してください」と表示するだけにして他機能には影響させない。
+- 注意: `journalizing_statuses` は openapi で `explode: true`（style既定=form）なので
+  `journalizing_statuses=none` の形式。`[]` を付けると効かない。
+- `GET /transactions` は start_date と end_date の差が366日以内という制約がある。
+  証憑の日付幅が広い場合は新しい側を優先して360日に丸めている。
+
 ### そのほか
 - `supabase_tax_docs.sql` / `supabase_tax_share.sql` が0バイトに空になっていたのを
   gitから復元（本番適用済みSQLの記録のため中身が必要）。

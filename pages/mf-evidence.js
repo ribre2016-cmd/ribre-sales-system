@@ -989,6 +989,69 @@ async function mfScanDuplicates() {
   box.innerHTML = parts.join('');
 }
 
+/* ---------------- マッチ待ちの理由（読み取り専用） ---------------- */
+
+// 「マッチ待ち」は失敗ではなく、添付先の仕訳ができるのを待っている状態。
+// MFのAPIには明細へ証憑を添付する口が無いため（POST /vouchers は journal_id のみ）、
+// 仕訳ができるまで送れない。ここでは未仕訳の明細を照合して待ち理由を表示する。
+async function mfCheckAwaitingReason() {
+  const box = document.getElementById('mfAwaitingResult');
+  if (!box) return;
+  const escape = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  box.innerHTML = '<div class="safe-hint">マッチ待ちの理由を調べています…</div>';
+  let d;
+  try {
+    const res = await fetch('/api/mf/awaiting-reason', {
+      headers: { Authorization: 'Bearer ' + (sess().access_token || '') }
+    });
+    d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((d && d.error) || 'HTTP ' + res.status);
+  } catch (e) {
+    box.innerHTML = '';
+    mfToast('確認に失敗しました: ' + e.message, 'error');
+    return;
+  }
+
+  if (!d.ok) {
+    const msg = {
+      not_connected: 'MFと連携していません。設定ページから連携してください。',
+      scope_missing: 'MF連携の権限に「明細の参照」が含まれていないため確認できません。'
+        + '設定ページからMFを一度連携し直すと使えるようになります（他の機能は今のまま動きます）。',
+      transactions_fetch_failed: 'MFの明細取得に失敗しました。時間をおいて再度お試しください。'
+    }[d.error] || ('確認できませんでした（' + escape(d.error || '不明') + '）');
+    box.innerHTML = '<div class="safe-hint warn">' + escape('マッチ待ち' + (d.awaiting_count || 0) + '件。') + msg + '</div>';
+    return;
+  }
+
+  if (!d.items.length) {
+    box.innerHTML = '<div class="safe-hint ok">マッチ待ちの証憑はありません。</div>';
+    return;
+  }
+
+  const parts = ['<div class="safe-hint warn">マッチ待ち' + d.items.length + '件。'
+    + '証憑は仕訳に添付する仕組みのため、仕訳ができるまで送信を保留しています（失敗ではありません）。</div>'];
+  d.items.forEach((it) => {
+    const amount = (it.ocr_currency && it.ocr_currency !== 'JPY')
+      ? Number(it.ocr_amount || 0).toLocaleString('ja-JP') + ' ' + it.ocr_currency
+      : yen(it.ocr_amount);
+    let detail;
+    if (it.reason === 'unjournalized') {
+      const list = it.transactions.map((tx) => '<li>' + escape(tx.date) + '　' + escape(tx.content)
+        + '　' + Number(tx.value || 0).toLocaleString('ja-JP') + '円</li>').join('');
+      detail = '<div>MFの<b>未仕訳の明細</b>を待っています。MFでこの明細を仕訳登録したあと、'
+        + 'このページの「再照合」を押してください。</div><ul>' + list + '</ul>';
+    } else {
+      detail = '<div>該当する未仕訳の明細が見つかりませんでした。'
+        + '明細がまだMFに取り込まれていないか、明細の取引内容が証憑の取引先名と違う可能性があります。'
+        + '（取引先名が一致しないと照合できません）</div>';
+    }
+    parts.push('<div class="card" style="margin:8px 0"><div><b>' + escape(it.ocr_date || '-')
+      + '　' + escape(it.ocr_vendor || '-') + '　' + amount + '</b>'
+      + '<br><span class="muted">' + escape(it.file_name || '-') + '</span></div>' + detail + '</div>');
+  });
+  box.innerHTML = parts.join('');
+}
+
 /* ---------------- 仕訳マッチング ---------------- */
 
 function mfRenderMatchSummary(rows) {
