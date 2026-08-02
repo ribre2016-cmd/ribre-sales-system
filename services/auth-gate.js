@@ -132,7 +132,8 @@
           'ログイン中のアカウント <b id="ribreNotMemberEmail"></b> は、売上管理システムの利用者として登録されていません。' +
         '</div>' +
         '<div style="font-size:13px;color:#4b5563;line-height:1.7;margin-bottom:18px">' +
-          '税理士の方は<a href="/tax-workspace.html" style="color:#1d4ed8;font-weight:700">税理士ワークスペース</a>をご利用ください。' +
+          // vercel.json の cleanUrls:true により .html 付きは308でリダイレクトされるため、拡張子なしを使う
+        '税理士の方は<a href="/tax-workspace" style="color:#1d4ed8;font-weight:700">税理士ワークスペース</a>をご利用ください。' +
         '</div>' +
         '<button id="ribreNotMemberOut" style="width:100%;padding:12px;border:0;border-radius:10px;background:#6b7280;color:#fff;font-size:15px;font-weight:700;cursor:pointer">ログアウト</button>';
       o.innerHTML = '';
