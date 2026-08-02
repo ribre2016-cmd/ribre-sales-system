@@ -91,11 +91,71 @@
   var __gateRefreshTried = false;
   var __gateRefreshInFlight = false;
 
+  /* 本体画面に入れるメールの許可リスト（2026-08-02 追加）。
+   * 税理士ワークスペース(docs/TAX_WORKSPACE_PLAN.md)のために税理士アカウントを
+   * 同じSupabase Authへ作ると、この画面にもログインできてしまうため入口を分ける。
+   *
+   * ※ これは「誤って入ってしまう事故」を防ぐためのもので、セキュリティ境界ではない。
+   *   静的サイトの画面ガードは迂回できる。本当の防御はRLS
+   *   （sales/purchasesはメール一致、mf_evidenceは会員許可リスト、mf_tokensはポリシー無し）。
+   *
+   * 社員を増やしてログインを分ける場合は、ここへ追記すること。
+   * 出典: supabase_mf_owner_rls.sql の会員許可リストと同じ2件。 */
+  var MEMBER_EMAILS = ['ribre2016@gmail.com', 'k.sado@ribre.co.jp'];
+
+  function isMember() {
+    var e = '';
+    try { e = (typeof email === 'function' && email()) || ''; } catch (x) { e = ''; }
+    e = String(e).trim().toLowerCase();
+    // メールが取れないときは締め出さない（誤って本人が入れなくなる方が困るため）
+    if (!e) return true;
+    for (var i = 0; i < MEMBER_EMAILS.length; i++) {
+      if (MEMBER_EMAILS[i].toLowerCase() === e) return true;
+    }
+    return false;
+  }
+
+  /* 許可リストに無いメールでログインしたときの案内。ログアウトだけできるようにする。
+   * データは消さない（誤操作でも失うものが無いように）。 */
+  function showNotMember() {
+    var o = document.getElementById('ribreLoginGate');
+    if (!o) return;
+    var e = '';
+    try { e = (typeof email === 'function' && email()) || ''; } catch (x) {}
+    if (!document.getElementById('ribreNotMember')) {
+      var box = document.createElement('div');
+      box.id = 'ribreNotMember';
+      box.setAttribute('style', 'width:100%;max-width:420px;background:#fff;color:#1f2937;border-radius:16px;padding:28px 24px;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:left');
+      box.innerHTML =
+        '<div style="font-size:20px;font-weight:800;color:#1d4ed8;margin-bottom:6px">この画面は利用できません</div>' +
+        '<div style="font-size:13px;color:#4b5563;line-height:1.7;margin-bottom:16px">' +
+          'ログイン中のアカウント <b id="ribreNotMemberEmail"></b> は、売上管理システムの利用者として登録されていません。' +
+        '</div>' +
+        '<div style="font-size:13px;color:#4b5563;line-height:1.7;margin-bottom:18px">' +
+          '税理士の方は<a href="/tax-workspace.html" style="color:#1d4ed8;font-weight:700">税理士ワークスペース</a>をご利用ください。' +
+        '</div>' +
+        '<button id="ribreNotMemberOut" style="width:100%;padding:12px;border:0;border-radius:10px;background:#6b7280;color:#fff;font-size:15px;font-weight:700;cursor:pointer">ログアウト</button>';
+      o.innerHTML = '';
+      o.appendChild(box);
+      var btn = document.getElementById('ribreNotMemberOut');
+      if (btn) {
+        btn.onclick = function () {
+          try { if (typeof signOut === 'function') signOut(); else if (typeof smpLogout === 'function') smpLogout(); } catch (x) {}
+          setTimeout(function () { location.reload(); }, 300);
+        };
+      }
+    }
+    var em = document.getElementById('ribreNotMemberEmail');
+    if (em) em.textContent = e;
+    o.style.display = 'flex';
+  }
+
   function update() {
     var o = document.getElementById('ribreLoginGate');
     if (!o) return;
     if (isLoggedIn()) {
       __gateRefreshTried = false; // 有効なうちにリセットしておき、次に切れた時また1回試せるようにする
+      if (!isMember()) { showNotMember(); return; }
       o.style.display = 'none';
       return;
     }

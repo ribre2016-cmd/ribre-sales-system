@@ -3,6 +3,46 @@
 このファイルは、Claude（AIアシスタント）がこのプロジェクトに加えた変更の記録です。
 新しい変更は上に追記します。
 
+## 2026-08-02 税理士ワークスペース Phase 1（読み取り専用）を実装
+
+設計書 `docs/TAX_WORKSPACE_PLAN.md`。**Phase 1は読み取りのみで、MFへは一切書き込まない。**
+仕訳登録(journalize)はPhase 3で、§6の未確認事項A〜Hを実測してから着手する。
+
+### 追加したもの
+- `supabase_tax_advisor.sql`: `tax_advisors`（許可リスト）と `tax_advisor_actions`（操作履歴）。
+  **どちらもRLSポリシーを作らない**＝service roleのサーバー側からしか触れない。
+  このSupabaseは他アプリと共用のため、authenticated全体へ開放すると別アプリから見えてしまう
+  （`mf_tokens` と同じ考え方）
+- `api/mf/tax-workspace.js`: 読み取り専用API。認可は二段構え
+  （①Supabaseのログイン済みトークン ②`tax_advisors` に enabled=true で載っている）。
+  どちらも満たさなければ403で何も返さない
+- `tax-workspace.html` / `pages/tax-workspace.js`: 画面。**登録ボタンもチェックボックスも作っていない**
+- `services/auth-gate.js`: 入口の許可リスト `MEMBER_EMAILS` を追加。
+  税理士アカウントで本体画面が開けてしまう問題への対処。
+  ⚠ メールが取れないときは**締め出さない**（本人が入れなくなる方が困るため）
+
+### レート制限対策の共通スロットル（設計書§5-3）
+`mf-client.js` に `mfFetch()` を追加し、MFを叩く箇所（vouchers / transactions / journals）を
+すべて通した。350ms間隔で直列化し、429はRetry-Afterか指数バックオフで投げ直す。
+⚠ **同一プロセス内でしか効かない。** Vercelの関数は呼び出しごとに別プロセスになりうるため、
+cron(auto-match)と利用者の操作が重なれば429は起こりうる。だから429の再試行が必須。
+
+### MFスコープを追加（要再連携）
+`voucher.write` / `journal.read` / `transaction.read` に加えて
+`accounts.read` / `taxes.read` / `trade_partners.read` / `journal.write` を追加。
+`journal.write` はPhase 3まで**どこからも呼ばない**が、再連携を2回させないため先に取得する。
+
+### 検証したこと
+- 許可リスト: 会員2件は通り（大文字・前後空白も吸収）、別メールは弾き、
+  メール不明時は締め出さないことをブラウザで確認
+- 画面: 403(not_tax_advisor) / scope_missing / not_connected / 正常 の4分岐の表示を確認。
+  **登録ボタン0件・チェックボックス0件**、叩く宛先は `/api/mf/tax-workspace` のみ
+
+### 利用者側の作業（未実施）
+1. `supabase_tax_advisor.sql` を実行し、税理士のメールを `tax_advisors` に登録
+2. MFを再連携（スコープ追加のため）
+3. 税理士へ「この画面で仕訳登録まで行ってよいか」を確認（設計書§7）
+
 ## 2026-08-02 Excel年間集計シート＋証憑の重複対策
 
 ### Excel出力に「年間集計」シート（1番目）とグラフを追加

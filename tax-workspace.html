@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>税理士ワークスペース</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0; font-family: "Yu Gothic", "Meiryo", system-ui, sans-serif;
+  background: #eef2f7; color: #0f172a;
+}
+.page { max-width: 1320px; margin: 0 auto; padding: 18px 22px 60px; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 18px; background: #123a7a; color: #fff; border-radius: 8px; margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.topbar h1 { margin: 0; font-size: 19px; }
+.topbar .sub { font-size: 11px; opacity: .85; font-weight: 700; margin-top: 3px; }
+.topbar-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.topbar-right .who { font-size: 12px; font-weight: 800; opacity: .92; }
+.topbar-right select, .topbar-right input[type=month] { border-radius: 6px; border: 1px solid #cbd5e1; padding: 6px 9px; font-weight: 800; font: inherit; }
+.topbar-right button.logout { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.4); border-radius: 6px; padding: 7px 12px; font-weight: 800; font-size: 12px; cursor: pointer; }
+
+.tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 2px solid #cbd5e1; flex-wrap: wrap; }
+.tab-btn {
+  padding: 10px 18px; border: 1px solid #cbd5e1; border-bottom: none; border-radius: 8px 8px 0 0;
+  background: #e2e8f0; color: #475569; font-weight: 900; font-size: 13px; cursor: pointer;
+}
+.tab-btn.active { background: #fff; color: #123a7a; border-color: #123a7a; }
+.tabpage { display: none; }
+.tabpage.active { display: block; }
+
+.panel { background: #fff; border: 1px solid #dbe3ef; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 14px rgba(15,23,42,.05); margin-bottom: 16px; }
+.panel-head { padding: 13px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap: wrap; }
+.panel-head h2 { margin: 0; font-size: 15px; }
+.panel-head .desc { font-size: 11px; color: #64748b; font-weight: 700; margin-top: 3px; }
+.panel-body { padding: 14px 16px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th { background: #eaf1fb; color: #334155; text-align: left; padding: 8px 8px; border: 1px solid #cbd5e1; white-space: nowrap; }
+td { padding: 7px 8px; border: 1px solid #e2e8f0; vertical-align: middle; }
+td.num, th.num { text-align: right; }
+tr:nth-child(even) td { background: #fafcff; }
+
+.chip { display: inline-block; font-size: 10.5px; font-weight: 900; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.chip-gray { background: #e2e8f0; color: #475569; }
+.chip-yellow { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.chip-red { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+.chip-green { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.chip-blue { background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; }
+
+.note { font-size: 12px; color: #64748b; font-weight: 700; line-height: 1.6; margin-top: 8px; }
+.note.warn { color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 8px 10px; }
+.note.danger { color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px 10px; font-weight: 900; }
+.note.info { color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 10px; }
+
+/* 明細カード */
+.jcard { border: 1px solid #dbe3ef; border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
+.jcard-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; }
+.jcard-head .title { font-weight: 900; font-size: 13.5px; }
+.jcard-head .sub { font-size: 11px; color: #64748b; font-weight: 700; margin-top: 2px; }
+.jcard-body { padding: 12px 14px; }
+
+.evidence-box { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 10px 12px; margin: 10px 0; }
+.evidence-box h4 { margin: 0 0 6px; font-size: 12px; color: #334155; }
+.evidence-item { padding: 6px 0; border-top: 1px solid #e2e8f0; }
+.evidence-item:first-of-type { border-top: none; }
+.evidence-item .fname { font-size: 12.5px; font-weight: 800; }
+.evidence-item .fname a { color: #123a7a; }
+.evidence-item .meta { font-size: 11px; color: #64748b; font-weight: 700; margin-top: 2px; }
+.evidence-item .cand-note { font-size: 11px; color: #92400e; font-weight: 700; margin-top: 3px; }
+.evidence-empty { font-size: 12px; color: #94a3b8; font-weight: 700; }
+
+.file-attach-note { font-size: 11px; color: #92400e; font-weight: 700; margin-top: 2px; }
+.month-group-title { font-size: 13px; font-weight: 900; color: #123a7a; margin: 18px 0 8px; }
+.month-group-title:first-child { margin-top: 0; }
+
+.hist-empty { text-align: center; padding: 30px; color: #94a3b8; font-weight: 700; font-size: 12.5px; }
+
+.footer-badge { text-align: center; font-size: 11px; color: #94a3b8; margin-top: 24px; font-weight: 700; }
+
+/* ---- ログインゲート ---- */
+.txw-gate {
+  position: fixed; inset: 0; z-index: 2000;
+  background: linear-gradient(160deg,#1d4ed8,#1e3a8a); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-family: inherit; padding: 20px;
+}
+.txw-gate-box { width: 100%; max-width: 380px; background: #fff; color: #1f2937; border-radius: 16px; padding: 28px 24px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.txw-gate-title { font-size: 20px; font-weight: 800; color: #1d4ed8; margin-bottom: 4px; }
+.txw-gate-sub { font-size: 13px; color: #6b7280; margin-bottom: 20px; }
+.txw-gate-box input { width: 100%; box-sizing: border-box; padding: 11px; border: 1px solid #d1d5db; border-radius: 10px; margin-bottom: 10px; font-size: 15px; font: inherit; }
+.txw-gate-box button { width: 100%; padding: 12px; border: 0; border-radius: 10px; background: #16a34a; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; }
+.txw-gate-msg { margin-top: 14px; font-size: 13px; color: #b91c1c; min-height: 18px; line-height: 1.6; }
+.txw-gate-note { margin-top: 16px; font-size: 12px; color: #9ca3af; line-height: 1.6; }
+
+.txw-loading { text-align: center; padding: 24px; color: #64748b; font-weight: 700; font-size: 12.5px; }
+
+@media (max-width: 900px) {
+  table { font-size: 11px; }
+  .tabs { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<!-- services/supabase-auth.js の signIn()/signOut() が参照する共通フォーム要素（非表示・値はゲートのフォームから転記） -->
+<input id="email" type="email" style="display:none">
+<input id="password" type="password" style="display:none">
+<select id="role" style="display:none"><option value="tax_advisor" selected>tax_advisor</option></select>
+<div id="settingsList" style="display:none"></div>
+
+<!-- ログインゲート（services/auth-gate.js は使わない。社内メール専用のため税理士は弾かれる） -->
+<div id="txwGate" class="txw-gate" style="display:none">
+  <div class="txw-gate-box">
+    <div class="txw-gate-title">税理士ワークスペース</div>
+    <div class="txw-gate-sub">ご利用にはログインが必要です</div>
+    <input id="txwGateEmail" type="email" placeholder="メールアドレス" autocomplete="username">
+    <input id="txwGatePass" type="password" placeholder="パスワード" autocomplete="current-password">
+    <button id="txwGateLoginBtn" type="button">ログイン</button>
+    <div id="txwGateMsg" class="txw-gate-msg"></div>
+    <div class="txw-gate-note">このページは税理士ワークスペース専用です。売上管理システム本体へはこのページからは移動できません。</div>
+  </div>
+</div>
+
+<div class="page" id="txwApp" style="display:none">
+  <div class="topbar">
+    <div>
+      <h1>税理士ワークスペース</h1>
+      <div class="sub">Phase 1（読み取り専用）／ 登録機能はPhase 3で追加予定です</div>
+    </div>
+    <div class="topbar-right">
+      <span class="who">ログイン中: <span id="txwWhoEmail"></span></span>
+      <label style="font-size:11px;font-weight:800;">対象月
+        <input type="month" id="txwMonth">
+      </label>
+      <button id="txwLogoutBtn" class="logout" type="button">ログアウト</button>
+    </div>
+  </div>
+
+  <div id="txwGlobalError" class="note danger" style="display:none;margin-bottom:14px;"></div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-t="unmatched" type="button">① 未仕訳の明細</button>
+    <button class="tab-btn" data-t="awaiting" type="button">② 仕訳待ちの証憑</button>
+    <button class="tab-btn" data-t="files" type="button">③ 共有ファイル</button>
+    <button class="tab-btn" data-t="history" type="button">④ 操作履歴</button>
+  </div>
+
+  <!-- ① 未仕訳の明細 -->
+  <section class="tabpage active" id="t-unmatched">
+    <div class="note info" style="margin-bottom:14px;">
+      この画面は読み取り専用です。登録機能はPhase 3で追加予定です。仕訳の登録・証憑の添付はMFクラウド会計の画面で行ってください。
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>未仕訳の明細</h2>
+          <div class="desc">口座に来た明細のうち、まだ仕訳が作られていないものです。</div>
+        </div>
+        <span class="chip chip-yellow" id="txwUnmatchedCount">-</span>
+      </div>
+      <div class="panel-body" id="txwUnmatchedList">
+        <div class="txw-loading">読み込み中…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ② 仕訳待ちの証憑 -->
+  <section class="tabpage" id="t-awaiting">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>仕訳待ちの証憑</h2>
+          <div class="desc">仕訳が無いために送信を保留している証憑です。①で仕訳を作れば解消します。</div>
+        </div>
+      </div>
+      <div class="panel-body" id="txwAwaitingBody">
+        <div class="txw-loading">読み込み中…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ③ 共有ファイル -->
+  <section class="tabpage" id="t-files">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>共有ファイル</h2>
+          <div class="desc">給与明細・請求書・売上管理表など、税理士へ渡しているファイルの一覧です。</div>
+        </div>
+      </div>
+      <div class="panel-body" id="txwFilesBody">
+        <div class="txw-loading">読み込み中…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ④ 操作履歴 -->
+  <section class="tabpage" id="t-history">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>操作履歴</h2>
+          <div class="desc">誰が・いつ・どの明細を・どの科目で登録したかを記録する画面です。</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="hist-empty">Phase 1では操作履歴はまだありません。<br>Phase 3で登録機能を追加したときに、誰がいつ何を登録したかがここに残ります。</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer-badge">RIBRE 税理士ワークスペース（Phase 1・読み取り専用）</div>
+</div>
+
+<script src="services/core.js"></script>
+<script src="services/supabase-auth.js"></script>
+<script src="pages/tax-workspace.js"></script>
+</body>
+</html>

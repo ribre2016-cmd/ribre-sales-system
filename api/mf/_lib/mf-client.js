@@ -24,7 +24,19 @@ const MF_ACCOUNTING_API_BASE = 'https://api-accounting.moneyforward.com';
 // （2026-08-02）。読み取り専用で、明細の作成・仕訳化はしない。
 // 既に連携済みの環境ではこのスコープを持たないトークンが保存されているため、明細APIは
 // 403を返す。呼び出し側は403を「再連携が必要」として扱うこと（他の機能は影響を受けない）。
-const MF_SCOPE = 'mfc/accounting/voucher.write mfc/accounting/journal.read mfc/accounting/transaction.read';
+// 税理士ワークスペース(docs/TAX_WORKSPACE_PLAN.md)で追加（2026-08-02）:
+//   accounts.read / taxes.read / trade_partners.read … 勘定科目・税区分・取引先の選択欄に使う（Phase 1で必要）
+//   journal.write … 明細からの仕訳作成に使う（Phase 3で使用。再連携を2回させないため先に取得しておく）
+// journal.write は取得するだけで、Phase 3の実装まではどこからも呼ばない。
+const MF_SCOPE = [
+  'mfc/accounting/voucher.write',
+  'mfc/accounting/journal.read',
+  'mfc/accounting/transaction.read',
+  'mfc/accounting/accounts.read',
+  'mfc/accounting/taxes.read',
+  'mfc/accounting/trade_partners.read',
+  'mfc/accounting/journal.write',
+].join(' ');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -149,7 +161,7 @@ async function getAccessToken() {
 
 // 証憑(voucher)をMFへ送信
 async function postVoucher({ accessToken, journalId, fileName, fileDataBase64 }) {
-  const res = await fetch(`${MF_ACCOUNTING_API_BASE}/api/v3/vouchers`, {
+  const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3/vouchers`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -170,6 +182,42 @@ async function postVoucher({ accessToken, journalId, fileName, fileDataBase64 })
   return data;
 }
 
+// MFのレート制限は「1秒あたり3リクエスト」（ClientID × 事業者ID単位）。
+// 出典: https://developers.api-accounting.moneyforward.com/rate_limiter
+//
+// ⚠ この間隔調整は**同じプロセス内でしか効かない**。
+//    Vercelのサーバーレス関数は呼び出しごとに別プロセスになりうるため、
+//    cron(auto-match)と利用者の操作が同時に走れば429は起こりうる。
+//    そのため429を受けたときの待ち直しを必ず入れてある。
+//    プロセスをまたぐ完全な制御にはSupabase等の共有カウンタが要る（未実装）。
+const MF_MIN_INTERVAL_MS = 350; // 3req/sec に余裕を持たせる
+let mfLastCallAt = 0;
+let mfChain = Promise.resolve();
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// MFへのリクエストを直列化し、間隔を空けて投げる。429なら待って投げ直す。
+function mfFetch(url, options, maxRetries = 3) {
+  const run = async () => {
+    for (let attempt = 0; ; attempt++) {
+      const wait = MF_MIN_INTERVAL_MS - (Date.now() - mfLastCallAt);
+      if (wait > 0) await sleep(wait);
+      mfLastCallAt = Date.now();
+      const res = await fetch(url, options);
+      if (res.status !== 429 || attempt >= maxRetries) return res;
+      // Retry-After があれば従う。無ければ 1秒→2秒→4秒
+      const ra = Number(res.headers.get('retry-after'));
+      await sleep(Number.isFinite(ra) && ra > 0 ? ra * 1000 : 1000 * Math.pow(2, attempt));
+    }
+  };
+  // 直前の呼び出しが終わってから次を始める（同一プロセス内での追い越しを防ぐ）
+  const next = mfChain.then(run, run);
+  mfChain = next.then(() => undefined, () => undefined);
+  return next;
+}
+
 // 未仕訳の明細を取得する（読み取り専用）。
 // 用途: 「マッチ待ち」の証憑が、まだ仕訳になっていない明細を待っているのかを判定する。
 // 出典: https://developers.api-accounting.moneyforward.com/v3/openapi.yaml
@@ -188,7 +236,7 @@ async function fetchUnjournalizedTransactions({ accessToken, startDate, endDate,
   // journalizing_statuses は配列パラメータ。openapi.yaml で explode: true（style既定=form）
   // と指定されているため、ブラケット無しで同名キーを繰り返す形式が正しい。
   params.append('journalizing_statuses', 'none');
-  const res = await fetch(`${MF_ACCOUNTING_API_BASE}/api/v3/transactions?${params.toString()}`, {
+  const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3/transactions?${params.toString()}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   const data = await res.json().catch(() => ({}));
@@ -214,4 +262,5 @@ module.exports = {
   getAccessToken,
   postVoucher,
   fetchUnjournalizedTransactions,
+  mfFetch,
 };

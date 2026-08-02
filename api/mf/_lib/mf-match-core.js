@@ -2,7 +2,7 @@
 // api/mf/match.js の実装（本番デバッグ済み）を挙動そのままに切り出したもの。
 'use strict';
 
-const { getAccessToken, postVoucher, NotConnectedError, MF_ACCOUNTING_API_BASE } = require('./mf-client');
+const { getAccessToken, postVoucher, NotConnectedError, MF_ACCOUNTING_API_BASE, mfFetch } = require('./mf-client');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -110,7 +110,8 @@ async function fetchJournals({ accessToken, startDate, endDate }) {
       `${MF_ACCOUNTING_API_BASE}/api/v3/journals` +
       `?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}` +
       `&page=${page}&per_page=${perPage}`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    // レート制限(3req/sec)対策の共通スロットルを通す（docs/TAX_WORKSPACE_PLAN.md §5-3）
+    const res = await mfFetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const message = (data && (data.error || data.message)) || `HTTP ${res.status}`;
