@@ -101,7 +101,7 @@ tr:nth-child(even) td { background: #fafcff; }
 
 .hist-empty { text-align: center; padding: 30px; color: #94a3b8; font-weight: 700; font-size: 12.5px; }
 
-.lock-banner { display: flex; align-items: center; gap: 10px; background: #fef2f2; border: 1.5px solid #fecaca; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-weight: 900; color: #991b1b; font-size: 13px; }
+.lock-banner { display: flex; align-items: center; gap: 10px; background: #fffbeb; border: 1.5px solid #fde68a; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-weight: 900; color: #92400e; font-size: 13px; }
 
 .footer-badge { text-align: center; font-size: 11px; color: #94a3b8; margin-top: 24px; font-weight: 700; }
 
@@ -150,7 +150,7 @@ tr:nth-child(even) td { background: #fafcff; }
   <section class="tabpage active" id="t-unmatched">
 
     <div id="lock-banner" class="lock-banner" style="display:none;">
-      🔒 2026年06月は月締め済みのため、この画面からの登録はできません。登録欄はすべて操作できない状態で表示しています。
+      ⚠ 2026年06月の売上は締め済みです。仕訳を追加すると売上管理側の数字と差が出る場合があります。<b style="margin-left:6px">登録は止めません。</b>
     </div>
 
     <div class="note info" style="margin-bottom:14px;">
@@ -177,7 +177,7 @@ tr:nth-child(even) td { background: #fafcff; }
             <span class="chip chip-gray">未仕訳</span>
           </div>
           <div class="jcard-body">
-            <div class="note warn">前回の仕訳から入れています。確認してください。</div>
+            <div class="note warn">前回の仕訳から入れています。確認してください。（この初期値はPhase 4の機能。Phase 1〜3では未選択のまま出します）</div>
 
             <div class="field-grid">
               <div>
@@ -266,7 +266,7 @@ tr:nth-child(even) td { background: #fafcff; }
             <span class="chip chip-gray">未仕訳</span>
           </div>
           <div class="jcard-body">
-            <div class="note warn">前回の仕訳から入れています。確認してください。</div>
+            <div class="note warn">前回の仕訳から入れています。確認してください。（この初期値はPhase 4の機能。Phase 1〜3では未選択のまま出します）</div>
 
             <div class="field-grid">
               <div>
@@ -491,9 +491,8 @@ tr:nth-child(even) td { background: #fafcff; }
     document.getElementById('lock-banner').style.display = locked ? 'flex' : 'none';
     // 締め済みの月では「登録する」も押せない状態にする（安全装置の見え方を示すため）。
     // 入力欄自体はモックなので常に操作できない状態のまま。
-    document.querySelectorAll('.btn-primary').forEach(function (b) { b.disabled = locked; });
     if (locked) {
-      toast('この月は締め済みのため登録できません（モック表示）');
+      toast('売上は締め済みです。登録は止めません（モック表示）');
     }
   }
 
