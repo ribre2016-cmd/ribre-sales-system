@@ -516,6 +516,42 @@ function txwCopyInviteUrl(input, btn) {
 
 // 招待リンクを発行する。トークンは戻り値の中にしか存在しない（一覧APIはtokenを返すが、
 // 表示は下のtxwRenderInvitesで状態のみ。URLを組み立てるのはこの発行直後の1回だけ）。
+/* MF連携の権限を確認する。
+ * Phase 1の画面は明細しか読まないため、再連携で追加したスコープ
+ * （accounts.read / taxes.read / trade_partners.read）が実際に取れているかを
+ * 確かめる手段がない。ここで bootstrap を1回呼んで確認できるようにする。
+ * ⚠ 読み取りだけ。仕訳の作成(journal.write)はこのボタンでも一切呼ばない。 */
+async function txwCheckScopes() {
+  var btn = document.getElementById('txwScopeCheckBtn');
+  var out = document.getElementById('txwScopeCheckResult');
+  clearEl(out);
+  btn.disabled = true;
+  try {
+    var result = await txwApiCall('bootstrap', {});
+    var data = result.data || {};
+    if (!data.ok) {
+      var msg = data.error === 'scope_missing'
+        ? '権限が足りていません。証憑ページの「再連携」をもう一度お試しください。'
+        : (data.error === 'not_connected'
+          ? 'MFと連携されていません。証憑ページから連携してください。'
+          : 'MFの権限を確認できませんでした（' + (data.error || '不明') + '）。');
+      out.appendChild(el('div', { class: 'note danger', text: msg }));
+      return;
+    }
+    var a = (data.accounts || []).length;
+    var t = (data.taxes || []).length;
+    var p = (data.trade_partners || []).length;
+    out.appendChild(el('div', { class: 'note ok', text: '権限は取れています。勘定科目 ' + a + '件 ／ 税区分 ' + t + '件 ／ 取引先 ' + p + '件を読み取れました。' }));
+    if (!a || !t) {
+      out.appendChild(el('div', { class: 'note warn', text: '※0件の項目があります。MF側にデータが無いか、権限が一部足りていない可能性があります。' }));
+    }
+  } catch (e) {
+    out.appendChild(el('div', { class: 'note danger', text: '確認に失敗しました。時間をおいてお試しください。' }));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function txwCreateInvite() {
   var btn = document.getElementById('txwInviteCreateBtn');
   var out = document.getElementById('txwInviteCreateResult');
@@ -706,6 +742,7 @@ function txwInit() {
   document.getElementById('txwGatePass').addEventListener('keydown', function (e) { if (e.key === 'Enter') txwGateLogin(); });
   document.getElementById('txwGateEmail').addEventListener('keydown', function (e) { if (e.key === 'Enter') txwGateLogin(); });
   document.getElementById('txwLogoutBtn').addEventListener('click', txwLogout);
+  document.getElementById('txwScopeCheckBtn').addEventListener('click', txwCheckScopes);
   document.getElementById('txwInviteCreateBtn').addEventListener('click', txwCreateInvite);
   document.getElementById('txwInviteListReloadBtn').addEventListener('click', txwLoadInvites);
   document.getElementById('txwAdvisorListReloadBtn').addEventListener('click', txwLoadAdvisors);

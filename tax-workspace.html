@@ -245,6 +245,12 @@ tr:nth-child(even) td { background: #fafcff; }
       </div>
       <div class="panel-body">
         <div class="admin-block">
+          <h3>MF連携の権限を確認</h3>
+          <div class="desc">再連携で新しい権限（勘定科目・税区分・取引先の参照）が取れているかを確かめます。Phase 3の仕訳登録に必要です。</div>
+          <button id="txwScopeCheckBtn" class="btn btn-primary" type="button">権限を確認する</button>
+          <div id="txwScopeCheckResult"></div>
+        </div>
+        <div class="admin-block">
           <h3>招待リンクを発行</h3>
           <button id="txwInviteCreateBtn" class="btn btn-primary" type="button">招待リンクを発行</button>
           <div id="txwInviteCreateResult"></div>
