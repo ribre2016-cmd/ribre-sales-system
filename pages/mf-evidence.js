@@ -888,6 +888,107 @@ async function mfDeleteEvidence(evidenceId, fileName, btnEl) {
   }
 }
 
+/* ---------------- 重複チェック（読み取り専用） ---------------- */
+
+// サーバー側 api/mf/ingest-mail.js の normalizeVendorForDup と同じ規則。
+// 表記ゆれ（全角/半角・大文字小文字・空白や句読点）を吸収して取引先を突き合わせる。
+function mfNormalizeVendor(v) {
+  return String(v || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s　,、.．]+/g, '');
+}
+
+// 台帳の全件を取得する。絞り込み条件は使わない（重複は月をまたいで存在しうるため）。
+async function mfFetchAllEvidence() {
+  const u = restUrl('mf_evidence');
+  if (!u) throw new Error('Supabase設定がありません');
+  const cols = 'id,ocr_date,ocr_amount,ocr_currency,ocr_vendor,file_name,status,created_at,content_hash,source';
+  const pageSize = 1000;
+  const all = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const q = '?select=' + cols + '&order=created_at.asc&limit=' + pageSize + '&offset=' + offset;
+    const res = await fetch(u + q, { headers: restHeaders() });
+    const rows = await res.json();
+    if (!res.ok) throw new Error((rows && rows.message) || 'HTTP ' + res.status);
+    if (!Array.isArray(rows) || !rows.length) break;
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return all;
+}
+
+// 重複の集計。ファイルの中身が同一(content_hash)なものと、
+// 取引日・金額・通貨・取引先が揃って同じもの（＝実務上ほぼ同じ書類）を別々に数える。
+function mfGroupDuplicates(rows) {
+  const byHash = new Map();
+  const bySemantic = new Map();
+  (rows || []).forEach((r) => {
+    if (r.content_hash) {
+      const k = 'h:' + r.content_hash;
+      if (!byHash.has(k)) byHash.set(k, []);
+      byHash.get(k).push(r);
+    }
+    const vendor = mfNormalizeVendor(r.ocr_vendor);
+    const amount = Number(r.ocr_amount);
+    if (!r.ocr_date || !Number.isFinite(amount) || !vendor) return;
+    const k = [r.ocr_date, amount, r.ocr_currency || 'JPY', vendor].join('|');
+    if (!bySemantic.has(k)) bySemantic.set(k, []);
+    bySemantic.get(k).push(r);
+  });
+  const pick = (m) => Array.from(m.values()).filter((g) => g.length > 1);
+  const hashGroups = pick(byHash);
+  // 中身が同一のものは意味的にも必ず重なるので、二重に数えないよう除外する
+  const hashIds = new Set(hashGroups.flat().map((r) => r.id));
+  const semanticGroups = pick(bySemantic).filter((g) => !g.every((r) => hashIds.has(r.id)));
+  return { hashGroups, semanticGroups };
+}
+
+async function mfScanDuplicates() {
+  const box = document.getElementById('mfDupResult');
+  if (!box) return;
+  box.innerHTML = '<div class="safe-hint">重複を調べています…</div>';
+  let rows;
+  try {
+    rows = await mfFetchAllEvidence();
+  } catch (e) {
+    box.innerHTML = '';
+    mfToast('重複チェック失敗: ' + e.message, 'error');
+    return;
+  }
+  const { hashGroups, semanticGroups } = mfGroupDuplicates(rows);
+  const total = hashGroups.length + semanticGroups.length;
+  if (!total) {
+    box.innerHTML = '<div class="safe-hint ok">台帳' + rows.length + '件を確認しました。重複は見つかりませんでした。</div>';
+    return;
+  }
+  const parts = [];
+  parts.push('<div class="safe-hint warn">台帳' + rows.length + '件のうち、重複の疑いが'
+    + total + '組ありました。<b>削除は行っていません</b>。各行の「削除」ボタンで残す方を選んでください（古い方を残すのが安全です）。</div>');
+
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const renderGroup = (g, kind) => {
+    const head = kind === 'hash'
+      ? 'ファイルの中身が完全に同一'
+      : '取引日・金額・取引先が同一';
+    const items = g.map((r, i) => {
+      const amount = (r.ocr_currency && r.ocr_currency !== 'JPY')
+        ? Number(r.ocr_amount || 0).toLocaleString('ja-JP') + ' ' + r.ocr_currency
+        : yen(r.ocr_amount);
+      const when = r.created_at ? new Date(r.created_at).toLocaleString('ja-JP') : '-';
+      const mark = i === 0 ? '<b>最初に登録（残す候補）</b>' : '後から登録';
+      return '<li>' + esc(r.ocr_date || '-') + '　' + esc(r.ocr_vendor || '-') + '　' + amount
+        + '　' + esc(r.file_name || '-')
+        + '<br><span class="muted">' + mark + '：' + esc(when)
+        + '　状態：' + esc(mfStatusLabel(r.status)) + '　取込元：' + esc(r.source || '-') + '</span></li>';
+    }).join('');
+    return '<div class="card" style="margin:8px 0"><div><b>' + head + '</b>（' + g.length + '件）</div><ul>' + items + '</ul></div>';
+  };
+  hashGroups.forEach((g) => parts.push(renderGroup(g, 'hash')));
+  semanticGroups.forEach((g) => parts.push(renderGroup(g, 'semantic')));
+  box.innerHTML = parts.join('');
+}
+
 /* ---------------- 仕訳マッチング ---------------- */
 
 function mfRenderMatchSummary(rows) {

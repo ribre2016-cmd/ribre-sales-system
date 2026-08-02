@@ -19,6 +19,9 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
 const MAX_BODY_BYTES = 8 * 1024 * 1024; // 8MB（base64エンコードされたファイルを含むリクエストボディ全体の上限）
 const MAX_FILE_NAME_LENGTH = 255;
 const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'application/pdf'];
+// 内容が同じ証憑の二重登録を防ぐ判定期間（findRecentSemanticDup）。
+// 取引日・金額・通貨・取引先がすべて一致するものを重複とみなす。
+const SEMANTIC_DUP_WINDOW_DAYS = 400;
 const MF_STORAGE_BUCKET = 'mf-evidence';
 
 // JST(UTC+9)基準の現在時刻をISO文字列で返す。VercelはUTCで動作するため、
@@ -191,7 +194,11 @@ function normalizeVendorForDup(v) {
 async function findRecentSemanticDup({ date, amount, currency, vendor }) {
   const vendorNorm = normalizeVendorForDup(vendor);
   if (!date || !Number.isFinite(amount) || !vendorNorm) return null;
-  const sinceIso = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  // 判定条件は「取引日・金額・通貨・取引先がすべて一致」で、これが揃って別の書類という
+  // ことは実務上ほぼない。当初は24時間以内に限定していたが、同じ請求書を数日後に
+  // 取り込み直すと重複が素通りした（実例: Vercelの請求書が7/14と7/19に二重登録）。
+  // 400日に広げ、年次請求の重複も拾えるようにする。
+  const sinceIso = new Date(Date.now() - SEMANTIC_DUP_WINDOW_DAYS * 24 * 3600 * 1000).toISOString();
   const url =
     `${SUPABASE_URL}/rest/v1/mf_evidence?ocr_date=eq.${encodeURIComponent(date)}` +
     `&ocr_amount=eq.${amount}&created_at=gte.${encodeURIComponent(sinceIso)}` +

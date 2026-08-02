@@ -798,8 +798,10 @@ function appvXlsxColLetter(idx) {
   }
   return s;
 }
-/* rows(2次元配列) -> xl/worksheets/sheet1.xml。文字列はinlineStr、数値は数値セル。空行は<row/>のみ。 */
-function appvXlsxBuildSheetXml(rows) {
+/* rows(2次元配列) -> xl/worksheets/sheetN.xml。文字列はinlineStr、数値は数値セル。空行は<row/>のみ。
+ * drawingRId(省略可): このシートにグラフ(drawing)を紐付ける場合の関係ID（例:'rId1'）。
+ * 注意: <drawing>要素は<sheetData>より後ろに置かないとExcelが「修復」ダイアログを出す。 */
+function appvXlsxBuildSheetXml(rows, drawingRId) {
   const rowXmls = rows.map((row, rIdx) => {
     if (!row || row.length === 0) return '<row r="' + (rIdx + 1) + '"/>';
     const cells = row.map((cell, cIdx) => {
@@ -812,21 +814,126 @@ function appvXlsxBuildSheetXml(rows) {
     }).join('');
     return '<row r="' + (rIdx + 1) + '">' + cells + '</row>';
   }).join('');
+  const rNs = drawingRId ? ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"' : '';
+  const drawingTag = drawingRId ? '<drawing r:id="' + drawingRId + '"/>' : '';
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
-    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"' + rNs + '>' +
     '<sheetData>' + rowXmls + '</sheetData>' +
+    drawingTag +
     '</worksheet>';
+}
+
+/* ==================== グラフ(ネイティブExcelチャート)生成 ====================
+ * 外部ライブラリ不使用でxl/drawings/drawingN.xml・xl/charts/chartN.xmlを組み立てる。
+ * 値はシート上の実セルを参照(c:f)しつつ、Excelでの再計算前表示用にキャッシュ(c:numCache/c:strCache)も埋める。 */
+/* 文字列/数値のキャッシュ配列(<c:ptCount>+<c:pt>群)を作る。numかどうかはtypeofで判定。 */
+function appvXlsxChartCache(values) {
+  const pts = values.map((v, i) => '<c:pt idx="' + i + '"><c:v>' + appvXlsxEscape(v) + '</c:v></c:pt>').join('');
+  return '<c:ptCount val="' + values.length + '"/>' + pts;
+}
+/* 1系列分のc:ser(系列名/カテゴリ/値、いずれもセル参照+キャッシュ)を作る。 */
+function appvXlsxChartSeries(idx, nameRef, name, catRef, catVals, valRef, vals) {
+  return '<c:ser>' +
+    '<c:idx val="' + idx + '"/><c:order val="' + idx + '"/>' +
+    '<c:tx><c:strRef><c:f>' + appvXlsxEscape(nameRef) + '</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>' + appvXlsxEscape(name) + '</c:v></c:pt></c:strCache></c:strRef></c:tx>' +
+    '<c:cat><c:strRef><c:f>' + appvXlsxEscape(catRef) + '</c:f><c:strCache>' + appvXlsxChartCache(catVals) + '</c:strCache></c:strRef></c:cat>' +
+    '<c:val><c:numRef><c:f>' + appvXlsxEscape(valRef) + '</c:f><c:numCache><c:formatCode>General</c:formatCode>' + appvXlsxChartCache(vals) + '</c:numCache></c:numRef></c:val>' +
+    '</c:ser>';
+}
+/* opts: {title, type:'line'|'bar', grouping, series:[{nameRef,name,valRef,vals}], catRef, catVals, ax1, ax2}
+ * -> xl/charts/chartN.xml の中身。c:chartSpace > c:chart > c:plotArea > c:barChart/c:lineChart + c:catAx/c:valAx。 */
+function appvXlsxBuildChartXml(opts) {
+  const seriesXml = opts.series.map((s, i) => appvXlsxChartSeries(i, s.nameRef, s.name, opts.catRef, opts.catVals, s.valRef, s.vals)).join('');
+  const chartBody = opts.type === 'bar'
+    ? '<c:barChart><c:barDir val="col"/><c:grouping val="' + (opts.grouping || 'clustered') + '"/><c:varyColors val="0"/>' + seriesXml + '<c:axId val="' + opts.ax1 + '"/><c:axId val="' + opts.ax2 + '"/></c:barChart>'
+    : '<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>' + seriesXml + '<c:marker val="1"/><c:axId val="' + opts.ax1 + '"/><c:axId val="' + opts.ax2 + '"/></c:lineChart>';
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+    '<c:chart>' +
+    '<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>' + appvXlsxEscape(opts.title) + '</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>' +
+    '<c:autoTitleDeleted val="0"/>' +
+    '<c:plotArea><c:layout/>' + chartBody +
+    '<c:catAx><c:axId val="' + opts.ax1 + '"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="' + opts.ax2 + '"/></c:catAx>' +
+    '<c:valAx><c:axId val="' + opts.ax2 + '"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="' + opts.ax1 + '"/></c:valAx>' +
+    '</c:plotArea>' +
+    '<c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend>' +
+    '<c:plotVisOnly val="1"/>' +
+    '</c:chart>' +
+    '</c:chartSpace>';
+}
+/* anchors: [{fromCol,fromRow,toCol,toRow}]（0始まり、行列とも0-based）。i番目のanchorはi番目のグラフ(rId(i+1))に対応。
+ * -> xl/drawings/drawingN.xml の中身(xdr:wsDr、twoCellAnchor)。 */
+function appvXlsxBuildDrawingXml(anchors) {
+  const parts = anchors.map((a, i) => {
+    return '<xdr:twoCellAnchor>' +
+      '<xdr:from><xdr:col>' + a.fromCol + '</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>' + a.fromRow + '</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>' +
+      '<xdr:to><xdr:col>' + a.toCol + '</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>' + a.toRow + '</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>' +
+      '<xdr:graphicFrame macro="">' +
+      '<xdr:nvGraphicFramePr><xdr:cNvPr id="' + (i + 2) + '" name="Chart ' + (i + 1) + '"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>' +
+      '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>' +
+      '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">' +
+      '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId' + (i + 1) + '"/>' +
+      '</a:graphicData></a:graphic>' +
+      '</xdr:graphicFrame>' +
+      '<xdr:clientData/>' +
+      '</xdr:twoCellAnchor>';
+  }).join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+    parts +
+    '</xdr:wsDr>';
 }
 const APPV_XLSX_RELS_XML =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
   '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
   '</Relationships>';
-/* sheets([{name, rows}] or 後方互換で2次元配列=単一シート) -> Uint8Array(.xlsxバイト列)。
- * ブラウザ非依存の純関数（Node動作検証済み）。開いたとき最後のシート(=最新月)がアクティブ。 */
+/* sheets([{name, rows, drawing?}] or 後方互換で2次元配列=単一シート) -> Uint8Array(.xlsxバイト列)。
+ * ブラウザ非依存の純関数（Node動作検証済み）。開いたとき最後のシート(=最新月)がアクティブ。
+ * drawing(省略可・シートごと): { anchors:[{fromCol,fromRow,toCol,toRow}], charts:[chartXml文字列,...] }
+ * を持たせるとxl/drawings・xl/chartsパーツを追加生成し、そのシートにグラフを紐付ける。
+ * drawingを持たないシートは従来どおり（追加専用・非破壊）。 */
 function appvBuildXlsx(sheets) {
   if (!Array.isArray(sheets)) sheets = [];
   if (sheets.length === 0 || Array.isArray(sheets[0])) sheets = [{ name: 'レポート', rows: sheets }];
+
+  // グラフ付きシートがあれば xl/drawings/drawingN.xml・xl/charts/chartN.xml・
+  // xl/worksheets/_rels/sheetN.xml.rels を組み立てる。ファイル名の連番はワークブック全体で通し番号。
+  let drawingSeq = 0;
+  let chartSeq = 0;
+  const drawingExtraFiles = [];
+  const drawingOverrides = [];
+  const sheetDrawingRid = {}; // シートindex -> そのシート内でのrId('rId1'固定)
+
+  sheets.forEach((s, i) => {
+    if (!s.drawing || !s.drawing.charts || !s.drawing.charts.length) return;
+    drawingSeq++;
+    const drawingName = 'drawing' + drawingSeq + '.xml';
+    const chartFileNames = s.drawing.charts.map((chartXml) => {
+      chartSeq++;
+      const name = 'chart' + chartSeq + '.xml';
+      drawingExtraFiles.push({ name: 'xl/charts/' + name, data: appvXlsxUtf8Bytes(chartXml) });
+      drawingOverrides.push('<Override PartName="/xl/charts/' + name + '" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>');
+      return name;
+    });
+    const drawingRels =
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      chartFileNames.map((name, ci) => '<Relationship Id="rId' + (ci + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/' + name + '"/>').join('') +
+      '</Relationships>';
+    drawingExtraFiles.push({ name: 'xl/drawings/_rels/' + drawingName + '.rels', data: appvXlsxUtf8Bytes(drawingRels) });
+    drawingExtraFiles.push({ name: 'xl/drawings/' + drawingName, data: appvXlsxUtf8Bytes(appvXlsxBuildDrawingXml(s.drawing.anchors)) });
+    drawingOverrides.push('<Override PartName="/xl/drawings/' + drawingName + '" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>');
+
+    const sheetRels =
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/' + drawingName + '"/>' +
+      '</Relationships>';
+    drawingExtraFiles.push({ name: 'xl/worksheets/_rels/sheet' + (i + 1) + '.xml.rels', data: appvXlsxUtf8Bytes(sheetRels) });
+    sheetDrawingRid[i] = 'rId1';
+  });
+
   const contentTypes =
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
@@ -834,6 +941,7 @@ function appvBuildXlsx(sheets) {
     '<Default Extension="xml" ContentType="application/xml"/>' +
     '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
     sheets.map((s, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') +
+    drawingOverrides.join('') +
     '</Types>';
   const workbookXml =
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
@@ -852,7 +960,8 @@ function appvBuildXlsx(sheets) {
     { name: '_rels/.rels', data: appvXlsxUtf8Bytes(APPV_XLSX_RELS_XML) },
     { name: 'xl/workbook.xml', data: appvXlsxUtf8Bytes(workbookXml) },
     { name: 'xl/_rels/workbook.xml.rels', data: appvXlsxUtf8Bytes(workbookRels) }
-  ].concat(sheets.map((s, i) => ({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: appvXlsxUtf8Bytes(appvXlsxBuildSheetXml(s.rows)) })));
+  ].concat(sheets.map((s, i) => ({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: appvXlsxUtf8Bytes(appvXlsxBuildSheetXml(s.rows, sheetDrawingRid[i])) })))
+    .concat(drawingExtraFiles);
   return appvXlsxMakeZip(files);
 }
 
@@ -948,10 +1057,94 @@ function appvFiscalMonthsUpTo(month) {
   }
   return list;
 }
+/* ==================== 年間集計シート（月別マトリクス＋ネイティブExcelグラフ） ====================
+ * 月次シートと同じ appvMonthReportStats() を使って集計するため、金額の定義（消費税・利益等）は
+ * 月次シートと必ず一致する（ここで独自に再計算しない）。
+ * 戻り値: { name:'年間集計', rows, drawing:{anchors,charts} }（appvBuildXlsx のsheets要素にそのまま使える） */
+function appvBuildYearSummarySheet(startYear, term, months, salesAll, purchasesAll) {
+  const stats = months.map((mo) => appvMonthReportStats(mo, salesAll, purchasesAll));
+  const monthLabel = (mo) => (+mo.slice(5, 7)) + '月';
+  const n = months.length;
+  const sumOf = (key) => stats.reduce((a, st) => a + st[key], 0);
+  const totalSale = sumOf('sale');
+  const totalTax = sumOf('tax');
+  const totalPur = sumOf('pur');
+  const totalFee = sumOf('fee');
+  const totalShip = sumOf('ship');
+  const totalProfit = sumOf('profit');
+  const totalCount = sumOf('count');
+  const totalAvg = totalCount ? Math.round(totalSale / totalCount) : 0;
+
+  const header = ['項目'].concat(months.map(monthLabel)).concat(['合計']);
+  const rowOf = (label, key, totalVal) => [label].concat(stats.map((st) => st[key])).concat([totalVal]);
+  const rowSale = rowOf('売上', 'sale', totalSale);
+  const rowNet = ['税抜売上'].concat(stats.map((st) => st.sale - st.tax)).concat([totalSale - totalTax]);
+  const rowTax = rowOf('消費税', 'tax', totalTax);
+  const rowPur = rowOf('仕入', 'pur', totalPur);
+  const rowFee = rowOf('手数料', 'fee', totalFee);
+  const rowShip = rowOf('送料', 'ship', totalShip);
+  const rowProfit = rowOf('利益', 'profit', totalProfit);
+  const rowCount = rowOf('商品数', 'count', totalCount);
+  const rowAvg = ['平均単価'].concat(stats.map((st) => st.count ? Math.round(st.sale / st.count) : 0)).concat([totalAvg]);
+
+  const title = startYear + '年度（' + term + '期）　' + startYear + '年3月〜' + (startYear + 1) + '年2月';
+  // 行番号(1始まり): 1=タイトル 2=注記 3=空行 4=ヘッダー 5=売上 6=税抜売上 7=消費税 8=仕入 9=手数料 10=送料 11=利益 12=商品数 13=平均単価
+  const rows = [[title], ['※データがある月のみ表示'], [], header, rowSale, rowNet, rowTax, rowPur, rowFee, rowShip, rowProfit, rowCount, rowAvg];
+
+  // グラフの参照範囲。カテゴリ(月)はB列〜最終月の列、合計列は含めない。
+  const sheetRef = "'年間集計'!";
+  const lastMonthCol = appvXlsxColLetter(n); // 配列index: 0=項目,1..n=月,n+1=合計 → 最終月はindex n
+  const catRef = sheetRef + '$B$4:$' + lastMonthCol + '$4';
+  const catVals = header.slice(1, 1 + n);
+  const valRef = (rowIdx) => sheetRef + '$B$' + rowIdx + ':$' + lastMonthCol + '$' + rowIdx;
+  const nameRef = (rowIdx) => sheetRef + '$A$' + rowIdx;
+
+  const salesVals = stats.map((st) => st.sale);
+  const profitVals = stats.map((st) => st.profit);
+  const purVals = stats.map((st) => st.pur);
+  const feeVals = stats.map((st) => st.fee);
+  const shipVals = stats.map((st) => st.ship);
+
+  const chart1 = appvXlsxBuildChartXml({
+    title: '売上と利益の推移',
+    type: 'line',
+    ax1: 111111111, ax2: 111111112,
+    catRef: catRef, catVals: catVals,
+    series: [
+      { nameRef: nameRef(5), name: '売上', valRef: valRef(5), vals: salesVals },
+      { nameRef: nameRef(11), name: '利益', valRef: valRef(11), vals: profitVals }
+    ]
+  });
+  const chart2 = appvXlsxBuildChartXml({
+    title: '費用の内訳',
+    type: 'bar', grouping: 'clustered',
+    ax1: 222222221, ax2: 222222222,
+    catRef: catRef, catVals: catVals,
+    series: [
+      { nameRef: nameRef(8), name: '仕入', valRef: valRef(8), vals: purVals },
+      { nameRef: nameRef(9), name: '手数料', valRef: valRef(9), vals: feeVals },
+      { nameRef: nameRef(10), name: '送料', valRef: valRef(10), vals: shipVals }
+    ]
+  });
+
+  return {
+    name: '年間集計',
+    rows: rows,
+    drawing: {
+      anchors: [
+        { fromCol: 0, fromRow: 14, toCol: 8, toRow: 30 },
+        { fromCol: 9, fromRow: 14, toCol: 17, toRow: 30 }
+      ],
+      charts: [chart1, chart2]
+    }
+  };
+}
+
 /* レポートExcelの中身とファイル名を作る（ダウンロードと税理士送付で共通）。
  * 選んだ月が属する**年度（3月〜翌2月）の全12ヶ月**が対象。ただし空シートを
  * 作らないため、売上・仕入のどちらかにデータがある月だけをシート化する。
- * 「全期間」選択時は従来どおり1シート。
+ * 「全期間」選択時は従来どおり1シート。年度指定の場合のみ先頭に「年間集計」シート（グラフ付き）を追加する
+ * （「全期間」は特定の年度に紐づかないため月別マトリクスの対象外）。
  * 戻り値: {bytes, fileName, sheetCount, startYear, term} または {error} */
 function appvBuildReportWorkbook() {
   const monthEl = document.getElementById('monthFilter');
@@ -975,11 +1168,14 @@ function appvBuildReportWorkbook() {
   if (!months.length) {
     return { error: (startYear + '年度（' + startYear + '年3月〜' + (startYear + 1) + '年2月）にデータがありません') };
   }
-  const sheets = months.map((mo) => ({
+  const term = appvFiscalTerm(startYear);
+  const monthSheets = months.map((mo) => ({
     name: (+mo.slice(5, 7)) + '月',
     rows: appvBuildReportSheetRows(mo, salesAll, purchasesAll)
   }));
-  const term = appvFiscalTerm(startYear);
+  // 先頭に「年間集計」シート（月別マトリクス＋ネイティブExcelグラフ）を追加する
+  const summarySheet = appvBuildYearSummarySheet(startYear, term, months, salesAll, purchasesAll);
+  const sheets = [summarySheet].concat(monthSheets);
   // 例: 2026年度・10期 → 物販売上管理表26_10期.xlsx
   const fileName = '物販売上管理表' + String(startYear).slice(2) + '_' + term + '期.xlsx';
   return { bytes: appvBuildXlsx(sheets), fileName: fileName, sheetCount: sheets.length, startYear: startYear, term: term };
