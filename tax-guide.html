@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>税理士ワークスペース ご利用ガイド｜株式会社RIBRE</title>
+<style>
+* { box-sizing: border-box; }
+html, body { max-width: 100%; overflow-x: hidden; }
+body {
+  margin: 0; font-family: "Yu Gothic", "Meiryo", system-ui, sans-serif;
+  background: #eef2f7; color: #0f172a; line-height: 1.6;
+}
+img { max-width: 100%; }
+
+/* ---- ページ全体 ---- */
+.wrap { max-width: 860px; margin: 0 auto; padding: 0 16px 60px; }
+
+.hero {
+  background: linear-gradient(160deg,#1d4ed8,#123a7a);
+  color: #fff; padding: 34px 20px 30px; margin-bottom: 8px;
+}
+.hero-inner { max-width: 860px; margin: 0 auto; }
+.hero .eyebrow { font-size: 12px; font-weight: 800; opacity: .85; letter-spacing: .04em; }
+.hero h1 { margin: 6px 0 10px; font-size: clamp(20px, 5vw, 26px); }
+.hero p { margin: 0; font-size: 14px; opacity: .95; max-width: 640px; }
+
+.toc {
+  background: #fff; border: 1px solid #dbe3ef; border-radius: 10px;
+  padding: 14px 18px; margin: 20px 0 30px; box-shadow: 0 4px 14px rgba(15,23,42,.05);
+}
+.toc h2 { font-size: 13px; color: #64748b; margin: 0 0 8px; font-weight: 800; }
+.toc ol { margin: 0; padding-left: 20px; font-size: 13.5px; }
+.toc li { margin-bottom: 4px; }
+.toc a { color: #123a7a; font-weight: 700; text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+
+/* ---- セクション共通 ---- */
+.sec { margin: 40px 0; scroll-margin-top: 14px; }
+.sec-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%; background: #123a7a; color: #fff;
+  font-size: 13px; font-weight: 900; margin-right: 8px; flex: none;
+}
+.sec h2 {
+  display: flex; align-items: center; gap: 2px;
+  font-size: 18px; color: #123a7a; margin: 0 0 14px;
+  border-bottom: 2px solid #cbd5e1; padding-bottom: 10px;
+}
+.sec p, .sec li { font-size: 14.5px; color: #1f2937; }
+.sec ul, .sec ol { padding-left: 22px; }
+.sec li { margin-bottom: 6px; }
+
+.note { font-size: 13px; color: #64748b; font-weight: 700; line-height: 1.7; margin: 10px 0; border-radius: 8px; padding: 10px 12px; }
+.note.info { color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; }
+.note.warn { color: #92400e; background: #fffbeb; border: 1px solid #fde68a; }
+.note.danger { color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; font-weight: 900; }
+.note.ok { color: #15803d; background: #f0fdf4; border: 1px solid #bbf7d0; }
+
+/* ---- 図（画面の再現） ---- */
+.figure-frame {
+  border: 1.5px dashed #94a3b8; border-radius: 12px; background: #f1f5f9;
+  padding: 16px 14px 20px; margin: 16px 0; overflow-x: auto;
+}
+.figure-tag {
+  font-size: 11px; color: #94a3b8; font-weight: 800; margin-bottom: 12px;
+  display: inline-block; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px;
+  padding: 3px 10px;
+}
+.figure-caption {
+  font-size: 12.5px; color: #475569; font-weight: 700; margin-top: 10px; line-height: 1.7;
+}
+.figure-caption b { color: #123a7a; }
+
+.badge-anchor { position: relative; }
+.badge {
+  position: absolute; top: -11px; left: -11px;
+  width: 25px; height: 25px; border-radius: 50%;
+  background: #dc2626; color: #fff; font-size: 12.5px; font-weight: 900;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,.3); border: 2px solid #fff; z-index: 5;
+}
+.badge.right { left: auto; right: -11px; }
+
+/* ---- 図1: ログイン画面 ---- */
+.mock-gate-outer {
+  background: linear-gradient(160deg,#1d4ed8,#1e3a8a); border-radius: 12px;
+  padding: 28px 16px; display: flex; justify-content: center;
+}
+.mock-gate-box { width: 100%; max-width: 340px; background: #fff; color: #1f2937; border-radius: 16px; padding: 26px 20px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.mock-gate-title { font-size: 19px; font-weight: 800; color: #1d4ed8; margin-bottom: 4px; }
+.mock-gate-sub { font-size: 12.5px; color: #6b7280; margin-bottom: 18px; }
+.mock-gate-invite-note { font-size: 12px; font-weight: 700; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 12px; margin-bottom: 18px; line-height: 1.6; }
+.mock-gate-box .mock-field { width: 100%; box-sizing: border-box; padding: 10px 11px; border: 1px solid #d1d5db; border-radius: 10px; margin-bottom: 10px; font-size: 13.5px; color: #9ca3af; background: #fff; }
+.mock-gate-box .mock-btn { width: 100%; padding: 11px; border: 0; border-radius: 10px; background: #16a34a; color: #fff; font-size: 14px; font-weight: 700; margin-top: 6px; }
+.mock-gate-box .mock-btn.secondary { background: #e2e8f0; color: #1f2937; }
+
+/* ---- 図2: 画面全体（タブ） ---- */
+.mock-topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 13px 15px; background: #123a7a; color: #fff; border-radius: 8px; margin-bottom: 12px;
+  flex-wrap: wrap; min-width: 280px;
+}
+.mock-topbar h3 { margin: 0; font-size: 15px; }
+.mock-topbar .who { font-size: 11px; font-weight: 800; opacity: .92; }
+.mock-topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 11px; }
+.mock-topbar-right select { border-radius: 6px; border: 1px solid #cbd5e1; padding: 5px 7px; font-weight: 800; font: inherit; font-size: 11px; }
+.mock-topbar-right .mock-logout { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.4); border-radius: 6px; padding: 5px 10px; font-weight: 800; font-size: 11px; }
+
+.mock-tabs { display: flex; gap: 5px; flex-wrap: wrap; border-bottom: 2px solid #cbd5e1; min-width: 280px; }
+.mock-tab {
+  padding: 8px 12px; border: 1px solid #cbd5e1; border-bottom: none; border-radius: 7px 7px 0 0;
+  background: #e2e8f0; color: #475569; font-weight: 900; font-size: 11.5px;
+}
+.mock-tab.active { background: #fff; color: #123a7a; border-color: #123a7a; }
+
+/* ---- 図3: 明細カード ---- */
+.mock-jcard { border: 1px solid #dbe3ef; border-radius: 8px; background: #fff; min-width: 260px; margin-top: 4px; }
+.mock-jcard-head { border-radius: 7px 7px 0 0; }
+.mock-jcard-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; }
+.mock-jcard-head .title { font-weight: 900; font-size: 13px; }
+.mock-jcard-head .sub { font-size: 11px; color: #64748b; font-weight: 700; margin-top: 2px; }
+.mock-jcard-head .chip { display: inline-block; font-size: 10.5px; font-weight: 900; padding: 3px 9px; border-radius: 999px; background: #e2e8f0; color: #475569; }
+.mock-jcard-body { padding: 12px 14px; }
+.mock-evidence-box { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 10px 12px; }
+.mock-evidence-box h4 { margin: 0 0 6px; font-size: 11.5px; color: #334155; }
+.mock-evidence-box .fname { font-size: 12px; font-weight: 800; }
+.mock-evidence-box .meta { font-size: 10.5px; color: #64748b; font-weight: 700; margin-top: 2px; }
+.mock-evidence-box .cand-note { font-size: 10.5px; color: #92400e; font-weight: 700; margin-top: 4px; }
+
+/* ---- 図4: 共有ファイル ---- */
+.mock-month-title { font-size: 12.5px; font-weight: 900; color: #123a7a; margin: 4px 0 8px; }
+.mock-file-table { width: 100%; border-collapse: collapse; font-size: 11.5px; background: #fff; min-width: 320px; }
+.mock-file-table th { background: #eaf1fb; color: #334155; text-align: left; padding: 7px 8px; border: 1px solid #cbd5e1; white-space: nowrap; }
+.mock-file-table td { padding: 7px 8px; border: 1px solid #e2e8f0; vertical-align: middle; }
+.mock-file-table a { color: #123a7a; font-weight: 700; }
+.mock-chip { display: inline-block; font-size: 10px; font-weight: 900; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+.mock-chip.green { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.mock-chip.gray { background: #e2e8f0; color: #475569; }
+.mock-chip.blue { background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; }
+
+/* ---- FAQ ---- */
+.faq-item { background: #fff; border: 1px solid #dbe3ef; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(15,23,42,.04); }
+.faq-q { font-weight: 900; color: #123a7a; font-size: 14px; margin-bottom: 6px; }
+.faq-a { font-size: 13.5px; color: #334155; }
+
+.footer-badge { text-align: center; font-size: 11.5px; color: #94a3b8; margin-top: 40px; font-weight: 700; line-height: 1.8; }
+
+@media (max-width: 480px) {
+  .hero { padding: 26px 14px 22px; }
+  .sec h2 { font-size: 16px; }
+  .mock-gate-box { padding: 20px 14px; }
+}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-inner">
+    <div class="eyebrow">株式会社RIBRE ／ 税理士さま向け</div>
+    <h1>税理士ワークスペース ご利用ガイド</h1>
+    <p>招待リンクを開くと表示される「税理士ワークスペース」の使い方を、実際の画面に近い図を使ってご案内します。操作は難しくありません。このページを見ながら進めていただければ大丈夫です。</p>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="toc">
+    <h2>目次</h2>
+    <ol>
+      <li><a href="#s1">このページは何か</a></li>
+      <li><a href="#s2">はじめてのログイン</a></li>
+      <li><a href="#s3">画面の見方</a></li>
+      <li><a href="#s4">① 未仕訳の明細</a></li>
+      <li><a href="#s5">③ 共有ファイル</a></li>
+      <li><a href="#s6">よくある質問</a></li>
+      <li><a href="#s7">今後の予定</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. このページは何か -->
+  <section class="sec" id="s1">
+    <h2><span class="sec-num">1</span>このページは何か</h2>
+    <p>
+      「税理士ワークスペース」は、株式会社RIBREの売上管理システムの中にある専用の画面です。
+      口座明細のうち<b>まだ仕訳になっていないもの</b>、その仕訳の根拠になりそうな<b>証憑（領収書・請求書など）</b>、
+      そして給与明細や請求書などの<b>共有ファイル</b>を、この1つの画面からまとめてご覧いただけます。
+    </p>
+    <div class="note info">現時点ではすべて「見るだけ」の画面です。仕訳の登録や証憑の添付は、これまでどおりMFクラウド会計の画面で行ってください。</div>
+  </section>
+
+  <!-- 2. はじめてのログイン -->
+  <section class="sec" id="s2">
+    <h2><span class="sec-num">2</span>はじめてのログイン</h2>
+    <p>
+      RIBRE担当者から届く招待リンク（<code>https://ribre-sales-system.vercel.app/tax-workspace#invite=...</code> という形のURLです）を
+      ブラウザで開くと、ログイン画面が表示されます。
+    </p>
+
+    <div class="figure-frame">
+      <span class="figure-tag">※これは画面の説明用の図です（実際の画面を再現したイメージです）</span>
+      <div class="mock-gate-outer">
+        <div class="mock-gate-box">
+          <div class="mock-gate-title">税理士ワークスペース</div>
+          <div class="mock-gate-sub">ご利用にはログインが必要です</div>
+
+          <div class="badge-anchor">
+            <span class="badge">①</span>
+            <div class="mock-gate-invite-note">招待リンクを開いています。ログインまたは新規登録すると、税理士として登録されます。</div>
+          </div>
+
+          <div class="badge-anchor">
+            <span class="badge">②</span>
+            <div class="mock-field">メールアドレス</div>
+            <div class="mock-field">パスワード</div>
+          </div>
+
+          <div class="badge-anchor">
+            <span class="badge">③</span>
+            <button class="mock-btn" type="button" disabled>ログイン</button>
+            <button class="mock-btn secondary" type="button" disabled>新規登録</button>
+          </div>
+        </div>
+      </div>
+      <div class="figure-caption">
+        <b>①</b> 招待リンクを開くと、この案内が表示されます。&nbsp;
+        <b>②</b> メールアドレスとパスワードを入力します。&nbsp;
+        <b>③</b> 「ログイン」または「新規登録」を押します。
+      </div>
+    </div>
+
+    <ul>
+      <li><b>初めて開く方</b>は、先に「新規登録」を押してアカウントを作成し、そのあと改めて「ログイン」を押してください（2段階の操作になります）。</li>
+      <li>登録の際に<b>確認メールが届いた場合</b>は、先にメール内のリンクを開いてからこのページに戻り、「ログイン」を押してください。</li>
+    </ul>
+
+    <div class="note warn">招待リンクは発行から<b>7日間</b>有効で、<b>1回だけ</b>使用できます。期限切れ・使用済みのリンクは開けません（→よくある質問もご覧ください）。</div>
+  </section>
+
+  <!-- 3. 画面の見方 -->
+  <section class="sec" id="s3">
+    <h2><span class="sec-num">3</span>画面の見方</h2>
+    <p>ログインすると、上部にタブが4つ並んだ画面が表示されます。</p>
+
+    <div class="figure-frame">
+      <span class="figure-tag">※これは画面の説明用の図です（実際の画面を再現したイメージです）</span>
+      <div class="mock-topbar">
+        <div>
+          <h3>税理士ワークスペース</h3>
+        </div>
+        <div class="mock-topbar-right">
+          <span class="who">ログイン中: サンプル太郎@example.com</span>
+          <span>対象月 <select disabled><option>2026-07</option></select></span>
+          <button class="mock-logout" type="button" disabled>ログアウト</button>
+        </div>
+      </div>
+      <div class="mock-tabs">
+        <div class="mock-tab active">① 未仕訳の明細</div>
+        <div class="mock-tab">② 仕訳待ちの証憑</div>
+        <div class="mock-tab">③ 共有ファイル</div>
+        <div class="mock-tab">④ 操作履歴</div>
+      </div>
+      <div class="figure-caption">上部のタブを押すと表示が切り替わります。「対象月」を変更すると、その月のデータに切り替わります。</div>
+    </div>
+
+    <ul>
+      <li><b>① 未仕訳の明細</b> — 口座に来た明細のうち、まだ仕訳が作られていないものです。この画面のメインです。</li>
+      <li><b>② 仕訳待ちの証憑</b> — 対応する仕訳が無いために送信を保留している証憑の件数です。①で仕訳ができると自然に減っていきます。</li>
+      <li><b>③ 共有ファイル</b> — 給与明細・請求書・売上管理表など、RIBREから税理士さまへお渡ししているファイルの一覧です。</li>
+      <li><b>④ 操作履歴</b> — 誰が・いつ・どの明細を登録したかの記録です（現時点では登録機能自体が無いため、まだ記録はありません）。</li>
+    </ul>
+  </section>
+
+  <!-- 4. ①未仕訳の明細 -->
+  <section class="sec" id="s4">
+    <h2><span class="sec-num">4</span>① 未仕訳の明細</h2>
+    <p>「未仕訳の明細」タブでは、まだ仕訳が作られていない口座明細が1件ずつカードで並びます。</p>
+
+    <div class="figure-frame">
+      <span class="figure-tag">※これは画面の説明用の図です（実際の画面を再現したイメージです）</span>
+      <div class="mock-jcard">
+        <div class="badge-anchor">
+          <span class="badge">①</span>
+          <div class="mock-jcard-head">
+            <div>
+              <span class="title">2026-07-13　サンプル商事株式会社</span>
+              <div class="sub">支出 999,999円</div>
+            </div>
+            <span class="chip">未仕訳</span>
+          </div>
+        </div>
+        <div class="mock-jcard-body">
+          <div class="badge-anchor">
+            <span class="badge">②</span>
+            <div class="mock-evidence-box">
+              <h4>関連しそうな証憑（1件）</h4>
+              <div class="fname">20260713_サンプル商事株式会社_999999円.pdf（サンプル）</div>
+              <div class="meta">2026-07-10／サンプル商事株式会社／999,999円</div>
+              <div class="cand-note">取引先名と日付(±45日)で見つけた候補です。金額は照合していません。中身を確認してください。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="figure-caption">
+        <b>①</b> 日付・取引内容・金額です。&nbsp;
+        <b>②</b> 「関連しそうな証憑」欄です。この明細に関係がありそうな証憑を自動で拾って表示しています。
+      </div>
+    </div>
+
+    <div class="note warn">
+      「関連しそうな証憑」は、<b>取引先名と日付（前後45日）だけで機械的に拾った候補</b>です。<b>金額の照合は行っていません。</b>
+      似た名前・時期というだけで候補に出ているだけの場合もありますので、<b>必ず中身をご確認</b>のうえご利用ください。
+    </div>
+    <div class="note danger">この画面は現在「見るだけ」です。この画面から仕訳の登録はできません。仕訳の登録は、これまでどおりMFクラウド会計の画面で行ってください。</div>
+  </section>
+
+  <!-- 5. ③共有ファイル -->
+  <section class="sec" id="s5">
+    <h2><span class="sec-num">5</span>③ 共有ファイル</h2>
+    <p>「共有ファイル」タブでは、RIBREから税理士さまへお渡ししているファイルが、月ごとにまとまって並びます。</p>
+
+    <div class="figure-frame">
+      <span class="figure-tag">※これは画面の説明用の図です（実際の画面を再現したイメージです）</span>
+      <div class="mock-month-title">2026年07月</div>
+      <div style="overflow-x:auto;">
+        <table class="mock-file-table">
+          <thead><tr><th>ファイル名</th><th>サイズ</th><th>種別</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="badge-anchor" style="position:relative;">
+                <span class="badge" style="top:-9px; left:-9px;">①</span>
+                <a href="#" onclick="return false;">2026年07月分_給与明細（サンプル）.pdf</a>
+              </td>
+              <td>412KB</td>
+              <td><span class="mock-chip blue badge-anchor" style="position:relative; display:inline-block;"><span class="badge right" style="top:-18px; right:-6px; left:auto; width:20px; height:20px; font-size:10px;">②</span>証憑添付可</span></td>
+            </tr>
+            <tr>
+              <td><a href="#" onclick="return false;">2026年07月分_請求書（サンプル）.pdf</a></td>
+              <td>128KB</td>
+              <td><span class="mock-chip blue">証憑添付可</span></td>
+            </tr>
+            <tr>
+              <td><a href="#" onclick="return false;">売上管理表_2026年07月（サンプル）.xlsx</a></td>
+              <td>88KB</td>
+              <td><span class="mock-chip gray">閲覧のみ</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="figure-caption">
+        <b>①</b> ファイル名をクリックするとダウンロードできます。&nbsp;
+        <b>②</b> 「証憑添付可」はPDFや画像のファイル、「閲覧のみ」はExcelなど証憑として扱えないファイルです。
+      </div>
+    </div>
+    <p>月ごとにファイルがまとまって表示されるので、対象月を切り替えながら必要なファイルを探してください。</p>
+  </section>
+
+  <!-- 6. よくある質問 -->
+  <section class="sec" id="s6">
+    <h2><span class="sec-num">6</span>よくある質問</h2>
+
+    <div class="faq-item">
+      <div class="faq-q">Q. MFクラウド会計の画面と何が違うのですか？</div>
+      <div class="faq-a">A. この画面では、共有ファイル（給与明細・請求書など）と未仕訳の明細を同じ画面でまとめてご覧いただけます。MFクラウド会計には入っていない資料もこちらで見られます。なお、仕訳の登録は今のところMFクラウド会計の画面で行ってください。</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q. 招待リンクが使えません。</div>
+      <div class="faq-a">A. リンクの期限切れ、または使用済みの可能性があります。RIBRE担当者に招待リンクの再発行をご依頼ください。</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q. パスワードを忘れてしまいました。</div>
+      <div class="faq-a">A. RIBRE担当者までご連絡ください。</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q. 見えてはいけないもの（関係のない情報など）が見えている気がします。</div>
+      <div class="faq-a">A. 恐れ入りますが、すぐにRIBRE担当者までご連絡ください。</div>
+    </div>
+  </section>
+
+  <!-- 7. 今後の予定 -->
+  <section class="sec" id="s7">
+    <h2><span class="sec-num">7</span>今後の予定</h2>
+    <p>
+      今後、この画面から仕訳の登録まで行えるようにする予定があります。ただし、これはMFクラウド会計の画面と操作が重なる部分でもあるため、
+      <b>実際に登録機能を追加する前に、必ず税理士さまのご了承を得たいと考えています。</b>
+    </p>
+    <div class="note info">この画面から仕訳を登録できるようにしてよいか、RIBRE担当者までお知らせください。</div>
+  </section>
+
+  <div class="footer-badge">
+    株式会社RIBRE 税理士ワークスペース ご利用ガイド<br>
+    ご不明な点がございましたら、RIBRE担当者までお気軽にお問い合わせください。
+  </div>
+
+</div>
+</body>
+</html>

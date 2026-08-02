@@ -392,7 +392,7 @@ alter table tax_advisor_actions enable row level security;
 | **A** | `journalize` で `tax_id` を渡したとき、税額がMFの画面と同じに計算されるか。未指定のときは何が入るか | テスト用の明細1件で実行し、`GET /journals/{id}` の `tax_value` をMF画面と突き合わせる |
 | **B** | `DELETE /journals/{id}` で仕訳を消したとき、元の明細は `none` に戻るか。証憑が添付済みの仕訳を消せるか | テスト明細で実行して確認 |
 | **C** | `invoice_kind` を未指定にしたときの既定値 | 同上 |
-| **D** | `trade_partner_code` は `GET /trade_partners` のどのフィールドか（`code`か`id`か） | レスポンスを実際に見る |
+| ~~**D**~~ | ~~`trade_partner_code` は `GET /trade_partners` のどのフィールドか~~ → **✅ 2026-08-02 解決**。`TradePartnersResponse_trade_partners_inner` の **`code`**（例 `A0000000001`）。`id` というフィールドは存在しない。<br>なお `GET /trade_partners` を実行したところ **`{"trade_partners":[]}` で0件**だった。御社のMFには取引先が1件も登録されておらず、仕訳の取引先欄も全て空で、代わりに摘要に取引先名を入れる運用になっている。**Phase 3でも取引先は任意項目のため支障なし**。取引先を選ぶ欄は作らなくてよい | 実行済み |
 | **E** | 決算締め後の期に対して `journalize` が拒否されるか | 税理士へ確認 |
 | **F** | MFの証憑APIが PDF/画像以外（xlsx等）を受け付けるか | テスト仕訳へ小さいxlsxを添付して確認 |
 | **G** | 収入（INCOME）側の明細でも `journalize` が同じように動くか | 売上入金の明細1件で確認 |
