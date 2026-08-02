@@ -221,6 +221,92 @@ function safeTokenEquals(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
+// ダウンロード済みの記録は、ファイル一覧(tax_docs_index)とは**別の行**に持つ。
+// 一覧の行はオーナー側のブラウザがまるごと上書き保存するため、ログイン不要な
+// このエンドポイントが同じ行を書くと、書き込みが衝突して一覧を壊す恐れがある。
+// 行を分ければ両者が同じ行に触れないので、その事故が起きない。
+const TAX_DOWNLOADS_SKEY = 'tax_docs_downloads';
+
+// 共有トークンから、そのトークンを持つapp_settingsの行（＝オーナー）を探す
+async function findShareOwnerRow(token) {
+  const r = await fetch(
+    `${SUPABASE_URL}/rest/v1/app_settings?skey=eq.tax_docs_index&select=user_email,value&limit=50`,
+    { headers: supabaseHeaders() }
+  );
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const rows = await r.json();
+  return (Array.isArray(rows) ? rows : []).find((row) => {
+    const share = row && row.value && row.value.data && row.value.data.share;
+    return share && share.token && safeTokenEquals(share.token, token);
+  }) || null;
+}
+
+// そのオーナーのダウンロード記録 { <ファイルkey>: 最初にダウンロードされた時刻 } を読む
+async function fetchDownloadMarks(userEmail) {
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/app_settings?select=value&user_email=eq.${encodeURIComponent(userEmail)}` +
+      `&skey=eq.${TAX_DOWNLOADS_SKEY}&limit=1`,
+      { headers: supabaseHeaders() }
+    );
+    if (!r.ok) return {};
+    const rows = await r.json();
+    const v = Array.isArray(rows) && rows[0] && rows[0].value;
+    const data = v && v.data;
+    return data && typeof data === 'object' ? data : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+// 税理士がファイル名をクリックしたときに呼ばれる。ダウンロード時刻を記録するだけ。
+// ログイン不要（共有リンクを知っている人＝税理士が使う）。ファイルの中身も一覧も変更しない。
+async function handleTaxShareMarkDownloaded(res, shareToken, key) {
+  const token = String(shareToken || '');
+  if (!/^[a-f0-9]{32,64}$/.test(token)) {
+    res.status(400).json({ ok: false, error: 'invalid_token' });
+    return;
+  }
+  const fileKey = String(key || '');
+  if (!fileKey || fileKey.length > 512) {
+    res.status(400).json({ ok: false, error: 'invalid_key' });
+    return;
+  }
+  try {
+    const hit = await findShareOwnerRow(token);
+    if (!hit) {
+      res.status(404).json({ ok: false, error: 'share_not_found' });
+      return;
+    }
+    // 共有中のファイルとして実在するkeyだけを受け付ける（任意の文字列を書かせない）
+    const files = (hit.value.data.files && typeof hit.value.data.files === 'object') ? hit.value.data.files : {};
+    if (!files[fileKey] || files[fileKey].del) {
+      res.status(404).json({ ok: false, error: 'file_not_found' });
+      return;
+    }
+    const marks = await fetchDownloadMarks(hit.user_email);
+    // 最初にダウンロードされた時刻を残す（2回目以降は上書きしない）
+    if (marks[fileKey]) {
+      res.status(200).json({ ok: true, dl: marks[fileKey], already: true });
+      return;
+    }
+    const now = Date.now();
+    marks[fileKey] = now;
+    const up = await fetch(`${SUPABASE_URL}/rest/v1/app_settings?on_conflict=user_email,skey`, {
+      method: 'POST',
+      headers: Object.assign({}, supabaseHeaders(), { Prefer: 'resolution=merge-duplicates' }),
+      body: JSON.stringify([{ user_email: hit.user_email, skey: TAX_DOWNLOADS_SKEY, value: { data: marks, ts: now } }]),
+    });
+    if (!up.ok) {
+      res.status(500).json({ ok: false, error: 'mark_failed' });
+      return;
+    }
+    res.status(200).json({ ok: true, dl: now });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'mark_failed' });
+  }
+}
+
 async function handleTaxShareList(res, shareToken) {
   const token = String(shareToken || '');
   // 生成トークンは常に128bit(=32文字)の16進乱数。上限64は将来の桁数変更に対する余裕。
@@ -245,6 +331,7 @@ async function handleTaxShareList(res, shareToken) {
     }
     const files = (hit.value.data.files && typeof hit.value.data.files === 'object') ? hit.value.data.files : {};
     const keys = Object.keys(files).filter((k) => !files[k].del);
+    const marks = await fetchDownloadMarks(hit.user_email);
     const out = [];
     for (const key of keys) {
       const meta = files[key] || {};
@@ -261,10 +348,12 @@ async function handleTaxShareList(res, shareToken) {
       if (!signData || !signData.signedURL) continue;
       const dlName = month + '_' + (meta.name || key);
       out.push({
+        key,
         name: meta.name || key,
         size: meta.size || 0,
         ts: meta.ts || 0,
         month,
+        dl: marks[key] || 0, // 0 = まだダウンロードされていない
         url: `${SUPABASE_URL}/storage/v1${signData.signedURL}&download=${encodeURIComponent(dlName)}`,
       });
     }
@@ -296,6 +385,10 @@ module.exports = async (req, res) => {
   // 共有一覧はトークン自体が認可情報（ログイン不要）。先に処理する。
   if (body && body.action === 'tax_share_list') {
     await handleTaxShareList(res, body.share_token);
+    return;
+  }
+  if (body && body.action === 'tax_share_mark_downloaded') {
+    await handleTaxShareMarkDownloaded(res, body.share_token, body.key);
     return;
   }
 

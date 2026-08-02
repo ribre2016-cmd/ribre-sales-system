@@ -35,7 +35,31 @@
     }
   }
 
-  function render(manifest) {
+  // ファイル名がクリックされたことをサーバーに記録する。
+  // 実際に保存し終えたかまでは分からないので、記録するのは「ダウンロードした（開いた）」まで。
+  // keepalive: ダウンロードで画面が切り替わっても送信が中断されないようにする。
+  function markDownloaded(token, key) {
+    try {
+      return fetch('/api/mf/evidence-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'tax_share_mark_downloaded', share_token: token, key: key }),
+        keepalive: true
+      });
+    } catch (e) {
+      return null; // 記録に失敗してもダウンロード自体は妨げない
+    }
+  }
+
+  function makeDownloadedBadge(ts) {
+    var b = document.createElement('span');
+    b.className = 'dl-badge';
+    b.textContent = '✓ ダウンロード済み';
+    if (ts) b.title = fmtDate(ts) + ' に取得';
+    return b;
+  }
+
+  function render(manifest, token) {
     var statusEl = document.getElementById('status');
     var listEl = document.getElementById('list');
     if (statusEl) statusEl.style.display = 'none';
@@ -89,6 +113,17 @@
         a.rel = 'noopener noreferrer';
         a.textContent = f.name || '(無題)'; // XSS対策: textContentのみ使用
         nameTd.appendChild(a);
+
+        // ダウンロード済みの表示。押した瞬間にその場でバッジを出し、記録も送る。
+        if (f.dl) {
+          nameTd.appendChild(makeDownloadedBadge(f.dl));
+        } else if (token && f.key) {
+          a.addEventListener('click', function () {
+            if (nameTd.querySelector('.dl-badge')) return;
+            nameTd.appendChild(makeDownloadedBadge(Date.now()));
+            markDownloaded(token, f.key);
+          });
+        }
 
         var dateTd = document.createElement('td');
         dateTd.textContent = fmtDate(f.ts);
@@ -151,7 +186,7 @@
               if (manifest && manifest.v === 2) {
                 // APIモードへ移行済み（署名URLはその場で発行される）
               } else if (manifest && Array.isArray(manifest.files)) {
-                render(manifest);
+                render(manifest, null);
                 return;
               }
             }
@@ -163,7 +198,7 @@
         showError('共有が見つかりません（解除された可能性があります）');
         return;
       }
-      render(data);
+      render(data, t);
     } catch (e) {
       showError('共有が見つかりません（解除された可能性があります）');
     }

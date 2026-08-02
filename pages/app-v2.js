@@ -3212,6 +3212,21 @@ async function appvTaxDocsFetchCloud(cr) {
   } catch (e) { return null; }
 }
 /* appvExpPushCloudと同型：先にクラウド取得→マージ→ローカル保存→upsert。 */
+/* 税理士がダウンロードしたファイルの記録 { <key>: 時刻 }。
+ * 書き込むのは api/mf/evidence-action.js（共有ページからの記録）だけで、
+ * こちらは読むだけ。ファイル一覧(tax_docs_index)とは別の行に持たせているため、
+ * オーナー側の一覧保存と衝突しない。 */
+var appvTaxDocsDownloadMarks = {};
+async function appvTaxDocsFetchDownloadMarks() {
+  const cr = appvCreds(); if (!cr) return {};
+  try {
+    const r = await fetch(cr.url + '/rest/v1/app_settings?select=value&user_email=eq.' + encodeURIComponent(cr.em) + '&skey=eq.tax_docs_downloads&limit=1', { headers: { apikey: cr.key, Authorization: 'Bearer ' + cr.tok } });
+    if (!r.ok) return {};
+    const data = await r.json();
+    const v = data && data[0] && data[0].value;
+    return (v && v.data && typeof v.data === 'object') ? v.data : {};
+  } catch (e) { return {}; }
+}
 async function appvTaxDocsPushCloud() {
   const cr = appvCreds(); if (!cr) return { ok: false, reason: 'no-login' };
   try {
@@ -3733,6 +3748,8 @@ async function appvRenderTaxDocs() {
     appvTaxDocsPulledOnce = true;
     try { await appvTaxDocsPullCloud(); } catch (e) {}
   }
+  // 税理士側のダウンロード状況は毎回取り直す（相手の操作でいつでも変わるため）
+  try { appvTaxDocsDownloadMarks = await appvTaxDocsFetchDownloadMarks(); } catch (e) { appvTaxDocsDownloadMarks = {}; }
   // 前回失敗したインデックス同期が残っていれば再試行（孤立ファイルの自動回復）
   try { appvTaxDocsSyncRetry(); } catch (e) {}
 
@@ -3769,6 +3786,17 @@ async function appvRenderTaxDocs() {
     nameTd.title = 'クリックで名前を変更';
     nameTd.style.cursor = 'pointer';
     nameTd.onclick = () => appvTaxDocsRename(f.key);
+    // 税理士が共有ページからダウンロード済みなら印を付ける（相手が取得したかの確認用）
+    const dlTs = Number(appvTaxDocsDownloadMarks[f.key]) || 0;
+    if (dlTs) {
+      const dlMark = document.createElement('span');
+      dlMark.textContent = ' ✓税理士DL済';
+      dlMark.title = '税理士が共有ページから取得済み（' + new Date(dlTs).toLocaleString('ja-JP') + '）';
+      dlMark.style.cssText = 'color:#166534; font-size:11px; font-weight:700; white-space:nowrap';
+      // 名前セルはクリックで改名するため、印を押しただけで改名が始まらないようにする
+      dlMark.onclick = (ev) => ev.stopPropagation();
+      nameTd.appendChild(dlMark);
+    }
     const dateTd = document.createElement('td');
     dateTd.textContent = f.ts ? new Date(f.ts).toLocaleString('ja-JP') : '-';
     const sizeTd = document.createElement('td');
