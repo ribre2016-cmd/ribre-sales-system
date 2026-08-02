@@ -192,10 +192,46 @@ function resolveByVendor(candidates, evidence) {
   return matched.length === 1 ? matched[0] : null;
 }
 
+// 取引先名の突き合わせに使う語の分解。
+// 単純な部分一致だけでは、明細側が長い表記のときに取りこぼす。
+// 実例(2026-08-02): 証憑「Anthropic, PBC」と仕訳の摘要「ANTHROPIC* CLAUDE SUB」は
+// どちらも相手を含まないため一致せず、代わりに摘要がちょうど「ANTHROPIC」だけの
+// 別取引(926円/1,851円)が候補に出てしまった。語に分けて共通語を見れば拾える。
+const VENDOR_STOPWORDS = new Set([
+  'inc', 'ltd', 'llc', 'lld', 'co', 'corp', 'corporation', 'company', 'pbc', 'plc',
+  'sa', 'ag', 'gmbh', 'bv', 'nv', 'pte', 'pty', 'kk', 'sub', 'com', 'net', 'org', 'jp',
+  '株式会社', '有限会社', '合同会社', '合資会社', '一般社団法人', 'カ', 'ド'
+]);
+
+function vendorTokens(text) {
+  return String(text || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    // 記号・区切りで分割する（'*' や ',' や '.' や全角スペースを含む）
+    .split(/[^0-9a-z぀-ヿ一-鿿ｦ-ﾟ]+/)
+    .filter((t) => t && !VENDOR_STOPWORDS.has(t))
+    // 短すぎる語は偶然一致しやすいので落とす（英数は3文字以上、日本語は2文字以上）
+    .filter((t) => (/^[0-9a-z]+$/.test(t) ? t.length >= 3 : t.length >= 2));
+}
+
+// 語がひとつでも共通していれば同じ取引先とみなす（候補提示専用。自動添付はしない）
+function vendorTokensOverlap(a, b) {
+  const ta = vendorTokens(a);
+  if (!ta.length) return false;
+  const tb = new Set(vendorTokens(b));
+  if (!tb.size) return false;
+  return ta.some((t) => tb.has(t));
+}
+
 function addDays(dateStr, days) {
   const d = new Date(dateStr + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+// 2つの日付の差の日数（絶対値）
+function dayGap(a, b) {
+  return Math.abs((new Date(a + 'T00:00:00Z') - new Date(b + 'T00:00:00Z')) / 86400000);
 }
 
 function journalPassesCommonFilters(j, evidence) {
@@ -286,11 +322,18 @@ function findVendorDateCandidates(journals, evidence) {
   return journals.filter((j) => {
     if (!j.transaction_date) return false;
     if (j.transaction_date < startDate || j.transaction_date > endDate) return false;
-    const summaryNorm = normalizeText(journalVendorText(j));
+    const vendorText = journalVendorText(j);
+    const summaryNorm = normalizeText(vendorText);
     if (!summaryNorm) return false;
-    if (!(summaryNorm.includes(vendorNorm) || vendorNorm.includes(summaryNorm))) return false;
+    // 部分一致（従来）か、語の共通（追加）のどちらかで拾う
+    const hit = summaryNorm.includes(vendorNorm)
+      || vendorNorm.includes(summaryNorm)
+      || vendorTokensOverlap(evidence.ocr_vendor, vendorText);
+    if (!hit) return false;
     return journalPassesCommonFilters(j, evidence);
-  });
+  })
+  // 同じ取引先の取引が複数あるとき、取引日が近いものほど本命なので上に出す
+  .sort((a, b) => dayGap(a.transaction_date, dateStr) - dayGap(b.transaction_date, dateStr));
 }
 
 // 証憑をStorageから読み出し、指定仕訳へ添付する。
@@ -602,6 +645,8 @@ module.exports = {
   addDays,
   findCandidates,
   findFuzzyCandidates,
+  findVendorDateCandidates,
+  vendorTokens,
   journalPassesCommonFilters,
   trySingleMatch,
   attachEvidenceToJournal,
