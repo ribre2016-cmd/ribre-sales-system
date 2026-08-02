@@ -1211,16 +1211,22 @@ async function mfCheckMfStatus() {
     });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error('HTTP ' + res.status);
+    // 接続済みでもボタンは隠さない。スコープを追加したときに連携し直す必要があり、
+    // 隠すと画面から再連携する手段が無くなるため（2026-08-02 transaction.read追加時に判明）。
+    btn.style.display = 'inline-block';
     if (d && d.connected) {
       label.textContent = 'MF連携: 接続済み';
-      btn.style.display = 'none';
+      btn.textContent = '再連携';
+      btn.title = '権限を追加したときなど、MFと連携し直します（保存済みの証憑は消えません）';
     } else {
       label.textContent = 'MF連携: 未接続';
-      btn.style.display = 'inline-block';
+      btn.textContent = 'MFと接続';
+      btn.title = 'MFと連携します';
     }
   } catch (e) {
     label.textContent = 'MF連携: 状態取得失敗';
     btn.style.display = 'inline-block';
+    btn.textContent = 'MFと接続';
   }
 }
 
