@@ -12,6 +12,7 @@
 // （画面側のガードは迂回できるため、判断材料にしない）。
 'use strict';
 
+const crypto = require('crypto');
 const {
   getAccessToken,
   NotConnectedError,
@@ -50,6 +51,19 @@ function readJsonBody(req) {
     req.on('end', () => { try { resolve(JSON.parse(raw || '{}')); } catch (e) { resolve({}); } });
     req.on('error', () => resolve({}));
   });
+}
+
+// 社内メンバー（オーナー）。この人たちは tax_advisors に載っていなくてもこの画面を使え、
+// さらに招待リンクの発行・取り消しができる。
+// 出典: supabase_mf_owner_rls.sql の会員許可リスト、services/auth-gate.js の MEMBER_EMAILS と同じ2件。
+// ⚠ 画面側の許可リストは迂回できるため、権限の判断は必ずこのサーバー側の定数で行う。
+const MEMBER_EMAILS = ['ribre2016@gmail.com', 'k.sado@ribre.co.jp'];
+const INVITE_TTL_DAYS = 7;
+
+function isMemberEmail(userEmail) {
+  const e = String(userEmail || '').trim().toLowerCase();
+  if (!e) return false;
+  return MEMBER_EMAILS.some((m) => m.toLowerCase() === e);
 }
 
 // 許可リストに載っている税理士か調べる。載っていなければ null。
@@ -150,6 +164,108 @@ async function fetchSharedFiles() {
   return out;
 }
 
+/* ---------------- 招待リンク ---------------- */
+
+// 招待リンクを発行する（社内メンバーのみ）。有効期限つき・1回だけ使える。
+async function createInvite(createdBy, note) {
+  const token = crypto.randomBytes(16).toString('hex'); // 32桁
+  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 3600 * 1000).toISOString();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/tax_advisor_invites`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+    body: JSON.stringify([{ token, created_by: createdBy, expires_at: expiresAt, note: note || null }]),
+  });
+  if (!res.ok) throw new Error(`invite_create_failed: HTTP ${res.status}`);
+  return { token, expires_at: expiresAt };
+}
+
+async function listInvites() {
+  const url = `${SUPABASE_URL}/rest/v1/tax_advisor_invites?select=*&order=created_at.desc&limit=50`;
+  const res = await fetch(url, { headers: supabaseHeaders() });
+  if (!res.ok) return [];
+  const rows = await res.json().catch(() => []);
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function revokeInvite(token) {
+  const url = `${SUPABASE_URL}/rest/v1/tax_advisor_invites?token=eq.${encodeURIComponent(token)}&revoked_at=is.null&used_at=is.null`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { ...supabaseHeaders(), Prefer: 'return=representation' },
+    body: JSON.stringify({ revoked_at: new Date().toISOString() }),
+  });
+  if (!res.ok) return false;
+  const rows = await res.json().catch(() => []);
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+// 招待リンクを使って自分を税理士として登録する。
+// メールアドレスはログイン中のアカウントのものを使う（本人以外を登録できない）。
+async function redeemInvite(token, userEmail) {
+  const t = String(token || '');
+  if (!/^[a-f0-9]{32}$/.test(t)) return { ok: false, error: 'invalid_invite' };
+  const e = String(userEmail || '').trim().toLowerCase();
+  if (!e) return { ok: false, error: 'no_email' };
+
+  // 未使用・未取り消し・期限内のものだけを「使用済み」にできる。
+  // 条件付きUPDATEなので、同時に2人が同じリンクを開いても片方しか成功しない。
+  const nowIso = new Date().toISOString();
+  const url =
+    `${SUPABASE_URL}/rest/v1/tax_advisor_invites` +
+    `?token=eq.${encodeURIComponent(t)}&used_at=is.null&revoked_at=is.null` +
+    `&expires_at=gt.${encodeURIComponent(nowIso)}`;
+  const claim = await fetch(url, {
+    method: 'PATCH',
+    headers: { ...supabaseHeaders(), Prefer: 'return=representation' },
+    body: JSON.stringify({ used_at: nowIso, used_email: e }),
+  });
+  if (!claim.ok) return { ok: false, error: 'invite_check_failed' };
+  const rows = await claim.json().catch(() => []);
+  if (!Array.isArray(rows) || !rows.length) {
+    // 使用済み・取り消し済み・期限切れ・存在しない のいずれか
+    return { ok: false, error: 'invite_unusable' };
+  }
+
+  // 税理士として登録（既にいれば有効化し直す）
+  const up = await fetch(`${SUPABASE_URL}/rest/v1/tax_advisors?on_conflict=email`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify([{ email: e, enabled: true, note: '招待リンクから登録 ' + nowIso.slice(0, 10) }]),
+  });
+  if (!up.ok) {
+    // 招待だけ消費して登録できていない状態を残さないよう、使用済みを取り消す
+    await fetch(`${SUPABASE_URL}/rest/v1/tax_advisor_invites?token=eq.${encodeURIComponent(t)}`, {
+      method: 'PATCH',
+      headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify({ used_at: null, used_email: null }),
+    }).catch(() => {});
+    return { ok: false, error: 'advisor_register_failed' };
+  }
+  return { ok: true, email: e };
+}
+
+async function listAdvisors() {
+  const url = `${SUPABASE_URL}/rest/v1/tax_advisors?select=id,email,name,enabled,note,created_at&order=created_at.desc&limit=100`;
+  const res = await fetch(url, { headers: supabaseHeaders() });
+  if (!res.ok) return [];
+  const rows = await res.json().catch(() => []);
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function setAdvisorEnabled(email, enabled) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return false;
+  const url = `${SUPABASE_URL}/rest/v1/tax_advisors?email=eq.${encodeURIComponent(e)}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { ...supabaseHeaders(), Prefer: 'return=representation' },
+    body: JSON.stringify({ enabled: !!enabled }),
+  });
+  if (!res.ok) return false;
+  const rows = await res.json().catch(() => []);
+  return Array.isArray(rows) && rows.length > 0;
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -163,6 +279,25 @@ module.exports = async (req, res) => {
     return;
   }
 
+  const body = await readJsonBody(req);
+  const action = body && body.action;
+  const isMember = isMemberEmail(user.email);
+
+  // 招待リンクの引き換えだけは、まだ税理士として登録されていない人が使う。
+  // ログイン済みであることは上で確認済みで、登録するメールはそのログイン中のもの
+  // （リクエストの中身では決めない＝他人を勝手に登録できない）。
+  if (action === 'redeem_invite') {
+    let r;
+    try {
+      r = await redeemInvite(body.invite_token, user.email);
+    } catch (e) {
+      res.status(500).json({ ok: false, error: 'invite_check_failed' });
+      return;
+    }
+    res.status(r.ok ? 200 : 200).json(r);
+    return;
+  }
+
   let advisor;
   try {
     advisor = await findAdvisor(user.email);
@@ -170,14 +305,42 @@ module.exports = async (req, res) => {
     res.status(500).json({ ok: false, error: 'advisor_check_failed' });
     return;
   }
+  // 社内メンバーは tax_advisors に載っていなくてもこの画面を使える
+  if (!advisor && isMember) {
+    advisor = { email: user.email, name: '社内メンバー' };
+  }
   if (!advisor) {
     // 許可リストに無い＝この画面の利用者ではない。何のデータも返さない。
     res.status(403).json({ ok: false, error: 'not_tax_advisor' });
     return;
   }
 
-  const body = await readJsonBody(req);
-  const action = body && body.action;
+  // 招待と税理士の管理は社内メンバーだけ
+  const MEMBER_ONLY = ['invite_create', 'invite_list', 'invite_revoke', 'advisor_list', 'advisor_set_enabled'];
+  if (MEMBER_ONLY.indexOf(action) >= 0) {
+    if (!isMember) {
+      res.status(403).json({ ok: false, error: 'member_only' });
+      return;
+    }
+    try {
+      if (action === 'invite_create') {
+        const inv = await createInvite(user.email, body.note);
+        res.status(200).json({ ok: true, ...inv });
+      } else if (action === 'invite_list') {
+        res.status(200).json({ ok: true, invites: await listInvites() });
+      } else if (action === 'invite_revoke') {
+        res.status(200).json({ ok: true, revoked: await revokeInvite(body.invite_token) });
+      } else if (action === 'advisor_list') {
+        res.status(200).json({ ok: true, advisors: await listAdvisors() });
+      } else {
+        res.status(200).json({ ok: true, updated: await setAdvisorEnabled(body.email, body.enabled) });
+      }
+    } catch (e) {
+      res.status(500).json({ ok: false, error: 'member_action_failed', message: e && e.message });
+    }
+    return;
+  }
+
   if (['bootstrap', 'list'].indexOf(action) < 0) {
     res.status(400).json({ ok: false, error: 'invalid_action' });
     return;
@@ -267,6 +430,8 @@ module.exports = async (req, res) => {
   res.status(200).json({
     ok: true,
     advisor: { email: advisor.email, name: advisor.name },
+    // 社内メンバーには招待・税理士管理のパネルを出す
+    is_member: isMember,
     month: body.month,
     // Phase 1は読み取りのみ。画面はこれを見て登録ボタンを出さない。
     writable: false,

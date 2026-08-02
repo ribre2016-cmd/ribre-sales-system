@@ -70,3 +70,34 @@ drop policy if exists tax_advisor_actions_insert_auth on tax_advisor_actions;
 -- 確認用
 -- select id, email, name, enabled, created_at from tax_advisors order by id;
 -- select * from tax_advisor_actions order by created_at desc limit 50;
+
+-- =====================
+-- 4. 招待リンク（2026-08-02 追加）
+-- =====================
+-- 税理士のメールアドレスを事前に聞かなくて済むようにするための仕組み。
+-- オーナーが招待リンクを発行 → 税理士がそれを開いて自分でログイン/新規登録すると
+-- tax_advisors へ自動で登録される。
+--
+-- ⚠ 「誰でも自己登録できる」形にはしない。Phase 3でこの画面は帳簿への
+--    書き込み権限を持つため、URLを知った人が登録できる状態にしてはいけない。
+--    そのため招待トークンを必須にし、有効期限と使用回数(1回)で絞る。
+create table if not exists tax_advisor_invites (
+  token       text primary key,          -- 32桁の16進乱数
+  created_by  text not null,             -- 発行した社内メンバーのメール
+  created_at  timestamptz not null default now(),
+  expires_at  timestamptz not null,      -- 既定は発行から7日
+  used_at     timestamptz,               -- 使われた日時（1回だけ使える）
+  used_email  text,                      -- 使った人のメール
+  revoked_at  timestamptz,               -- 取り消した日時
+  note        text
+);
+
+create index if not exists tax_advisor_invites_created_idx on tax_advisor_invites (created_at desc);
+
+alter table tax_advisor_invites enable row level security;
+-- ポリシーは作らない（service role のみ）
+drop policy if exists tax_advisor_invites_select_auth on tax_advisor_invites;
+drop policy if exists tax_advisor_invites_all_auth on tax_advisor_invites;
+
+-- 確認用
+-- select token, created_by, expires_at, used_at, used_email, revoked_at from tax_advisor_invites order by created_at desc;
