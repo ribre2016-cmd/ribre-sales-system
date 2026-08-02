@@ -1,22 +1,36 @@
-/* 税理士ワークスペース（Phase 1・読み取り専用）
+/* 税理士ワークスペース（Phase 1・読み取り専用 + 招待リンクによる自己登録 + 社内管理パネル）
  * 設計書: docs/TAX_WORKSPACE_PLAN.md
- * 依存: core.js(escHtml/sess/email/LS/yen), supabase-auth.js(signIn/signOut)
+ * 依存: core.js(escHtml/sess/email/LS/yen/sb), supabase-auth.js(signIn/signUp/signOut)
  *
  * ⚠ Phase 1は読み取り専用。仕訳登録(journalize)・証憑添付を呼ぶコードは一切書かない。
  * ⚠ services/auth-gate.js は読み込まない（社内メール専用の入口ガードで税理士は弾かれる）。
  *   代わりにこのファイルが自前のログインゲートを持つ。
- * ⚠ 叩くAPIは POST /api/mf/tax-workspace の action:'list' のみ（bootstrapは選択欄が
- *   無いPhase 1画面では不要なため呼ばない）。他のAPIエンドポイントは一切叩かない。
+ * ⚠ 叩くAPIは POST /api/mf/tax-workspace のみ。action は 'list' /
+ *   'redeem_invite'（招待リンクの引き換え）/ 'invite_create' / 'invite_list' /
+ *   'invite_revoke' / 'advisor_list' / 'advisor_set_enabled'（社内メンバー向け管理。
+ *   is_member:true のときだけ⑤タブから使う）。bootstrapは選択欄が無いPhase 1画面では
+ *   不要なため呼ばない。他のAPIエンドポイントは一切叩かない。
+ * ⚠ 招待トークンは画面のURL欄（招待リンク発行時の読み取り専用input）以外に出さない。
+ *   console.log等のログにも出さない。
  */
 'use strict';
 
 var TXW_ENDPOINT = '/api/mf/tax-workspace';
 
+// URLのハッシュ #invite=<32桁16進> を読み取る。引き換え後・無関係なページ遷移では
+// history.replaceState でハッシュ自体を消すため、以後は txwInviteToken の値だけで判定する。
+function txwParseInviteToken(hash) {
+  var m = /^#invite=([0-9a-f]{32})$/i.exec(String(hash || ''));
+  return m ? m[1] : '';
+}
+var txwInviteToken = txwParseInviteToken(location.hash);
+var txwAdminLoaded = false; // ⑤タブのデータ(招待一覧・税理士一覧)を初回表示時だけ読み込むためのフラグ
+
 /* signIn()/signOut()(services/supabase-auth.js)がログイン・ログアウト後に呼ぶ共通フック。
- * このページでは「ログイン済みなら画面を表示してデータを読み込む」だけでよい。 */
+ * ログイン済みになったら画面を表示し、招待トークンがあれば引き換えてから通常のデータを読み込む。 */
 function refreshAll() {
   try {
-    if (txwIsLoggedIn()) { txwHideGate(); txwLoad(); }
+    if (txwIsLoggedIn()) { txwHandleLoginSuccess(); }
   } catch (e) {}
 }
 
@@ -59,9 +73,21 @@ function txwIsLoggedIn() {
 }
 
 /* ---------------- ログインゲート ---------------- */
+function txwUpdateInviteNote() {
+  var el2 = document.getElementById('txwGateInviteNote');
+  if (!el2) return;
+  if (txwInviteToken) {
+    el2.textContent = '招待リンクを開いています。ログインまたは新規登録すると、税理士として登録されます。';
+    el2.style.display = 'block';
+  } else {
+    el2.style.display = 'none';
+    el2.textContent = '';
+  }
+}
 function txwShowGate(msg) {
   document.getElementById('txwApp').style.display = 'none';
   document.getElementById('txwGate').style.display = 'flex';
+  txwUpdateInviteNote();
   var m = document.getElementById('txwGateMsg');
   m.textContent = msg || '';
   m.style.color = '#b91c1c';
@@ -73,6 +99,44 @@ function txwHideGate() {
 }
 function txwSetWho(emailStr) {
   document.getElementById('txwWhoEmail').textContent = emailStr || '';
+}
+
+// URLのハッシュからトークンを消す（history.replaceStateでページ遷移扱いにしない）。
+// リロード時に招待の引き換えを再送しないため、また画面のURL欄にトークンを残さないため。
+function txwStripInviteHash() {
+  try { history.replaceState(null, '', location.pathname + location.search); }
+  catch (e) { try { location.hash = ''; } catch (e2) {} }
+}
+
+// 招待トークンを引き換える。成功・失敗のいずれでもトークンはURLから消す。
+function txwRedeemInvite(token) {
+  return txwApiCall('redeem_invite', { invite_token: token }).then(function (result) {
+    var data = result.data || {};
+    if (data.ok) {
+      txwShowInfoBanner('税理士として登録しました（' + (data.email || '') + '）');
+    } else if (data.error === 'invite_unusable') {
+      txwShowInfoBanner('この招待リンクは使用済み・取り消し済み・期限切れです。管理者に新しいリンクを発行してもらってください。', 'error');
+    } else if (data.error === 'invalid_invite') {
+      txwShowInfoBanner('招待リンクが正しくありません。', 'error');
+    } else {
+      txwShowInfoBanner('招待の処理に失敗しました。', 'error');
+    }
+  }).catch(function () {
+    txwShowInfoBanner('招待の処理に失敗しました。', 'error');
+  });
+}
+
+// ログイン成功後の共通処理（signIn()経由のrefreshAll()・初期表示の両方から呼ぶ）。
+// 招待トークンがあれば先にURLから消してから引き換え、その後いつも通りlistを読み込む。
+async function txwHandleLoginSuccess() {
+  txwHideGate();
+  var token = txwInviteToken;
+  if (token) {
+    txwInviteToken = '';
+    txwStripInviteHash();
+    await txwRedeemInvite(token);
+  }
+  txwLoad();
 }
 
 async function txwGateLogin() {
@@ -89,16 +153,41 @@ async function txwGateLogin() {
     if (typeof window.signIn === 'function') { await window.signIn(); }
     else { msgEl.textContent = 'ログイン機能が見つかりません'; return; }
   } catch (err) { msgEl.textContent = 'ログインに失敗しました'; return; }
+  // 成功時は signIn() 内部で呼ばれる refreshAll() → txwHandleLoginSuccess() が既に処理済み。
+  // ここでは失敗（メール/パスワード誤り等）だけを拾う。
   setTimeout(function () {
-    if (txwIsLoggedIn()) { msgEl.textContent = ''; txwHideGate(); txwLoad(); }
-    else msgEl.textContent = 'ログインできませんでした（メール／パスワードをご確認ください）';
+    if (!txwIsLoggedIn()) msgEl.textContent = 'ログインできませんでした（メール／パスワードをご確認ください）';
   }, 600);
+}
+
+// 新規登録。services/supabase-auth.js の signUp() をそのまま使う（#email/#password/#roleの
+// 共通フォームに値を渡す方式はsignIn()と同じ）。このSupabaseプロジェクトの既存の登録導線
+// （pages/app-v2.js appvDoRegister 等）と同じく、登録後は自動ログインせず「ログインを押して
+// ください」と案内する（メール確認が必要な設定でも壊れない一番安全な流れ）。
+async function txwGateSignup() {
+  var e = (document.getElementById('txwGateEmail').value || '').trim();
+  var p = (document.getElementById('txwGatePass').value || '').trim();
+  var msgEl = document.getElementById('txwGateMsg');
+  if (!e || !p) { msgEl.textContent = 'メールとパスワードを入力してください'; msgEl.style.color = '#b91c1c'; return; }
+  msgEl.textContent = '登録中…';
+  msgEl.style.color = '#2563eb';
+  try {
+    document.getElementById('email').value = e;
+    document.getElementById('password').value = p;
+    var roleEl = document.getElementById('role');
+    if (roleEl) roleEl.value = 'tax_advisor';
+    if (typeof window.signUp === 'function') { await window.signUp(); }
+    else { msgEl.textContent = '新規登録機能が見つかりません'; return; }
+  } catch (err) { msgEl.textContent = '登録に失敗しました'; return; }
+  msgEl.style.color = '#15803d';
+  msgEl.textContent = '登録しました。続けて「ログイン」を押してください。';
 }
 
 function txwLogout() {
   try { if (typeof window.signOut === 'function') window.signOut(); } catch (e) {}
   document.getElementById('txwGateEmail').value = '';
   document.getElementById('txwGatePass').value = '';
+  txwAdminLoaded = false;
   txwShowGate('');
 }
 
@@ -121,8 +210,36 @@ function txwClearGlobalError() {
   e.textContent = '';
 }
 function txwShowGlobalError(msg) {
+  // 直前の「登録しました」等の成功表示が残っていると、成功と失敗が同時に見えて
+  // どちらが今の状態か分からなくなるため、エラーを出すときは必ず消す。
+  txwClearInfoBanner();
   var e = document.getElementById('txwGlobalError');
   e.textContent = msg;
+  e.style.display = 'block';
+}
+function txwClearInfoBanner() {
+  var e = document.getElementById('txwInfoBanner');
+  e.style.display = 'none';
+  e.textContent = '';
+}
+/* kind: 'ok'（既定）または 'error'。
+ * 招待の結果はこの枠に出す。txwLoad() が毎回消す txwGlobalError と違い、
+ * こちらは消されないため、直後の一覧読み込みでメッセージが流れてしまわない
+ * （招待が期限切れだったときに何も表示されない不具合があったため分けた）。 */
+function txwShowInfoBanner(msg, kind) {
+  // 逆向きも同じ。成功を出すときは前のエラーを消す。
+  txwClearGlobalError();
+  var e = document.getElementById('txwInfoBanner');
+  e.textContent = msg;
+  if (kind === 'error') {
+    e.style.background = '#fef2f2';
+    e.style.borderColor = '#fecaca';
+    e.style.color = '#991b1b';
+  } else {
+    e.style.background = '';
+    e.style.borderColor = '';
+    e.style.color = '';
+  }
   e.style.display = 'block';
 }
 
@@ -201,6 +318,16 @@ async function txwLoad() {
   txwRenderUnmatched(Array.isArray(data.items) ? data.items : []);
   txwRenderAwaiting(Number(data.open_evidence_count) || 0);
   txwRenderFiles(Array.isArray(data.shared_files) ? data.shared_files : []);
+  txwSetAdminVisible(!!data.is_member);
+}
+
+// ⑤タブ（税理士の管理）は is_member:true のときだけ出す。無いとき/falseのときは
+// タブ自体を消し、万一そのタブが選択中だったら①へ戻す。
+function txwSetAdminVisible(visible) {
+  var btn = document.getElementById('txwAdminTabBtn');
+  if (!btn) return;
+  btn.style.display = visible ? '' : 'none';
+  if (!visible && btn.classList.contains('active')) txwGoTab('unmatched');
 }
 
 /* ---------------- ① 未仕訳の明細 ---------------- */
@@ -346,10 +473,201 @@ function txwRenderFiles(files) {
   });
 }
 
+/* ---------------- ⑤ 税理士の管理（社内メンバーのみ） ---------------- */
+function txwFormatDateTime(iso) {
+  if (!iso) return '不明';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '不明';
+  return d.toLocaleString('ja-JP');
+}
+
+function txwFallbackCopy(input, done) {
+  try {
+    input.focus();
+    input.select();
+    var ok = document.execCommand('copy');
+    done(!!ok);
+  } catch (e) { done(false); }
+}
+function txwCopyInviteUrl(input, btn) {
+  var origLabel = 'コピー';
+  var done = function (ok) {
+    btn.textContent = ok ? 'コピーしました' : 'コピーできませんでした';
+    setTimeout(function () { btn.textContent = origLabel; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(input.value).then(function () { done(true); }).catch(function () { txwFallbackCopy(input, done); });
+  } else {
+    txwFallbackCopy(input, done);
+  }
+}
+
+// 招待リンクを発行する。トークンは戻り値の中にしか存在しない（一覧APIはtokenを返すが、
+// 表示は下のtxwRenderInvitesで状態のみ。URLを組み立てるのはこの発行直後の1回だけ）。
+async function txwCreateInvite() {
+  var btn = document.getElementById('txwInviteCreateBtn');
+  var out = document.getElementById('txwInviteCreateResult');
+  clearEl(out);
+  btn.disabled = true;
+  try {
+    var result = await txwApiCall('invite_create', {});
+    var data = result.data || {};
+    if (!data.ok || !data.token) {
+      out.appendChild(el('div', { class: 'note danger', text: '招待リンクの発行に失敗しました。' }));
+      return;
+    }
+    var url = location.origin + '/tax-workspace#invite=' + data.token;
+    var box = el('div', { class: 'invite-box' });
+    var row = el('div', { class: 'invite-row' });
+    var input = el('input', { type: 'text', readonly: 'readonly', class: 'invite-url-input' });
+    input.value = url;
+    row.appendChild(input);
+    var copyBtn = el('button', { type: 'button', class: 'btn-mini', text: 'コピー' });
+    copyBtn.addEventListener('click', function () { txwCopyInviteUrl(input, copyBtn); });
+    row.appendChild(copyBtn);
+    box.appendChild(row);
+    box.appendChild(el('div', { class: 'note warn', text: '有効期限: ' + txwFormatDateTime(data.expires_at) + '（1回だけ使えます）' }));
+    out.appendChild(box);
+    txwLoadInvites();
+  } catch (e) {
+    out.appendChild(el('div', { class: 'note danger', text: '招待リンクの発行に失敗しました。' }));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function txwInviteStatus(inv) {
+  if (inv.revoked_at) return { label: '取り消し済み', cls: 'chip-gray' };
+  if (inv.used_at) return { label: '使用済み（' + (inv.used_email || '不明') + '）', cls: 'chip-blue' };
+  if (inv.expires_at && new Date(inv.expires_at).getTime() < Date.now()) return { label: '期限切れ', cls: 'chip-gray' };
+  return { label: '未使用', cls: 'chip-yellow' };
+}
+
+function txwRenderInvites(invites) {
+  var body = document.getElementById('txwInviteListBody');
+  clearEl(body);
+  if (!invites.length) {
+    body.appendChild(el('div', { class: 'evidence-empty', text: '発行済みの招待リンクはありません。' }));
+    return;
+  }
+  var table = document.createElement('table');
+  var thead = el('thead');
+  var trh = el('tr');
+  ['発行日時', '期限', '状態', '操作'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
+  thead.appendChild(trh);
+  table.appendChild(thead);
+  var tbody = document.createElement('tbody');
+  invites.forEach(function (inv) {
+    var tr = el('tr');
+    tr.appendChild(el('td', { text: txwFormatDateTime(inv.created_at) }));
+    tr.appendChild(el('td', { text: txwFormatDateTime(inv.expires_at) }));
+    var st = txwInviteStatus(inv);
+    var tdSt = el('td');
+    tdSt.appendChild(el('span', { class: 'chip ' + st.cls, text: st.label }));
+    tr.appendChild(tdSt);
+    var tdOp = el('td');
+    var usable = !inv.revoked_at && !inv.used_at && inv.expires_at && new Date(inv.expires_at).getTime() >= Date.now();
+    if (usable) {
+      var revokeBtn = el('button', { type: 'button', class: 'btn-mini', text: '取り消す' });
+      revokeBtn.addEventListener('click', function () { txwRevokeInvite(inv.token, revokeBtn); });
+      tdOp.appendChild(revokeBtn);
+    }
+    tr.appendChild(tdOp);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  body.appendChild(table);
+}
+
+async function txwLoadInvites() {
+  var body = document.getElementById('txwInviteListBody');
+  clearEl(body);
+  body.appendChild(el('div', { class: 'txw-loading', text: '読み込み中…' }));
+  var result;
+  try { result = await txwApiCall('invite_list', {}); }
+  catch (e) { clearEl(body); body.appendChild(el('div', { class: 'evidence-empty', text: '読み込めませんでした。' })); return; }
+  var data = result.data || {};
+  if (!data.ok) { clearEl(body); body.appendChild(el('div', { class: 'evidence-empty', text: '読み込めませんでした。' })); return; }
+  txwRenderInvites(Array.isArray(data.invites) ? data.invites : []);
+}
+
+async function txwRevokeInvite(token, btn) {
+  if (!confirm('この招待リンクを取り消します。よろしいですか？')) return;
+  btn.disabled = true;
+  try {
+    var result = await txwApiCall('invite_revoke', { invite_token: token });
+    var data = result.data || {};
+    if (data.ok && data.revoked) { txwLoadInvites(); }
+    else { alert('取り消しに失敗しました。'); btn.disabled = false; }
+  } catch (e) { alert('取り消しに失敗しました。'); btn.disabled = false; }
+}
+
+function txwRenderAdvisors(advisors) {
+  var body = document.getElementById('txwAdvisorListBody');
+  clearEl(body);
+  if (!advisors.length) {
+    body.appendChild(el('div', { class: 'evidence-empty', text: '税理士は登録されていません。' }));
+    return;
+  }
+  var table = document.createElement('table');
+  var thead = el('thead');
+  var trh = el('tr');
+  ['メール', '登録日時', '状態', '操作'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
+  thead.appendChild(trh);
+  table.appendChild(thead);
+  var tbody = document.createElement('tbody');
+  advisors.forEach(function (a) {
+    var tr = el('tr');
+    tr.appendChild(el('td', { text: a.email || '' }));
+    tr.appendChild(el('td', { text: txwFormatDateTime(a.created_at) }));
+    var tdSt = el('td');
+    tdSt.appendChild(el('span', { class: 'chip ' + (a.enabled ? 'chip-green' : 'chip-gray'), text: a.enabled ? '有効' : '無効' }));
+    tr.appendChild(tdSt);
+    var tdOp = el('td');
+    var toggleBtn = el('button', { type: 'button', class: 'btn-mini', text: a.enabled ? '無効にする' : '有効にする' });
+    toggleBtn.addEventListener('click', function () { txwSetAdvisorEnabled(a.email, !a.enabled, toggleBtn); });
+    tdOp.appendChild(toggleBtn);
+    tr.appendChild(tdOp);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  body.appendChild(table);
+}
+
+async function txwLoadAdvisors() {
+  var body = document.getElementById('txwAdvisorListBody');
+  clearEl(body);
+  body.appendChild(el('div', { class: 'txw-loading', text: '読み込み中…' }));
+  var result;
+  try { result = await txwApiCall('advisor_list', {}); }
+  catch (e) { clearEl(body); body.appendChild(el('div', { class: 'evidence-empty', text: '読み込めませんでした。' })); return; }
+  var data = result.data || {};
+  if (!data.ok) { clearEl(body); body.appendChild(el('div', { class: 'evidence-empty', text: '読み込めませんでした。' })); return; }
+  txwRenderAdvisors(Array.isArray(data.advisors) ? data.advisors : []);
+}
+
+async function txwSetAdvisorEnabled(emailStr, enabled, btn) {
+  if (!enabled) {
+    if (!confirm(emailStr + ' を無効にします。よろしいですか？')) return;
+  }
+  btn.disabled = true;
+  try {
+    var result = await txwApiCall('advisor_set_enabled', { email: emailStr, enabled: enabled });
+    var data = result.data || {};
+    if (data.ok && data.updated) { txwLoadAdvisors(); }
+    else { alert('更新に失敗しました。'); btn.disabled = false; }
+  } catch (e) { alert('更新に失敗しました。'); btn.disabled = false; }
+}
+
 /* ---------------- タブ切替 ---------------- */
 function txwGoTab(t) {
   document.querySelectorAll('.tabpage').forEach(function (elx) { elx.classList.toggle('active', elx.id === 't-' + t); });
   document.querySelectorAll('.tab-btn').forEach(function (elx) { elx.classList.toggle('active', elx.dataset.t === t); });
+  if (t === 'admin' && !txwAdminLoaded) {
+    txwAdminLoaded = true;
+    txwLoadInvites();
+    txwLoadAdvisors();
+  }
 }
 
 /* ---------------- 初期化 ---------------- */
@@ -372,15 +690,19 @@ function txwInit() {
     btn.addEventListener('click', function () { txwGoTab(btn.dataset.t); });
   });
   document.getElementById('txwGateLoginBtn').addEventListener('click', txwGateLogin);
+  document.getElementById('txwGateSignupBtn').addEventListener('click', txwGateSignup);
   document.getElementById('txwGatePass').addEventListener('keydown', function (e) { if (e.key === 'Enter') txwGateLogin(); });
   document.getElementById('txwGateEmail').addEventListener('keydown', function (e) { if (e.key === 'Enter') txwGateLogin(); });
   document.getElementById('txwLogoutBtn').addEventListener('click', txwLogout);
+  document.getElementById('txwInviteCreateBtn').addEventListener('click', txwCreateInvite);
+  document.getElementById('txwInviteListReloadBtn').addEventListener('click', txwLoadInvites);
+  document.getElementById('txwAdvisorListReloadBtn').addEventListener('click', txwLoadAdvisors);
 
   var monthInput = document.getElementById('txwMonth');
   monthInput.value = txwCurrentMonthDefault();
   monthInput.addEventListener('change', txwLoad);
 
-  if (txwIsLoggedIn()) { txwHideGate(); txwLoad(); }
+  if (txwIsLoggedIn()) { txwHandleLoginSuccess(); }
   else { txwShowGate(''); }
 
   txwWasLoggedIn = txwIsLoggedIn();
