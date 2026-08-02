@@ -1070,6 +1070,9 @@ function mfRenderAmbiguous(ambiguousList) {
     const wrap = document.createElement('div');
     wrap.className = 'panel';
     wrap.style.marginTop = '10px';
+    // 添付後にこの証憑の候補をまとめて畳むための目印
+    wrap.dataset.evidenceId = item.evidence_id;
+    wrap.dataset.fileName = item.file_name || item.evidence_id;
 
     if (item.fuzzy) {
       const note = document.createElement('div');
@@ -1092,14 +1095,15 @@ function mfRenderAmbiguous(ambiguousList) {
       row.className = 'controls';
       row.style.marginTop = '6px';
 
+      const labelText = mfCandidateLabel(c);
       const label = document.createElement('span');
-      label.textContent = mfCandidateLabel(c);
+      label.textContent = labelText;
       row.appendChild(label);
 
       const btn = document.createElement('button');
       btn.className = 'secondary';
       btn.textContent = 'この仕訳に添付';
-      btn.onclick = () => mfConfirmMatch(item.evidence_id, c.journal_id, btn);
+      btn.onclick = () => mfConfirmMatch(item.evidence_id, c.journal_id, btn, labelText);
       row.appendChild(btn);
 
       wrap.appendChild(row);
@@ -1187,7 +1191,7 @@ async function mfRunMatch() {
   }
 }
 
-async function mfConfirmMatch(evidenceId, journalId, btnEl) {
+async function mfConfirmMatch(evidenceId, journalId, btnEl, label) {
   if (btnEl) btnEl.disabled = true;
   try {
     const res = await fetch('/api/mf/match', {
@@ -1199,8 +1203,21 @@ async function mfConfirmMatch(evidenceId, journalId, btnEl) {
     if (!res.ok || !d.ok) {
       throw new Error((d && d.error) || 'HTTP ' + res.status);
     }
-    // 同じ証憑を複数の仕訳（例: 振込仕訳と計上仕訳）へ付けられるよう、押した候補だけ添付済みにする
-    if (btnEl) btnEl.textContent = '添付済み';
+    // 添付するとその証憑はstatus=attachedになり、サーバー側は2回目の添付を
+    // already_attached(409)で拒否する。他の候補ボタンを押しても必ず失敗するうえ、
+    // 誤って別の仕訳に付けようとする事故のもとなので、候補ごと畳んでしまう。
+    if (btnEl) {
+      const wrap = btnEl.closest('[data-evidence-id]');
+      if (wrap) {
+        wrap.innerHTML = '';
+        const done = document.createElement('div');
+        done.className = 'safe-hint ok';
+        done.textContent = '添付しました　' + (wrap.dataset.fileName || '') + '　→　' + (label || '');
+        wrap.appendChild(done);
+      } else {
+        btnEl.textContent = '添付済み';
+      }
+    }
     mfToast('仕訳に添付しました', 'ok');
     mfLoadLedger();
   } catch (e) {
