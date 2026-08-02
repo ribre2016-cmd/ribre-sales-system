@@ -1074,9 +1074,11 @@ function mfRenderAmbiguous(ambiguousList) {
     if (item.fuzzy) {
       const note = document.createElement('div');
       note.className = 'safe-hint warn';
+      // 日数は api/mf/_lib/mf-match-core.js の VENDOR_DATE_MARGIN_DAYS(45) と
+      // FUZZY_MARGIN_DAYS(14) に対応する。定数を変えたらこの文言も直すこと。
       note.textContent = item.vendor_date
-        ? '※金額不一致でも取引先名と日付(±7日)で抽出した候補です（外貨建て請求書など）。金額を確認のうえ添付してください'
-        : '※日付が±3日ずれた候補です';
+        ? '※金額は照合せず、取引先名と日付(±45日)で抽出した候補です（外貨建て請求書など）。金額を確認のうえ添付してください'
+        : '※金額は一致していますが、日付が±14日ずれている候補です';
       wrap.appendChild(note);
     }
 
@@ -1166,10 +1168,17 @@ async function mfRunMatch() {
       awaitingAttachedCount = (aw.attached || []).length;
       const stillWaitingCount = (aw.still_waiting || []).length;
       if (awaitingAttachedCount) rows.push({ type: '結果', msg: 'マッチ待ちのうち ' + awaitingAttachedCount + '件を仕訳に自動添付しました（二重送信なし）' });
-      if (stillWaitingCount) rows.push({ type: '結果', msg: 'マッチ待ちのまま様子見中: ' + stillWaitingCount + '件（仕訳が見つかり次第、自動で添付します）' });
+      const awAmbiguousCount = (aw.ambiguous || []).length;
+      if (awAmbiguousCount) {
+        // 外貨建てなど金額で照合できない証憑は自動添付しない。候補を出すので利用者が選ぶ。
+        rows.push({ type: '結果', level: 'warn', msg: 'マッチ待ちのうち ' + awAmbiguousCount + '件は候補が見つかりました（下で選択してください）' });
+      }
+      const waitingOnly = stillWaitingCount - awAmbiguousCount;
+      if (waitingOnly > 0) rows.push({ type: '結果', msg: 'マッチ待ちのまま様子見中: ' + waitingOnly + '件（仕訳が見つかり次第、自動で添付します）' });
     }
     mfRenderMatchSummary(rows);
-    mfRenderAmbiguous(d.ambiguous);
+    // 通常分とマッチ待ち分の候補をまとめて表示する
+    mfRenderAmbiguous([].concat(d.ambiguous || [], (aw && aw.ambiguous) || []));
     if (attachedCount || awaitingAttachedCount) mfLoadLedger();
   } catch (e) {
     mfRenderMatchSummary([{ type: 'ERROR', level: 'danger', msg: 'マッチング失敗: ' + e.message }]);

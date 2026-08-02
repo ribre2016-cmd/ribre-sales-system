@@ -488,17 +488,21 @@ async function processAwaitingMatch(accessToken) {
   const attached = [];
   const stillWaiting = [];
   const failed = [];
+  const ambiguous = [];
 
   if (!evidenceRows.length) {
-    return { ok: true, attached, still_waiting: stillWaiting, failed };
+    return { ok: true, attached, still_waiting: stillWaiting, failed, ambiguous };
   }
 
   const dates = evidenceRows.map((e) => e.ocr_date).filter(Boolean).sort();
   let journals = [];
   if (dates.length) {
     try {
-      const startDate = addDays(dates[0], -FUZZY_MARGIN_DAYS);
-      const endDate = addDays(dates[dates.length - 1], FUZZY_MARGIN_DAYS);
+      // 取得ウィンドウはrunAutoMatchと同じMARGIN_DAYS(=VENDOR_DATE_MARGIN_DAYS 45日)。
+      // 以前はFUZZY_MARGIN_DAYS(14日)で取っていたため、取引先名＋日付±45日の候補を
+      // 探そうにも仕訳がウィンドウ外で取得できていなかった。
+      const startDate = addDays(dates[0], -MARGIN_DAYS);
+      const endDate = addDays(dates[dates.length - 1], MARGIN_DAYS);
       journals = await fetchJournals({ accessToken, startDate, endDate });
     } catch (e) {
       journals = []; // 取得失敗時は「今回は見つからなかった」として扱う（次回のリトライに委ねる）
@@ -531,12 +535,30 @@ async function processAwaitingMatch(accessToken) {
       } catch (e) {
         failed.push(evidence.id);
       }
-    } else {
-      stillWaiting.push(evidence.id);
+      continue;
     }
+
+    // 完全一致(日付+金額)で決まらなかった場合の候補提示。runAutoMatchと同じ2段を辿る。
+    // ここが無かったため、外貨建ての証憑（金額を円と比較できず完全一致が原理的に0件）は
+    // 候補が一切表示されず、仕訳が実在しても永久にマッチ待ちのままだった（2026-08-02修正）。
+    // 自動添付はしない（金額を検証していないため、添付の可否は利用者が判断する）。
+    const fuzzyCandidates = findFuzzyCandidates(availableJournals, evidence);
+    const vendorCandidates = fuzzyCandidates.length ? [] : findVendorDateCandidates(availableJournals, evidence);
+    const shown = fuzzyCandidates.length ? fuzzyCandidates : vendorCandidates;
+    if (shown.length) {
+      ambiguous.push({
+        evidence_id: evidence.id,
+        file_name: evidence.file_name,
+        fuzzy: true,
+        vendor_date: !fuzzyCandidates.length,
+        candidates: shown.map((j) => journalSummary(j, true)),
+      });
+    }
+    // 候補が出ても添付は未確定なので、いずれにせよ「待機中」として数える
+    stillWaiting.push(evidence.id);
   }
 
-  return { ok: true, attached, still_waiting: stillWaiting, failed };
+  return { ok: true, attached, still_waiting: stillWaiting, failed, ambiguous };
 }
 
 // 手動確定モード: {evidence_id, journal_id} を指定して添付する
