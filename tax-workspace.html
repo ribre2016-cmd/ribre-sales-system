@@ -56,6 +56,7 @@ tr:nth-child(even) td { background: #fafcff; }
 .note.warn { color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 8px 10px; }
 .note.danger { color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px 10px; font-weight: 900; }
 .note.info { color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 10px; }
+.note.ok { color: #15803d; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 10px; font-weight: 900; }
 
 /* 明細カード */
 .jcard { border: 1px solid #dbe3ef; border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
@@ -73,6 +74,22 @@ tr:nth-child(even) td { background: #fafcff; }
 .evidence-item .meta { font-size: 11px; color: #64748b; font-weight: 700; margin-top: 2px; }
 .evidence-item .cand-note { font-size: 11px; color: #92400e; font-weight: 700; margin-top: 3px; }
 .evidence-empty { font-size: 12px; color: #94a3b8; font-weight: 700; }
+.evidence-check-row { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 800; color: #334155; margin-bottom: 4px; cursor: pointer; }
+.evidence-check-row input { margin: 0; }
+
+/* ---- Phase 3: 仕訳登録フォーム ---- */
+.jcard-form { margin-top: 4px; }
+.jform-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.jform-field { flex: 1 1 220px; min-width: 180px; }
+.jform-field-wide { flex: 1 1 100%; }
+.jform-field label { display: block; font-size: 11px; font-weight: 900; color: #334155; margin-bottom: 4px; }
+.jform-field input, .jform-field select {
+  width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #cbd5e1; border-radius: 6px;
+  font: inherit; font-size: 12.5px; background: #fff;
+}
+.jform-btnrow { display: flex; justify-content: flex-end; margin-top: 6px; }
+.jform-status { margin-top: 10px; }
+.jcard-collapsed { padding: 14px; }
 
 .file-attach-note { font-size: 11px; color: #92400e; font-weight: 700; margin-top: 2px; }
 .month-group-title { font-size: 13px; font-weight: 900; color: #123a7a; margin: 18px 0 8px; }
@@ -148,7 +165,7 @@ tr:nth-child(even) td { background: #fafcff; }
   <div class="topbar">
     <div>
       <h1>税理士ワークスペース</h1>
-      <div class="sub">Phase 1（読み取り専用）／ 登録機能はPhase 3で追加予定です</div>
+      <div class="sub">1件ずつ内容を確認して登録してください。一括登録はありません。</div>
     </div>
     <div class="topbar-right">
       <span class="who">ログイン中: <span id="txwWhoEmail"></span></span>
@@ -160,6 +177,7 @@ tr:nth-child(even) td { background: #fafcff; }
   </div>
 
   <div id="txwInfoBanner" class="note info" style="display:none;margin-bottom:14px;"></div>
+  <div id="txwTermWarning" class="note warn" style="display:none;margin-bottom:14px;"></div>
   <div id="txwGlobalError" class="note danger" style="display:none;margin-bottom:14px;"></div>
 
   <div class="tabs">
@@ -172,8 +190,8 @@ tr:nth-child(even) td { background: #fafcff; }
 
   <!-- ① 未仕訳の明細 -->
   <section class="tabpage active" id="t-unmatched">
-    <div class="note info" style="margin-bottom:14px;">
-      この画面は読み取り専用です。登録機能はPhase 3で追加予定です。仕訳の登録・証憑の添付はMFクラウド会計の画面で行ってください。
+    <div class="note info" id="txwUnmatchedNote" style="margin-bottom:14px;">
+      1件ずつ内容を確認して登録してください。一括登録はありません。
     </div>
     <div class="panel">
       <div class="panel-head">
@@ -267,7 +285,7 @@ tr:nth-child(even) td { background: #fafcff; }
     </div>
   </section>
 
-  <div class="footer-badge">RIBRE 税理士ワークスペース（Phase 1・読み取り専用）</div>
+  <div class="footer-badge">RIBRE 税理士ワークスペース</div>
 </div>
 
 <script src="services/core.js"></script>

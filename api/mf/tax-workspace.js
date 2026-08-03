@@ -20,7 +20,10 @@ const {
   mfFetch,
   fetchUnjournalizedTransactions,
 } = require('./_lib/mf-client');
-const { normalizeText, addDays, VENDOR_DATE_MARGIN_DAYS } = require('./_lib/mf-match-core');
+const {
+  normalizeText, addDays, VENDOR_DATE_MARGIN_DAYS,
+  fetchEvidenceById, attachEvidenceToJournal,
+} = require('./_lib/mf-match-core');
 const { verifySupabaseToken } = require('../openai/_lib/require-auth');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -266,6 +269,192 @@ async function setAdvisorEnabled(email, enabled) {
   return Array.isArray(rows) && rows.length > 0;
 }
 
+/* ---------------- Phase 3: 仕訳登録＋証憑添付 ---------------- */
+
+// 操作履歴に1行残す。MF側では仕訳が全て「連携アプリ」名義になり誰が作ったか
+// 分からないため、**これがこの機能の唯一の監査証跡**（設計書§5-5）。
+// 記録に失敗しても本処理は止めない（記録できないことを理由に帳簿操作を巻き戻さない）。
+async function recordAction(row) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/tax_advisor_actions`, {
+      method: 'POST',
+      headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify([row]),
+    });
+  } catch (e) {
+    console.error('tax_advisor_actions への記録に失敗（本処理は成功済み）', e);
+  }
+}
+
+// その明細がまだ未仕訳かを確認する。
+// ⚠ ここで確認しても、確認と登録の間にMFの画面側で仕訳化されると二重になる（TOCTOU）。
+//    MFに冪等キーが無いため完全には防げない。登録後にも確認して警告を出す（§5-4）。
+async function findTransaction(accessToken, transactionId, dateHint) {
+  // 明細IDでの直接取得APIは無いため、日付範囲で取得して突き合わせる
+  const around = (d, n) => addDays(d, n);
+  const params = new URLSearchParams({
+    start_date: around(dateHint, -3),
+    end_date: around(dateHint, 3),
+    per_page: '1000',
+    page: '1',
+  });
+  const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3/transactions?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  const list = Array.isArray(data.transactions) ? data.transactions : [];
+  return list.find((t) => t.id === transactionId) || null;
+}
+
+// 明細から仕訳を作る
+async function postJournalize(accessToken, body) {
+  const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3/transactions/journalize`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+  return data;
+}
+
+// 同じ明細から仕訳が複数できていないか確認する（TOCTOUの事後検知）
+async function countJournalsForTransaction(accessToken, transactionId, dateStr) {
+  try {
+    const params = new URLSearchParams({
+      start_date: addDays(dateStr, -3),
+      end_date: addDays(dateStr, 3),
+      per_page: '200',
+      page: '1',
+    });
+    const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3/journals?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    const list = Array.isArray(data.journals) ? data.journals : [];
+    return list.filter((j) => j.transaction_id === transactionId).length;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 証憑1件を仕訳へ添付する。mf_evidence の行を claim してから送る
+// （MFのvouchersは取り消し不能なため、DB先行claimで二重送信を構造的に防ぐ。制約#12と同じ考え方）。
+async function attachEvidence(accessToken, evidenceId, journalId) {
+  const ev = await fetchEvidenceById(evidenceId);
+  if (!ev) return { ok: false, error: 'evidence_not_found' };
+  if (!ev.storage_path) return { ok: false, error: 'no_storage_path' };
+  if (ev.status === 'attached') return { ok: false, error: 'already_attached' };
+  try {
+    const result = await attachEvidenceToJournal({
+      accessToken, evidence: ev, journalId, fromStatus: ev.status,
+    });
+    if (!result.claimed) return { ok: false, error: 'already_attached' };
+    return { ok: true, file_id: result.file_id || null };
+  } catch (e) {
+    return { ok: false, error: 'attach_failed', message: e && e.message };
+  }
+}
+
+async function handleJournalize(res, advisor, accessToken, body) {
+  const transactionId = String((body && body.transaction_id) || '');
+  const accountId = String((body && body.account_id) || '');
+  const dateHint = String((body && body.date) || '');
+  if (!transactionId || !accountId || !/^\d{4}-\d{2}-\d{2}$/.test(dateHint)) {
+    res.status(400).json({ ok: false, error: 'invalid_request' });
+    return;
+  }
+  const evidenceIds = Array.isArray(body.evidence_ids) ? body.evidence_ids.slice(0, 5) : [];
+
+  // 1. その明細がまだ未仕訳か
+  let tx;
+  try {
+    tx = await findTransaction(accessToken, transactionId, dateHint);
+  } catch (e) {
+    if (e && (e.status === 403 || e.status === 401)) {
+      res.status(200).json({ ok: false, error: 'scope_missing' });
+      return;
+    }
+    res.status(200).json({ ok: false, error: 'transaction_check_failed', message: e && e.message });
+    return;
+  }
+  if (!tx) {
+    res.status(200).json({ ok: false, error: 'transaction_not_found' });
+    return;
+  }
+  if (tx.journalizing_status !== 'none') {
+    res.status(200).json({ ok: false, error: 'already_journalized', status: tx.journalizing_status });
+    return;
+  }
+
+  // 2. 仕訳を作る。invoice_kind は必ず明示送信する（未確認事項C・既定値に依存しない）
+  const payload = { transaction_id: transactionId, account_id: accountId };
+  if (body.tax_id) payload.tax_id = String(body.tax_id);
+  if (body.sub_account_id) payload.sub_account_id = String(body.sub_account_id);
+  payload.invoice_kind = ['INVOICE_KIND_NOT_TARGET', 'INVOICE_KIND_QUALIFIED', 'INVOICE_KIND_UNQUALIFIED_80']
+    .indexOf(body.invoice_kind) >= 0 ? body.invoice_kind : 'INVOICE_KIND_NOT_TARGET';
+  if (body.memo) payload.memo = String(body.memo).slice(0, 200);
+
+  let created;
+  try {
+    created = await postJournalize(accessToken, payload);
+  } catch (e) {
+    await recordAction({
+      actor_email: advisor.email, action: 'journalize', transaction_id: transactionId,
+      account_id: accountId, tax_id: body.tax_id || null, result: 'failed',
+      error_message: (e && e.message ? String(e.message) : 'unknown').slice(0, 500),
+      payload,
+    });
+    // MFが決算済みの期などを拒否した場合、そのエラーをそのまま画面に出す（決め打ちしない）
+    res.status(200).json({ ok: false, error: 'journalize_failed', message: e && e.message, detail: e && e.body });
+    return;
+  }
+  const journalId = (created && created.journal && created.journal.id) || null;
+
+  // 3. 証憑を添付する。⚠ ここが失敗しても仕訳は取り消さない（§3.2）
+  const attached = [];
+  const attachFailed = [];
+  for (const evId of evidenceIds) {
+    if (!journalId) break;
+    const r = await attachEvidence(accessToken, evId, journalId);
+    if (r.ok) attached.push(evId); else attachFailed.push({ evidence_id: evId, error: r.error });
+  }
+
+  // 4. 二重仕訳の事後検知（TOCTOU。自動では消さない）
+  const dupCount = await countJournalsForTransaction(accessToken, transactionId, dateHint);
+
+  const result = attachFailed.length ? 'journal_ok_voucher_failed' : 'ok';
+  await recordAction({
+    actor_email: advisor.email, action: 'journalize', transaction_id: transactionId,
+    journal_id: journalId, account_id: accountId, tax_id: body.tax_id || null,
+    evidence_ids: attached.length ? attached : null,
+    result,
+    error_message: attachFailed.length ? JSON.stringify(attachFailed).slice(0, 500) : null,
+    payload,
+  });
+
+  res.status(200).json({
+    ok: true,
+    journal_id: journalId,
+    journal: created && created.journal ? created.journal : null,
+    attached,
+    attach_failed: attachFailed,
+    // 2件以上あれば、MFの画面側でも仕訳化された可能性がある
+    duplicate_warning: (dupCount != null && dupCount > 1) ? dupCount : null,
+  });
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -341,7 +530,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  if (['bootstrap', 'list'].indexOf(action) < 0) {
+  if (['bootstrap', 'list', 'journalize'].indexOf(action) < 0) {
     res.status(400).json({ ok: false, error: 'invalid_action' });
     return;
   }
@@ -358,18 +547,29 @@ module.exports = async (req, res) => {
     return;
   }
 
+  // Phase 3: 仕訳登録＋証憑添付。トークンを取ったあとに実行する
+  if (action === 'journalize') {
+    await handleJournalize(res, advisor, accessToken, body);
+    return;
+  }
+
   // 選択欄のマスタだけを返す（画面の初期化用）
   if (action === 'bootstrap') {
     try {
       const accounts = await fetchMaster(accessToken, 'accounts');
       const taxes = await fetchMaster(accessToken, 'taxes?available=true');
       const partners = await fetchMaster(accessToken, 'trade_partners');
+      const subAccounts = await fetchMaster(accessToken, 'sub_accounts');
+      // 会計期間。決算が終わった期の月を選んだときに警告を出すために使う（設計書§6-E）
+      const terms = await fetchMaster(accessToken, 'term_settings');
       res.status(200).json({
         ok: true,
         advisor: { email: advisor.email, name: advisor.name },
         accounts: accounts.accounts || [],
         taxes: taxes.taxes || [],
         trade_partners: partners.trade_partners || [],
+        sub_accounts: subAccounts.sub_accounts || [],
+        term_settings: terms.term_settings || [],
       });
     } catch (e) {
       // スコープ不足（再連携前）は403。他機能に影響させず、案内だけ返す。
@@ -433,8 +633,8 @@ module.exports = async (req, res) => {
     // 社内メンバーには招待・税理士管理のパネルを出す
     is_member: isMember,
     month: body.month,
-    // Phase 1は読み取りのみ。画面はこれを見て登録ボタンを出さない。
-    writable: false,
+    // Phase 3から登録可能。画面はこれを見て登録ボタンを出す。
+    writable: true,
     items,
     shared_files: sharedFiles,
     open_evidence_count: evidences.length,

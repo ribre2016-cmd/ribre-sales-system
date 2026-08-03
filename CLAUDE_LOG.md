@@ -3,6 +3,37 @@
 このファイルは、Claude（AIアシスタント）がこのプロジェクトに加えた変更の記録です。
 新しい変更は上に追記します。
 
+## 2026-08-03 税理士ワークスペース Phase 3（仕訳登録＋証憑添付）を実装
+
+`POST /api/mf/tax-workspace` に `action:'journalize'` を追加。1件ずつだけ登録できる。
+
+### 処理の順序（`handleJournalize`）
+1. `GET /transactions` でその明細がまだ `none` かを確認
+2. `POST /transactions/journalize` → 201で `journal.id` を得る
+3. 証憑が選ばれていれば `POST /vouchers`（既存の `attachEvidenceToJournal` を使い、
+   **MF送信より先にDBをclaim**する。制約#12と同じ仕組みで二重送信を構造的に防ぐ）
+4. 操作履歴 `tax_advisor_actions` に記録（成功・失敗いずれも）
+5. `GET /journals` で同じ `transaction_id` の仕訳が複数無いかを事後確認
+
+### 守っている性質（テスト30項目で固定）
+- **証憑の添付に失敗しても仕訳は取り消さない**。「仕訳は成功・証憑は失敗」を分けて表示する
+- **`invoice_kind` は必ず明示送信する**（未確認事項Cの既定値に依存しない）。
+  不正な値が来たら `INVOICE_KIND_NOT_TARGET` に落とす
+- **消費税額はアプリ側で計算しない**。`tax_id` を渡すだけでMFが計算する（Phase 2で実証）
+- 二重仕訳を検知しても**自動では消さない**（消す判断は税理士）
+- MFがエラーを返したら**そのメッセージをそのまま画面に出す**（決算済みの期の扱いは
+  未確認のため決め打ちしない）
+- 一括登録のボタンは作らない
+
+### 会計期間の警告（未確認事項Eへの対処）
+`GET /term_settings` を `bootstrap` で返し、選んだ月が進行中の期でなければ
+「この月は 2025年度（2025/3/1〜2026/2/28）のものです…」と警告する。
+**登録はブロックしない**（前期を修正するのが正しい場合もあり、会計判断はシステムが代行しない）。
+
+### 実装中に見つけて直した不具合
+- `journalize` のルーティングを `accessToken` 取得より前に置いており、
+  `ReferenceError: Cannot access 'accessToken' before initialization` になっていた
+
 ## 2026-08-03 税理士ワークスペース Phase 2（実測）完了
 
 設計書 `docs/TAX_WORKSPACE_PLAN.md` §6 の未確認事項を実測した。

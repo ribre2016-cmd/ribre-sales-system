@@ -1,15 +1,21 @@
-/* 税理士ワークスペース（Phase 1・読み取り専用 + 招待リンクによる自己登録 + 社内管理パネル）
+/* 税理士ワークスペース（Phase 3・仕訳登録＋証憑添付 + 招待リンクによる自己登録 + 社内管理パネル）
  * 設計書: docs/TAX_WORKSPACE_PLAN.md
  * 依存: core.js(escHtml/sess/email/LS/yen/sb), supabase-auth.js(signIn/signUp/signOut)
  *
- * ⚠ Phase 1は読み取り専用。仕訳登録(journalize)・証憑添付を呼ぶコードは一切書かない。
+ * ⚠ 叩くAPIは POST /api/mf/tax-workspace のみ。action は 'bootstrap'（勘定科目・税区分・
+ *   補助科目・会計期間などの選択肢マスタ）/ 'list'（明細・証憑・共有ファイル） /
+ *   'journalize'（仕訳登録。1件ずつ） / 'redeem_invite'（招待リンクの引き換え）/
+ *   'invite_create' / 'invite_list' / 'invite_revoke' / 'advisor_list' /
+ *   'advisor_set_enabled'（社内メンバー向け管理。is_member:true のときだけ⑤タブから使う）。
+ *   他のAPIエンドポイントは一切叩かない。
+ * ⚠ 一括登録・全件登録のボタンは作らない（設計書§5-2・§9-2）。1回の操作で1件だけ。
+ * ⚠ 消費税額はアプリ側で計算しない。tax_id を渡すだけで、税額の計算はMFに任せる。
+ * ⚠ 勘定科目・税区分・補助科目・インボイス区分に初期値を入れない（すべて未選択。Phase 4まで）。
+ * ⚠ 証憑候補のチェックボックスは初期状態オフ。自動では選ばない。
+ * ⚠ 証憑の添付に失敗しても仕訳は取り消さない（成功と失敗を分けて表示するだけ）。
+ * ⚠ innerHTMLに外部由来の文字列を入れない。DOM組み立て（el()）とtextContentのみを使う。
  * ⚠ services/auth-gate.js は読み込まない（社内メール専用の入口ガードで税理士は弾かれる）。
  *   代わりにこのファイルが自前のログインゲートを持つ。
- * ⚠ 叩くAPIは POST /api/mf/tax-workspace のみ。action は 'list' /
- *   'redeem_invite'（招待リンクの引き換え）/ 'invite_create' / 'invite_list' /
- *   'invite_revoke' / 'advisor_list' / 'advisor_set_enabled'（社内メンバー向け管理。
- *   is_member:true のときだけ⑤タブから使う）。bootstrapは選択欄が無いPhase 1画面では
- *   不要なため呼ばない。他のAPIエンドポイントは一切叩かない。
  * ⚠ 招待トークンは画面のURL欄（招待リンク発行時の読み取り専用input）以外に出さない。
  *   console.log等のログにも出さない。
  */
@@ -51,6 +57,137 @@ function el(tag, attrs, children) {
   return e;
 }
 function clearEl(elx) { while (elx.firstChild) elx.removeChild(elx.firstChild); }
+
+/* ---------------- Phase 3: 選択欄マスタ（勘定科目・税区分・補助科目・会計期間） ----------------
+ * action:'bootstrap' で取得。ログイン成功時に1回だけ読み、以後は使い回す（月を変えても再取得しない）。
+ * 税区分は80件超あるため、素の<select>ではなく<datalist>付き検索入力にする（設計書§2.5・§9-9）。 */
+var txwMaster = { accounts: [], taxes: [], subAccounts: [], termSettings: [], loaded: false, failedReason: null };
+var txwAccountLookup = { labelToId: {}, options: [] };
+var txwTaxLookup = { labelToId: {}, options: [] };
+var txwSubAccountLookup = { labelToId: {}, options: [] };
+
+// 同じ表示名が複数あるときはIDを付けて区別する（2パス: 先に重複数を数えてから組み立てる）
+function txwBuildLabelLookup(list, labelFn) {
+  var counts = {};
+  var bases = (list || []).map(function (item) {
+    var b = String(labelFn(item) || ('ID:' + item.id));
+    counts[b] = (counts[b] || 0) + 1;
+    return b;
+  });
+  var labelToId = {};
+  var options = [];
+  (list || []).forEach(function (item, i) {
+    var b = bases[i];
+    var label = counts[b] > 1 ? (b + '（' + item.id + '）') : b;
+    labelToId[label] = String(item.id);
+    options.push(label);
+  });
+  return { labelToId: labelToId, options: options };
+}
+
+function txwBuildLookups() {
+  txwAccountLookup = txwBuildLabelLookup(txwMaster.accounts, function (a) {
+    return a.name || a.account_name;
+  });
+  txwTaxLookup = txwBuildLabelLookup(txwMaster.taxes, function (t) {
+    var parts = [t.name || t.abbreviation];
+    if (t.abbreviation && t.abbreviation !== t.name) parts.push('[' + t.abbreviation + ']');
+    if (t.tax_rate !== undefined && t.tax_rate !== null && t.tax_rate !== '') parts.push(t.tax_rate + '%');
+    return parts.join(' ');
+  });
+  txwSubAccountLookup = txwBuildLabelLookup(txwMaster.subAccounts, function (s) {
+    return s.name;
+  });
+}
+
+function txwFillDatalist(id, options) {
+  var dl = document.getElementById(id);
+  if (!dl) {
+    dl = document.createElement('datalist');
+    dl.id = id;
+    document.body.appendChild(dl);
+  }
+  clearEl(dl);
+  (options || []).forEach(function (label) {
+    var opt = document.createElement('option');
+    opt.value = label; // .value への代入。innerHTMLは使わない
+    dl.appendChild(opt);
+  });
+}
+
+// 3つのdatalistを共有(グローバル)にして、カードごとに選択肢を複製しない
+function txwEnsureDatalists() {
+  txwFillDatalist('txwAccountsDatalist', txwAccountLookup.options);
+  txwFillDatalist('txwTaxesDatalist', txwTaxLookup.options);
+  txwFillDatalist('txwSubAccountsDatalist', txwSubAccountLookup.options);
+}
+
+// datalistの入力文字列 → ID。完全一致のときだけ解決する（未確定の入力は選択なし扱い）
+function txwResolveId(lookup, value) {
+  var v = String(value || '').trim();
+  if (!v) return null;
+  return lookup.labelToId[v] || null;
+}
+
+async function txwLoadMaster() {
+  txwMaster.loaded = false;
+  txwMaster.failedReason = null;
+  try {
+    var result = await txwApiCall('bootstrap', {});
+    var data = result.data || {};
+    if (!data.ok) {
+      txwMaster.failedReason = (data && data.error) || 'unknown';
+      return;
+    }
+    txwMaster.accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    txwMaster.taxes = Array.isArray(data.taxes) ? data.taxes : [];
+    txwMaster.subAccounts = Array.isArray(data.sub_accounts) ? data.sub_accounts : [];
+    txwMaster.termSettings = Array.isArray(data.term_settings) ? data.term_settings : [];
+    txwMaster.loaded = true;
+    txwBuildLookups();
+    txwEnsureDatalists();
+  } catch (e) {
+    txwMaster.failedReason = 'network';
+  }
+}
+
+/* ---------------- Phase 3: 会計期間の警告（設計書§6-E。止めない・警告だけ） ---------------- */
+function txwTodayStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function txwFindTermForDate(dateStr) {
+  if (!dateStr) return null;
+  var terms = txwMaster.termSettings || [];
+  for (var i = 0; i < terms.length; i++) {
+    var t = terms[i];
+    if (t && t.start_date && t.end_date && dateStr >= t.start_date && dateStr <= t.end_date) return t;
+  }
+  return null;
+}
+function txwFormatDateSlash(iso) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  if (!m) return String(iso || '');
+  return m[1] + '/' + Number(m[2]) + '/' + Number(m[3]);
+}
+// 選んだ月が「進行中の期」(今日の日付が入る期)に含まれないなら警告を出す。登録はブロックしない。
+function txwUpdateTermWarning(month) {
+  var box = document.getElementById('txwTermWarning');
+  if (!box) return;
+  var m = /^(\d{4})-(\d{2})$/.exec(String(month || ''));
+  if (!m || !txwMaster.loaded || !txwMaster.termSettings || !txwMaster.termSettings.length) {
+    box.style.display = 'none'; box.textContent = ''; return;
+  }
+  var progressing = txwFindTermForDate(txwTodayStr());
+  var selectedTerm = txwFindTermForDate(m[1] + '-' + m[2] + '-01');
+  if (!selectedTerm || !progressing || selectedTerm === progressing) {
+    box.style.display = 'none'; box.textContent = ''; return;
+  }
+  box.textContent = '⚠ この月は ' + selectedTerm.fiscal_year + '年度（'
+    + txwFormatDateSlash(selectedTerm.start_date) + '〜' + txwFormatDateSlash(selectedTerm.end_date)
+    + '）のものです。この期の帳簿はすでに確定している可能性があります。登録先の期と処理方法をご判断ください。';
+  box.style.display = 'block';
+}
 
 /* ---------------- ログイン状態の判定（services/auth-gate.js の tokenValid() と同じ規則） ---------------- */
 function txwTokenValid() {
@@ -136,6 +273,9 @@ async function txwHandleLoginSuccess() {
     txwStripInviteHash();
     await txwRedeemInvite(token);
   }
+  // 選択欄マスタ(勘定科目・税区分・補助科目・会計期間)を先に読み、その後に明細一覧を読む。
+  // 失敗しても txwLoadMaster は例外を投げない（txwMaster.loaded=false のまま進む）。
+  await txwLoadMaster();
   txwLoad();
 }
 
@@ -298,6 +438,7 @@ async function txwLoad() {
   var monthInput = document.getElementById('txwMonth');
   var month = monthInput.value;
   if (!month) return;
+  txwUpdateTermWarning(month); // 会計期間の警告は月とマスタだけで判定できる。登録はブロックしない
   txwSetLoading();
 
   var result;
@@ -327,7 +468,7 @@ async function txwLoad() {
   }
 
   if (data.advisor && data.advisor.email) txwSetWho(data.advisor.email);
-  txwRenderUnmatched(Array.isArray(data.items) ? data.items : []);
+  txwRenderUnmatched(Array.isArray(data.items) ? data.items : [], !!data.writable);
   txwRenderAwaiting(Number(data.open_evidence_count) || 0);
   txwRenderFiles(Array.isArray(data.shared_files) ? data.shared_files : []);
   txwSetAdminVisible(!!data.is_member);
@@ -363,10 +504,20 @@ function txwEvidenceAmountText(ev) {
   return n.toLocaleString() + ' ' + cur;
 }
 
-function txwRenderUnmatched(items) {
+// ①タブ上部の注意書き。writableかどうかで文言を変える(§9-9・D)。
+function txwUpdateUnmatchedNote(writable) {
+  var note = document.getElementById('txwUnmatchedNote');
+  if (!note) return;
+  note.textContent = writable
+    ? '1件ずつ内容を確認して登録してください。一括登録はありません。'
+    : 'この明細は閲覧のみです。仕訳の登録・証憑の添付はMFクラウド会計の画面で行ってください。';
+}
+
+function txwRenderUnmatched(items, writable) {
   var container = document.getElementById('txwUnmatchedList');
   clearEl(container);
   document.getElementById('txwUnmatchedCount').textContent = '未仕訳 ' + items.length + '件';
+  txwUpdateUnmatchedNote(writable);
 
   if (!items.length) {
     container.appendChild(el('div', { class: 'evidence-empty', text: '未仕訳の明細はありません。' }));
@@ -390,11 +541,24 @@ function txwRenderUnmatched(items) {
     var evBox = el('div', { class: 'evidence-box' });
     var cands = Array.isArray(tx.evidence_candidates) ? tx.evidence_candidates : [];
     evBox.appendChild(el('h4', { text: '関連しそうな証憑' + (cands.length ? '（' + cands.length + '件）' : '') }));
+    var evidenceCheckboxes = [];
     if (!cands.length) {
       evBox.appendChild(el('div', { class: 'evidence-empty', text: '候補となる証憑は見つかりませんでした。' }));
     } else {
       cands.forEach(function (ev) {
         var item = el('div', { class: 'evidence-item' });
+        if (writable) {
+          // 初期状態は必ずオフ(設計書§3.2)。チェックされたものだけevidence_idsに載せる。
+          var cbRow = document.createElement('label');
+          cbRow.className = 'evidence-check-row';
+          var cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = false;
+          cbRow.appendChild(cb);
+          cbRow.appendChild(document.createTextNode('この証憑を添付する'));
+          item.appendChild(cbRow);
+          evidenceCheckboxes.push({ checkbox: cb, evidence_id: ev.evidence_id });
+        }
         item.appendChild(el('div', { class: 'fname', text: ev.file_name || '(ファイル名なし)' }));
         item.appendChild(el('div', {
           class: 'meta',
@@ -408,9 +572,214 @@ function txwRenderUnmatched(items) {
       });
     }
     body.appendChild(evBox);
+
+    if (writable) {
+      txwBuildJournalForm(card, body, tx, evidenceCheckboxes);
+    }
+
     card.appendChild(body);
     container.appendChild(card);
   });
+}
+
+/* ---------------- Phase 3: 仕訳登録フォーム ---------------- */
+function txwBuildSearchInput(datalistId, placeholder) {
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.setAttribute('list', datalistId);
+  input.placeholder = placeholder || '';
+  input.autocomplete = 'off';
+  return input;
+}
+
+function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
+  var formWrap = el('div', { class: 'jcard-form' });
+
+  if (!txwMaster.loaded) {
+    // 選択肢マスタが読めていない(スコープ不足・MF未連携など)ときは、登録できないことを
+    // はっきり伝える。account_idを解決できないため登録フォームは出さない。
+    formWrap.appendChild(el('div', {
+      class: 'note danger',
+      text: '選択肢（勘定科目・税区分）を読み込めなかったため、この明細は登録できません。画面を再読み込みしてください。'
+    }));
+    body.appendChild(formWrap);
+    return;
+  }
+
+  var row1 = el('div', { class: 'jform-row' });
+  var accountField = el('div', { class: 'jform-field' });
+  accountField.appendChild(el('label', { text: '勘定科目 *' }));
+  var accountInput = txwBuildSearchInput('txwAccountsDatalist', '入力して検索（必須）');
+  accountField.appendChild(accountInput);
+  row1.appendChild(accountField);
+
+  var subField = el('div', { class: 'jform-field' });
+  subField.appendChild(el('label', { text: '補助科目' }));
+  var subInput = txwBuildSearchInput('txwSubAccountsDatalist', '(任意)入力して検索');
+  subField.appendChild(subInput);
+  row1.appendChild(subField);
+  formWrap.appendChild(row1);
+
+  var row2 = el('div', { class: 'jform-row' });
+  var taxField = el('div', { class: 'jform-field' });
+  taxField.appendChild(el('label', { text: '税区分' }));
+  var taxInput = txwBuildSearchInput('txwTaxesDatalist', '(任意)入力して検索');
+  taxField.appendChild(taxInput);
+  row2.appendChild(taxField);
+
+  var invoiceField = el('div', { class: 'jform-field' });
+  invoiceField.appendChild(el('label', { text: 'インボイス区分' }));
+  var invoiceSelect = document.createElement('select');
+  [
+    ['', '(未選択)'],
+    ['INVOICE_KIND_NOT_TARGET', '対象外'],
+    ['INVOICE_KIND_QUALIFIED', '適格'],
+    ['INVOICE_KIND_UNQUALIFIED_80', '8割控除'],
+  ].forEach(function (pair) {
+    var opt = document.createElement('option');
+    opt.value = pair[0];
+    opt.textContent = pair[1];
+    invoiceSelect.appendChild(opt);
+  });
+  invoiceField.appendChild(invoiceSelect);
+  row2.appendChild(invoiceField);
+  formWrap.appendChild(row2);
+
+  var row3 = el('div', { class: 'jform-row' });
+  var memoField = el('div', { class: 'jform-field jform-field-wide' });
+  memoField.appendChild(el('label', { text: 'メモ' }));
+  var memoInput = document.createElement('input');
+  memoInput.type = 'text';
+  memoInput.maxLength = 200;
+  memoInput.placeholder = '(任意)';
+  memoField.appendChild(memoInput);
+  row3.appendChild(memoField);
+  formWrap.appendChild(row3);
+
+  body.appendChild(formWrap);
+
+  var statusArea = el('div', { class: 'jform-status' });
+  statusArea.style.display = 'none';
+
+  var submitBtn = el('button', { type: 'button', class: 'btn btn-primary', text: 'この内容で登録する' });
+  submitBtn.disabled = true; // 勘定科目が未選択の間は押せない
+
+  function updateSubmitEnabled() {
+    submitBtn.disabled = !txwResolveId(txwAccountLookup, accountInput.value);
+  }
+  accountInput.addEventListener('input', updateSubmitEnabled);
+
+  var refs = {
+    card: card, statusArea: statusArea, submitBtn: submitBtn,
+    accountInput: accountInput, subInput: subInput, taxInput: taxInput,
+    invoiceSelect: invoiceSelect, memoInput: memoInput, evidenceCheckboxes: evidenceCheckboxes,
+  };
+  submitBtn.addEventListener('click', function () { txwSubmitJournal(tx, refs); });
+
+  var btnRow = el('div', { class: 'jform-btnrow' });
+  btnRow.appendChild(submitBtn);
+  body.appendChild(btnRow);
+  body.appendChild(statusArea);
+}
+
+function txwShowCardError(refs, msg) {
+  clearEl(refs.statusArea);
+  refs.statusArea.appendChild(el('div', { class: 'note danger', text: msg }));
+  refs.statusArea.style.display = 'block';
+}
+
+function txwJournalizeErrorMessage(data) {
+  switch (data && data.error) {
+    case 'already_journalized':
+      return 'この明細は既に仕訳済みです。画面を再読み込みしてください。';
+    case 'transaction_not_found':
+      return '明細が見つかりませんでした。画面を再読み込みしてください。';
+    case 'journalize_failed':
+      // MFが決算済みの期を拒否した場合などのため、文言を決め打ちせずそのまま出す
+      return data.message ? String(data.message) : '仕訳の登録に失敗しました。';
+    case 'scope_missing':
+      return 'MF連携の権限が不足しています。管理者による再連携が必要です。';
+    case 'transaction_check_failed':
+      return data.message ? String(data.message) : '明細の確認に失敗しました。もう一度お試しください。';
+    case 'invalid_request':
+      return '入力内容が正しくありません。勘定科目をご確認ください。';
+    default:
+      return '登録に失敗しました。しばらくしてからもう一度お試しください。';
+  }
+}
+
+// 登録成功時: カードを畳んで結果を表示する(§B)。仕訳の成功と証憑添付の失敗は必ず分けて表示する。
+function txwCollapseCardSuccess(card, data) {
+  clearEl(card);
+  card.classList.add('jcard-collapsed');
+  var attached = Array.isArray(data.attached) ? data.attached : [];
+  var mainMsg = '登録しました（仕訳ID ' + (data.journal_id != null ? data.journal_id : '不明') + '）';
+  if (attached.length) mainMsg += '　証憑' + attached.length + '件を添付しました。';
+  card.appendChild(el('div', { class: 'note ok', text: mainMsg }));
+
+  var attachFailed = Array.isArray(data.attach_failed) ? data.attach_failed : [];
+  if (attachFailed.length) {
+    card.appendChild(el('div', {
+      class: 'note danger',
+      text: '仕訳は登録できましたが、証憑' + attachFailed.length + '件の添付に失敗しました。'
+    }));
+  }
+  if (data.duplicate_warning) {
+    card.appendChild(el('div', {
+      class: 'note warn',
+      text: '⚠ この明細から仕訳が' + data.duplicate_warning + '件見つかりました。MFの画面でご確認ください。'
+    }));
+  }
+}
+
+async function txwSubmitJournal(tx, refs) {
+  if (refs.submitBtn.disabled) return;
+  var accountId = txwResolveId(txwAccountLookup, refs.accountInput.value);
+  if (!accountId) { return; } // 安全側の二重チェック(通常はボタンが無効化されている)
+
+  // 二重送信を防ぐ: 押した直後にボタンを無効化する
+  refs.submitBtn.disabled = true;
+  refs.submitBtn.textContent = '登録中…';
+  clearEl(refs.statusArea);
+  refs.statusArea.style.display = 'none';
+
+  var payload = { action: 'journalize', transaction_id: tx.transaction_id, date: tx.date, account_id: accountId };
+  var taxId = txwResolveId(txwTaxLookup, refs.taxInput.value);
+  if (taxId) payload.tax_id = taxId;
+  var subId = txwResolveId(txwSubAccountLookup, refs.subInput.value);
+  if (subId) payload.sub_account_id = subId;
+  if (refs.invoiceSelect.value) payload.invoice_kind = refs.invoiceSelect.value;
+  var memo = (refs.memoInput.value || '').trim();
+  if (memo) payload.memo = memo;
+  var evidenceIds = refs.evidenceCheckboxes
+    .filter(function (c) { return c.checkbox.checked; })
+    .map(function (c) { return c.evidence_id; });
+  if (evidenceIds.length) payload.evidence_ids = evidenceIds;
+
+  var result;
+  try {
+    result = await txwApiCall('journalize', payload);
+  } catch (e) {
+    txwShowCardError(refs, '通信に失敗しました。ネットワークをご確認のうえ、もう一度お試しください。');
+    refs.submitBtn.disabled = false;
+    refs.submitBtn.textContent = 'この内容で登録する';
+    return;
+  }
+
+  if (result.status === 401) {
+    txwShowGate('ログインの有効期限が切れました。もう一度ログインしてください。');
+    return;
+  }
+
+  var data = result.data || {};
+  if (!data.ok) {
+    txwShowCardError(refs, txwJournalizeErrorMessage(data));
+    refs.submitBtn.disabled = false;
+    refs.submitBtn.textContent = 'この内容で登録する';
+    return;
+  }
+
+  txwCollapseCardSuccess(refs.card, data);
 }
 
 /* ---------------- ② 仕訳待ちの証憑 ---------------- */
