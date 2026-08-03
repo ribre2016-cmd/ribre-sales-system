@@ -744,10 +744,10 @@ function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
   row2.appendChild(taxField);
 
   var invoiceField = el('div', { class: 'jform-field' });
-  invoiceField.appendChild(el('label', { text: 'インボイス区分' }));
+  invoiceField.appendChild(el('label', { text: 'インボイス区分 *' }));
   var invoiceSelect = document.createElement('select');
   [
-    ['', '(未選択)'],
+    ['', '(未選択)※必ず選んでください'],
     ['INVOICE_KIND_NOT_TARGET', '対象外'],
     ['INVOICE_KIND_QUALIFIED', '適格'],
     ['INVOICE_KIND_UNQUALIFIED_80', '8割控除'],
@@ -780,10 +780,20 @@ function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
   var submitBtn = el('button', { type: 'button', class: 'btn btn-primary', text: 'この内容で登録する' });
   submitBtn.disabled = true; // 勘定科目が未選択の間は押せない
 
+  /* 勘定科目とインボイス区分の両方が選ばれるまで登録できない。
+   * インボイス区分を必須にしたのは、未選択のとき機械的に「対象外」へ倒れると
+   * 気づかないまま少数派の値で登録されてしまうため（実データでは91%が「適格」）。
+   * ⚠ ここは案内であって守りではない。実際に弾くのはサーバー側。 */
   function updateSubmitEnabled() {
-    submitBtn.disabled = !txwResolveId(txwAccountLookup, accountInput.value);
+    var okAccount = !!txwResolveId(txwAccountLookup, accountInput.value);
+    var okInvoice = !!invoiceSelect.value;
+    submitBtn.disabled = !(okAccount && okInvoice);
+    submitBtn.title = submitBtn.disabled
+      ? (!okAccount ? '勘定科目を候補から選んでください' : 'インボイス区分を選んでください')
+      : '';
   }
   accountInput.addEventListener('input', updateSubmitEnabled);
+  invoiceSelect.addEventListener('change', updateSubmitEnabled);
 
   var refs = {
     card: card, statusArea: statusArea, submitBtn: submitBtn,
@@ -908,6 +918,8 @@ function txwJournalizeErrorMessage(data) {
       return 'MF連携の権限が不足しています。管理者による再連携が必要です。';
     case 'transaction_check_failed':
       return data.message ? String(data.message) : '明細の確認に失敗しました。もう一度お試しください。';
+    case 'invoice_kind_required':
+      return 'インボイス区分が選ばれていません。「対象外」「適格」「8割控除」のいずれかを選んでから登録してください。';
     case 'invalid_request':
       return '入力内容が正しくありません。勘定科目をご確認ください。';
     default:

@@ -429,6 +429,8 @@ async function handleSuggest(res, accessToken, body) {
 // 'block' … 進行中の期以外への登録を拒否する
 // ⚠ 画面のガードは迂回できるため、登録処理でも必ずこの値を見て判定する。
 const CLOSED_TERM_POLICIES = ['warn', 'block'];
+// インボイス区分。仕訳登録では必須（既定値へ倒さない。理由は handleJournalize のコメント）
+const VALID_INVOICE_KINDS = ['INVOICE_KIND_NOT_TARGET', 'INVOICE_KIND_QUALIFIED', 'INVOICE_KIND_UNQUALIFIED_80'];
 
 async function fetchClosedTermPolicy() {
   try {
@@ -628,8 +630,17 @@ async function handleJournalize(res, advisor, accessToken, body) {
   const payload = { transaction_id: transactionId, account_id: accountId };
   if (body.tax_id) payload.tax_id = String(body.tax_id);
   if (body.sub_account_id) payload.sub_account_id = String(body.sub_account_id);
-  payload.invoice_kind = ['INVOICE_KIND_NOT_TARGET', 'INVOICE_KIND_QUALIFIED', 'INVOICE_KIND_UNQUALIFIED_80']
-    .indexOf(body.invoice_kind) >= 0 ? body.invoice_kind : 'INVOICE_KIND_NOT_TARGET';
+  /* インボイス区分は**必須**（2026-08-03 利用者判断）。
+   * 以前は未指定なら 'INVOICE_KIND_NOT_TARGET'（対象外）へ機械的に落としていたが、
+   * 実データでは課税取引209件中191件（91%）が「適格」であり、
+   * 選び忘れると**気づかないまま少数派の値で登録される**状態だった。
+   * 勝手に決めつけず、選んでいなければ登録を断る。
+   * ⚠ 画面側にも同じ判定を入れているが迂回できるため、ここで必ず弾く。 */
+  if (VALID_INVOICE_KINDS.indexOf(body.invoice_kind) < 0) {
+    res.status(200).json({ ok: false, error: 'invoice_kind_required' });
+    return;
+  }
+  payload.invoice_kind = body.invoice_kind;
   if (body.memo) payload.memo = String(body.memo).slice(0, 200);
 
   let created;
