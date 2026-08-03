@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MF API 実測（Phase 7）</title>
+<!--
+  Phase 7 の未確認事項(P7-A/C/D)を実測するための一時的なページ。
+  読み取りのみ。MFにもDBにも書き込まない。実測が終わったら
+  このファイルと api/mf/measure.js は削除してよい。
+-->
+<style>
+  body { margin:0; padding:20px; font-family:"Yu Gothic","Meiryo",system-ui,sans-serif;
+         background:#eef2f7; color:#0f172a; font-size:15px; line-height:1.7; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color:#475569; font-size:13.5px; margin-bottom:16px; }
+  .card { background:#fff; border:1px solid #dbe3ec; border-radius:10px; padding:16px; margin-bottom:14px; }
+  .note { background:#f1f5f9; border-left:4px solid #94a3b8; padding:10px 12px; border-radius:6px; font-size:13.5px; }
+  .note.ok { background:#ecfdf5; border-left-color:#10b981; }
+  .note.warn { background:#fffbeb; border-left-color:#f59e0b; }
+  button { font:inherit; font-weight:800; padding:10px 18px; border-radius:8px; cursor:pointer;
+           background:#1d4ed8; color:#fff; border:1px solid #1d4ed8; }
+  button.sec { background:#fff; color:#1d4ed8; }
+  pre { background:#0f172a; color:#e2e8f0; padding:14px; border-radius:8px; overflow:auto;
+        font-size:12.5px; line-height:1.55; white-space:pre-wrap; word-break:break-all; }
+  .verdict { font-weight:900; font-size:15px; margin:6px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MF API 実測（Phase 7）</h1>
+  <div class="sub">設計書 <code>docs/TAX_WORKSPACE_PHASE7_PLAN.md</code> §13 の未確認事項を確かめます。</div>
+
+  <div class="card">
+    <div class="note ok"><b>このページは読み取りしかしません。</b>MFにもデータベースにも一切書き込みません。
+      仕訳・証憑・売上のデータは何も変わりません。</div>
+    <div style="margin-top:12px;">
+      <button id="runBtn" type="button">実測する</button>
+      <button id="copyBtn" type="button" class="sec" style="display:none;margin-left:8px;">結果をコピー</button>
+    </div>
+    <div id="msg" class="note" style="display:none;margin-top:12px;"></div>
+  </div>
+
+  <div class="card" id="verdictCard" style="display:none;">
+    <div id="verdicts"></div>
+  </div>
+
+  <div class="card" id="rawCard" style="display:none;">
+    <div class="sub" style="margin:0 0 8px;">詳細（そのまま貼っていただければ読みます）</div>
+    <pre id="raw"></pre>
+  </div>
+</div>
+
+<script src="services/core.js"></script>
+<script src="services/supabase-rest.js"></script>
+<script src="services/supabase-auth.js"></script>
+<script src="services/auth-gate.js"></script>
+<script>
+(function () {
+  var runBtn = document.getElementById('runBtn');
+  var copyBtn = document.getElementById('copyBtn');
+  var msg = document.getElementById('msg');
+  var lastText = '';
+
+  function show(el, text, cls) {
+    el.style.display = '';
+    el.textContent = text;
+    el.className = 'note' + (cls ? ' ' + cls : '');
+  }
+
+  runBtn.addEventListener('click', async function () {
+    runBtn.disabled = true;
+    show(msg, '実測しています… (MFへの問い合わせに10秒ほどかかることがあります)');
+    try {
+      var s = (typeof sess === 'function') ? sess() : null;
+      if (!s || !s.access_token) throw new Error('ログインし直してください');
+      var res = await fetch('/api/mf/measure', {
+        headers: { Authorization: 'Bearer ' + s.access_token }
+      });
+      var d = await res.json().catch(function () { return {}; });
+      if (res.status === 401) throw new Error('ログインし直してください');
+      if (res.status === 403) throw new Error('このページはRIBREのメンバーだけが使えます');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+
+      lastText = JSON.stringify(d, null, 2);
+      document.getElementById('raw').textContent = lastText;
+      document.getElementById('rawCard').style.display = '';
+
+      var r = d.results || {};
+      var html = '';
+      [['P7_D_report_read', 'P7-D: 月次チェック（推移表）が使えるか'],
+       ['offices_read', '会計年度設定が取れるか'],
+       ['P7_C_manual_account', 'P7-C: 現金払いの受け皿（手動管理の口座）'],
+       ['P7_A_voucher_file_ids', 'P7-A: 資料が来ていない明細を出せるか']].forEach(function (pair) {
+        var v = r[pair[0]] || {};
+        html += '<div class="verdict">' + pair[1] + ' … ' + (v['判定'] || '(結果なし)') + '</div>';
+      });
+      document.getElementById('verdicts').innerHTML = html;
+      document.getElementById('verdictCard').style.display = '';
+      show(msg, '実測が終わりました。下の「結果をコピー」を押して貼り付けてください。', 'ok');
+      copyBtn.style.display = '';
+    } catch (e) {
+      show(msg, '失敗しました: ' + (e && e.message ? e.message : e), 'warn');
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+
+  copyBtn.addEventListener('click', function () {
+    navigator.clipboard.writeText(lastText).then(function () {
+      show(msg, 'コピーしました。そのまま貼り付けてください。', 'ok');
+    }, function () {
+      show(msg, 'コピーできませんでした。下の黒い枠の中を選択してコピーしてください。', 'warn');
+    });
+  });
+})();
+</script>
+</body>
+</html>
