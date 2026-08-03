@@ -19,13 +19,21 @@ const { verifySupabaseToken } = require('../openai/_lib/require-auth');
 const MEMBER_EMAILS = ['ribre2016@gmail.com', 'k.sado@ribre.co.jp'];
 
 async function mfGet(path, accessToken) {
-  const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}${path}`, {
+  // パスは必ず /api/v3 から始める。付け忘れるとMFのAPIではなく通常のWebに当たり、
+  // Cloudflareが403のHTML（Attention Required!）を返す。スコープ不足の403と紛らわしい。
+  const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3${path}`, {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
   });
   const text = await res.text();
   let json = null;
   try { json = JSON.parse(text); } catch (e) { /* そのまま */ }
-  return { status: res.status, ok: res.ok, json, raw: text.slice(0, 400) };
+  // HTMLが返ってきたらAPIではなくWeb側に当たっている（＝呼び出し側のパスの誤り）。
+  // スコープ不足の403はJSONで返るので、この2つを混同しないよう分けて持つ。
+  const isHtml = /^\s*<(!doctype|html)/i.test(text);
+  return {
+    status: res.status, ok: res.ok, json, isHtml,
+    raw: isHtml ? '(HTMLが返っています＝APIのURLが違う可能性。スコープ不足ではありません)' : text.slice(0, 300),
+  };
 }
 
 module.exports = async (req, res) => {
@@ -61,7 +69,8 @@ module.exports = async (req, res) => {
       status: r.status,
       ok: r.ok,
       判定: r.ok ? '○ 使える（⑨月次チェックを作れる）'
-        : (r.status === 403 ? '× 権限が足りない（再連携が反映されていない可能性）' : '× 失敗'),
+        : (r.isHtml ? '× 呼び出し側の不具合（APIのURLが違う）。権限の問題ではありません'
+          : (r.status === 403 ? '× 権限が足りない（再連携が反映されていない可能性）' : '× 失敗')),
       推移表の行数: rows.length,
       先頭の行名: rows.slice(0, 3).map((x) => x && x.name),
       エラー本文: r.ok ? undefined : r.raw,
