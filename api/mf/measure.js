@@ -116,42 +116,59 @@ module.exports = async (req, res) => {
   }
 
   // ---- P7-A: transactions の voucher_file_ids が実データで埋まるか（⑩の前提） ----
-  // 直近90日の明細を最大500件見て、証憑が紐付いている件数を数える。
-  try {
-    const end = new Date();
-    const start = new Date(end.getTime() - 90 * 24 * 3600 * 1000);
-    const iso = (d) => d.toISOString().slice(0, 10);
-    const r = await mfGet(
-      `/transactions?start_date=${iso(start)}&end_date=${iso(end)}&per_page=500&page=1`,
-      accessToken
-    );
-    const list = (r.json && r.json.transactions) || [];
-    const hasField = list.some((t) => t && Object.prototype.hasOwnProperty.call(t, 'voucher_file_ids'));
-    const withVoucher = list.filter((t) => t && Array.isArray(t.voucher_file_ids) && t.voucher_file_ids.length > 0);
-    const byStatus = {};
-    list.forEach((t) => { const k = (t && t.journalizing_status) || '(なし)'; byStatus[k] = (byStatus[k] || 0) + 1; });
-    out.results.P7_A_voucher_file_ids = {
-      status: r.status,
-      ok: r.ok,
-      判定: !r.ok ? '× 取得失敗'
-        : (!hasField ? '× 応答に voucher_file_ids が無い（⑩は台帳からの逆引きに切り替える）'
-          : (withVoucher.length ? '○ 実データで埋まっている（⑩をこの判定で作れる）'
-            : '△ 項目はあるが、直近90日で紐付きが1件も無い（判定に使えるか要検討）')),
-      期間: `${iso(start)} 〜 ${iso(end)}`,
-      取得件数: list.length,
-      証憑が紐付いている件数: withVoucher.length,
-      仕訳化ステータスの内訳: byStatus,
-      サンプル: list.slice(0, 3).map((t) => ({
-        日付: t.date, 金額: t.value, 収支: t.side,
-        内容: String(t.content || '').slice(0, 24),
-        仕訳化: t.journalizing_status,
-        証憑数: Array.isArray(t.voucher_file_ids) ? t.voucher_file_ids.length : '(項目なし)',
-      })),
-      エラー本文: r.ok ? undefined : r.raw,
-    };
-  } catch (e) {
-    out.results.P7_A_voucher_file_ids = { 判定: '× 例外', message: String(e && e.message || e) };
+  // 本番で動いている fetchUnjournalizedTransactions と同じく
+  // journalizing_statuses を必ず指定する。指定せず全件を取ろうとするとMFが500を返した（実測）。
+  const end = new Date();
+  const start = new Date(end.getTime() - 90 * 24 * 3600 * 1000);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const period = `${iso(start)} 〜 ${iso(end)}`;
+
+  async function fetchByStatus(status, perPage) {
+    const p = new URLSearchParams({
+      start_date: iso(start), end_date: iso(end),
+      per_page: String(perPage), page: '1',
+    });
+    p.append('journalizing_statuses', status);
+    return mfGet(`/transactions?${p.toString()}`, accessToken);
   }
+
+  const perStatus = {};
+  let allSampled = [];
+  for (const st of ['none', 'registered', 'new_voucher_attached']) {
+    try {
+      const r = await fetchByStatus(st, 200);
+      const list = (r.json && r.json.transactions) || [];
+      perStatus[st] = {
+        status: r.status, ok: r.ok, 件数: list.length,
+        証憑が紐付いている件数: list.filter((t) => t && Array.isArray(t.voucher_file_ids) && t.voucher_file_ids.length > 0).length,
+        エラー本文: r.ok ? undefined : r.raw,
+      };
+      if (r.ok) allSampled = allSampled.concat(list);
+    } catch (e) {
+      perStatus[st] = { ok: false, message: String(e && e.message || e) };
+    }
+  }
+
+  const anyOk = Object.keys(perStatus).some((k) => perStatus[k].ok);
+  const hasField = allSampled.some((t) => t && Object.prototype.hasOwnProperty.call(t, 'voucher_file_ids'));
+  const withVoucher = allSampled.filter((t) => t && Array.isArray(t.voucher_file_ids) && t.voucher_file_ids.length > 0);
+
+  out.results.P7_A_voucher_file_ids = {
+    判定: !anyOk ? '× 取得失敗'
+      : (!hasField ? '× 応答に voucher_file_ids が無い（⑩は台帳からの逆引きに切り替える）'
+        : (withVoucher.length ? '○ 実データで埋まっている（⑩をこの判定で作れる）'
+          : '△ 項目はあるが、直近90日で紐付きが1件も無い（⑩は台帳からの逆引きに切り替える）')),
+    期間: period,
+    仕訳化ステータス別: perStatus,
+    見た明細の合計: allSampled.length,
+    証憑が紐付いている件数: withVoucher.length,
+    サンプル: allSampled.slice(0, 5).map((t) => ({
+      日付: t.date, 金額: t.value, 収支: t.side,
+      内容: String(t.content || '').slice(0, 24),
+      仕訳化: t.journalizing_status,
+      証憑数: Array.isArray(t.voucher_file_ids) ? t.voucher_file_ids.length : '(項目なし)',
+    })),
+  };
 
   res.status(200).json(out);
 };
