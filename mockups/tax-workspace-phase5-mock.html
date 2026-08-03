@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>税理士ワークスペース Phase 5（画面案・モック）</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0; font-family: "Yu Gothic", "Meiryo", system-ui, sans-serif;
+  background: #eef2f7; color: #0f172a; padding-top: 54px;
+}
+/* ===== 常時警告バナー（最重要・全画面固定） ===== */
+.warnbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: #7f1d1d; color: #fff; padding: 10px 16px; text-align: center;
+  font-size: 13px; font-weight: 900; letter-spacing: .2px; line-height: 1.5;
+  box-shadow: 0 2px 10px rgba(0,0,0,.25);
+}
+.warnbar b { color: #fecaca; }
+.page { max-width: 1320px; margin: 0 auto; padding: 18px 22px 60px; }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 18px; background: #123a7a; color: #fff; border-radius: 8px; margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.topbar h1 { margin: 0; font-size: 19px; }
+.topbar .sub { font-size: 11px; opacity: .85; font-weight: 700; margin-top: 3px; }
+.topbar-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.topbar-right .who { font-size: 12px; font-weight: 800; opacity: .92; }
+.topbar-right select { border-radius: 6px; border: 1px solid #cbd5e1; padding: 6px 9px; font-weight: 800; font: inherit; }
+.topbar-right button.logout { background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.4); border-radius: 6px; padding: 7px 12px; font-weight: 800; font-size: 12px; cursor: pointer; }
+
+.tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 2px solid #cbd5e1; flex-wrap: wrap; }
+.tab-btn {
+  padding: 10px 16px; border: 1px solid #cbd5e1; border-bottom: none; border-radius: 8px 8px 0 0;
+  background: #e2e8f0; color: #475569; font-weight: 900; font-size: 12.5px; cursor: pointer;
+}
+.tab-btn.active { background: #fff; color: #123a7a; border-color: #123a7a; }
+.tab-btn.new { color: #7f1d1d; }
+.tab-btn.new.active { color: #7f1d1d; }
+.tabpage { display: none; }
+.tabpage.active { display: block; animation: fade .15s ease; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+.panel { background: #fff; border: 1px solid #dbe3ef; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 14px rgba(15,23,42,.05); margin-bottom: 16px; }
+.panel-head { padding: 13px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap: wrap; }
+.panel-head h2 { margin: 0; font-size: 15px; }
+.panel-head .desc { font-size: 11px; color: #64748b; font-weight: 700; margin-top: 3px; }
+.panel-body { padding: 14px 16px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th { background: #eaf1fb; color: #334155; text-align: left; padding: 8px 8px; border: 1px solid #cbd5e1; white-space: nowrap; }
+td { padding: 7px 8px; border: 1px solid #e2e8f0; vertical-align: middle; }
+td.num, th.num { text-align: right; white-space: nowrap; }
+tr:nth-child(even) td { background: #fafcff; }
+.tblwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+.chip { display: inline-block; font-size: 10.5px; font-weight: 900; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.chip-gray { background: #e2e8f0; color: #475569; }
+.chip-yellow { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.chip-red { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+.chip-green { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.chip-blue { background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; }
+
+.note { font-size: 12px; color: #64748b; font-weight: 700; line-height: 1.6; margin-top: 8px; }
+.note.warn { color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 8px 10px; }
+.note.danger { color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px 10px; font-weight: 900; }
+.note.info { color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 10px; }
+
+.btn { border: 0; border-radius: 6px; padding: 9px 16px; font-weight: 900; font-size: 12.5px; cursor: pointer; }
+.btn-primary { background: #123a7a; color: #fff; }
+.btn-primary:disabled { background: #94a3b8; cursor: not-allowed; }
+.btn-ghost { background: #e2e8f0; color: #0f172a; border-radius: 6px; padding: 6px 10px; font-weight: 800; font-size: 11.5px; border: 0; cursor: pointer; }
+.btn-mini { border: 1px solid #cbd5e1; background: #fff; border-radius: 5px; padding: 5px 10px; font-size: 11.5px; font-weight: 800; cursor: pointer; }
+.btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+
+.field-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 16px; margin-bottom: 10px; }
+.field-grid .full { grid-column: 1 / -1; }
+.field-grid label { display: block; font-size: 11.5px; font-weight: 900; color: #334155; margin-bottom: 4px; }
+.field-grid select, .field-grid input[type=text] {
+  width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 9px; font: inherit; font-weight: 700; background: #fff; font-size: 12.5px;
+}
+@media (max-width: 700px) { .field-grid { grid-template-columns: 1fr; } }
+
+/* ===== できないこと(常時表示) ===== */
+.limit-panel { border: 1.5px solid #fecaca; }
+.limit-panel .panel-head { background: #fef2f2; }
+.limit-callout { font-weight: 900; color: #7f1d1d; background: #fee2e2; border: 1px solid #fca5a5; border-radius: 6px; padding: 9px 12px; margin-bottom: 10px; font-size: 12.5px; line-height: 1.6; }
+
+/* ===== ⑥ 証憑の紐付け ===== */
+.vl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 860px) { .vl-grid { grid-template-columns: 1fr; } }
+.vl-col h3 { font-size: 13px; color: #123a7a; margin: 0 0 8px; }
+.vl-item { border: 1px solid #dbe3ef; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; background: #fff; }
+.vl-item.active { border-color: #123a7a; background: #eff6ff; }
+.vl-item .fname { font-weight: 900; font-size: 12.5px; }
+.vl-item .meta { font-size: 11px; color: #64748b; font-weight: 700; margin-top: 3px; }
+.vl-item .meta2 { margin-top: 4px; }
+.cand-card { border: 1px solid #dbe3ef; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: #f8fafc; }
+.cand-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.cand-title { font-weight: 900; font-size: 12.5px; }
+.cand-sub { font-size: 11.5px; color: #334155; font-weight: 700; margin-top: 6px; }
+.cand-empty-hint { font-size: 12px; color: #94a3b8; font-weight: 700; padding: 20px 4px; text-align: center; }
+
+/* ===== ⑦ 現金払いの登録 ===== */
+.dropzone { border: 2px dashed #94a3b8; border-radius: 10px; padding: 26px 16px; text-align: center; color: #475569; font-weight: 900; font-size: 13px; cursor: pointer; background: #f8fafc; margin-bottom: 14px; }
+.dropzone:hover { background: #eef2f7; }
+.dropzone small { display: block; font-weight: 700; font-size: 11.5px; color: #94a3b8; margin-top: 6px; }
+.section-title { font-size: 13px; color: #123a7a; font-weight: 900; margin: 18px 0 8px; }
+.section-title:first-child { margin-top: 0; }
+.required-mark { color: #b91c1c; font-weight: 900; }
+
+/* ===== ⑧ 証憑が付いていない仕訳 ===== */
+.progress-wrap { margin-bottom: 14px; }
+.progress-label { font-size: 12.5px; font-weight: 800; color: #334155; margin-bottom: 6px; }
+.progress-bar { background: #e2e8f0; border-radius: 999px; height: 14px; overflow: hidden; }
+.progress-fill { background: #15803d; height: 100%; transition: width .2s ease; }
+.nov-check { transform: scale(1.15); }
+
+.footer-badge { text-align: center; font-size: 11px; color: #94a3b8; margin-top: 24px; font-weight: 700; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #0f172a; color: #fff; font-size: 12.5px; font-weight: 800; padding: 10px 18px; border-radius: 20px; opacity: 0; transition: .25s; pointer-events: none; z-index: 200; box-shadow: 0 6px 20px rgba(0,0,0,.3); max-width: 90vw; text-align: center; }
+.toast.show { opacity: .96; }
+
+@media (max-width: 900px) {
+  table { font-size: 11px; }
+  .tabs { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<div class="warnbar">これは画面イメージです。ボタンを押しても何も起きません。MFへの通信は一切ありません。実装はまだされていません。</div>
+
+<div class="page">
+  <div class="topbar">
+    <div>
+      <h1>税理士ワークスペース Phase 5（設計モック）</h1>
+      <div class="sub">docs/TAX_WORKSPACE_PHASE5_PLAN.md に基づく画面案 ／ 実装は未着手・設計とモックのみ</div>
+    </div>
+    <div class="topbar-right">
+      <span class="who">ログイン中: sample@example.com（サンプル）</span>
+      <label style="font-size:11px;font-weight:800;">対象月
+        <select><option selected>2026年07月（サンプル）</option></select>
+      </label>
+      <button class="logout" type="button" onclick="mockToast()">ログアウト</button>
+    </div>
+  </div>
+
+  <!-- ===== この画面でできないこと（常時表示・設計書§5） ===== -->
+  <div class="panel limit-panel">
+    <div class="panel-head">
+      <div>
+        <h2>この画面でできないこと</h2>
+        <div class="desc">設計書§5。MF公式APIに機能が無いため実現できません。無理に別の手段で再現することもしません。</div>
+      </div>
+      <span class="chip chip-red">API制約により対応不可</span>
+    </div>
+    <div class="panel-body">
+      <div class="limit-callout">❌ 特に「明細を『対象外』にする」は、MFの会計APIに状態を書き換える手段がそもそも存在しないため、この画面でもMFの他の方法でも実現できません。</div>
+      <div class="tblwrap">
+        <table>
+          <thead><tr><th>できないこと</th><th>どうするか</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>明細を「対象外」にする</b></td>
+              <td>MFクラウド会計の「連携サービスから入力」画面で操作してください（APIに機能がありません）</td>
+              <td><button class="btn-ghost" type="button" onclick="mockToast()">MFクラウド会計へ（モック）</button></td>
+            </tr>
+            <tr>
+              <td>明細の摘要を書き換える</td>
+              <td>同上（APIに摘要を書き換える手段がありません）</td>
+              <td><button class="btn-ghost" type="button" onclick="mockToast()">MFクラウド会計へ（モック）</button></td>
+            </tr>
+            <tr>
+              <td>登録した仕訳を訂正・削除する</td>
+              <td>MFクラウド会計の「仕訳帳」から編集・削除してください</td>
+              <td><button class="btn-ghost" type="button" onclick="mockToast()">MFクラウド会計へ（モック）</button></td>
+            </tr>
+            <tr>
+              <td>複雑な複合仕訳・決算整理</td>
+              <td>MFクラウド会計の画面で作成してください</td>
+              <td><button class="btn-ghost" type="button" onclick="mockToast()">MFクラウド会計へ（モック）</button></td>
+            </tr>
+            <tr>
+              <td>一括登録</td>
+              <td>ありません。1件ずつ確認して登録してください（意図的な仕様です）</td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-t="unmatched" type="button" onclick="go('unmatched')">① 未仕訳の明細</button>
+    <button class="tab-btn" data-t="awaiting" type="button" onclick="go('awaiting')">② 仕訳待ちの証憑</button>
+    <button class="tab-btn" data-t="files" type="button" onclick="go('files')">③ 共有ファイル</button>
+    <button class="tab-btn" data-t="history" type="button" onclick="go('history')">④ 操作履歴</button>
+    <button class="tab-btn" data-t="admin" type="button" onclick="go('admin')">⑤ 税理士の管理</button>
+    <button class="tab-btn new" data-t="voucherlink" type="button" onclick="go('voucherlink')">⑥ 証憑の紐付け（新規）</button>
+    <button class="tab-btn new" data-t="cash" type="button" onclick="go('cash')">⑦ 現金払いの登録（新規）</button>
+    <button class="tab-btn new" data-t="novoucher" type="button" onclick="go('novoucher')">⑧ 証憑なし仕訳（新規）</button>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- ① 未仕訳の明細（既存・見出しのみ）                              -->
+  <!-- ============================================================ -->
+  <section class="tabpage active" id="t-unmatched">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>① 未仕訳の明細</h2>
+          <div class="desc">口座に来た明細のうち、まだ仕訳が作られていないものを1件ずつ登録する画面です（Phase 1〜4で実装済み）。</div>
+        </div>
+        <span class="chip chip-gray">実装済み・詳細省略</span>
+      </div>
+      <div class="panel-body">
+        <div class="note">このモックはPhase 5の新機能（⑥〜⑧タブ）が対象のため、既存タブは見出しのみ表示しています。実際の画面は tax-workspace.html をご確認ください。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ② 仕訳待ちの証憑（既存・見出しのみ）                            -->
+  <!-- ============================================================ -->
+  <section class="tabpage" id="t-awaiting">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>② 仕訳待ちの証憑</h2>
+          <div class="desc">仕訳が無いために送信を保留している証憑の一覧です（Phase 1〜4で実装済み）。</div>
+        </div>
+        <span class="chip chip-gray">実装済み・詳細省略</span>
+      </div>
+      <div class="panel-body">
+        <div class="note">詳細は tax-workspace.html をご確認ください。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ③ 共有ファイル（既存・見出しのみ）                              -->
+  <!-- ============================================================ -->
+  <section class="tabpage" id="t-files">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>③ 共有ファイル</h2>
+          <div class="desc">給与明細・請求書・売上管理表など、税理士へ渡しているファイルの一覧です（Phase 1〜4で実装済み）。</div>
+        </div>
+        <span class="chip chip-gray">実装済み・詳細省略</span>
+      </div>
+      <div class="panel-body">
+        <div class="note">詳細は tax-workspace.html をご確認ください。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ④ 操作履歴（既存・見出しのみ）                                  -->
+  <!-- ============================================================ -->
+  <section class="tabpage" id="t-history">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>④ 操作履歴</h2>
+          <div class="desc">誰が・いつ・どの明細を登録したかの記録です。追記専用で削除できません（Phase 1〜4で実装済み）。</div>
+        </div>
+        <span class="chip chip-gray">実装済み・詳細省略</span>
+      </div>
+      <div class="panel-body">
+        <div class="note">詳細は tax-workspace.html をご確認ください。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ⑤ 税理士の管理（既存・見出しのみ）                              -->
+  <!-- ============================================================ -->
+  <section class="tabpage" id="t-admin">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>⑤ 税理士の管理</h2>
+          <div class="desc">招待リンクの発行・管理と、税理士アカウントの有効/無効の切り替えです（社内メンバーのみ・Phase 1〜4で実装済み）。</div>
+        </div>
+        <span class="chip chip-gray">実装済み・詳細省略</span>
+      </div>
+      <div class="panel-body">
+        <div class="note">詳細は tax-workspace.html をご確認ください。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ⑥ 証憑の紐付け（新規・設計書§3）                                -->
+  <!-- ============================================================ -->
+  <section class="tabpage" id="t-voucherlink">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>⑥ 証憑の紐付け</h2>
+          <div class="desc">登録済みの仕訳に、後から届いた証憑をつなげます。左の証憑を選ぶと、右に候補の仕訳が出ます。</div>
+        </div>
+        <span class="chip chip-yellow">添付先の無い証憑 3件（サンプル）</span>
+      </div>
+      <div class="panel-body">
+        <div class="note warn">添付は取り消せません。MFの仕様上、送るたびに新しいファイルが作られます。<br>1つの仕訳に添付できるのは5件までです。</div>
+
+        <div class="vl-grid">
+          <div class="vl-col">
+            <h3>添付先の無い証憑</h3>
+
+            <div class="vl-item active" id="vl-item-1" onclick="vlSelect(1)">
+              <div class="fname">20260610_サンプル商事株式会社_精算書.pdf（サンプル）</div>
+              <div class="meta">2026-06-10　999,999円</div>
+              <div class="meta2"><span class="chip chip-blue">証憑台帳</span></div>
+            </div>
+
+            <div class="vl-item" id="vl-item-2" onclick="vlSelect(2)">
+              <div class="fname">20260705_テスト社_請求書.pdf（サンプル）</div>
+              <div class="meta">2026-07-05　999,999円</div>
+              <div class="meta2"><span class="chip chip-gray">共有ファイル</span></div>
+            </div>
+
+            <div class="vl-item" id="vl-item-3" onclick="vlSelect(3)">
+              <div class="fname">20260622_サンプルサービス_領収書.pdf（サンプル）</div>
+              <div class="meta">2026-06-22　999,999円</div>
+              <div class="meta2"><span class="chip chip-blue">証憑台帳</span></div>
+            </div>
+          </div>
+
+          <div class="vl-col">
+            <h3>候補の仕訳</h3>
+            <div id="vlCandidates"><!-- JSで差し替え --></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ⑦ 現金払いの登録（新規・設計書§4）                              -->
+  <!-- ============================================================ -->
+  <section class="tabpage" id="t-cash">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>⑦ 現金払いの登録</h2>
+          <div class="desc">現金で支払った領収書を読み取り、確認したうえで仕訳を作り、証憑を添付します。</div>
+        </div>
+      </div>
+      <div class="panel-body">
+
+        <div class="note warn" style="font-weight:900;">この機能はまだ実装されていません。消費税の扱い（P5-A・P5-B）を実測してから作ります。</div>
+
+        <div class="section-title">領収書</div>
+        <div class="dropzone" onclick="mockToast()">
+          ここに領収書の画像・PDFをドラッグ＆ドロップ
+          <small>またはクリックして選択（サンプル表示・モックのため動作しません）</small>
+        </div>
+
+        <div class="section-title">読み取り結果（確認・修正してください）</div>
+        <div class="note warn">読み取りは下書きです。必ず内容をご確認ください。</div>
+        <div class="field-grid">
+          <div>
+            <label>取引日</label>
+            <input type="text" value="2026-07-20（サンプル・OCRの下書き）">
+          </div>
+          <div>
+            <label>金額</label>
+            <input type="text" value="999,999円（サンプル・OCRの下書き）">
+          </div>
+          <div class="full">
+            <label>取引先</label>
+            <input type="text" value="サンプル商店（サンプル・OCRの下書き）">
+          </div>
+        </div>
+
+        <div class="section-title">仕訳の内容</div>
+        <div class="field-grid">
+          <div>
+            <label>借方の勘定科目</label>
+            <select>
+              <option>消耗品費（サンプル）</option>
+              <option>旅費交通費（サンプル）</option>
+              <option>会議費（サンプル）</option>
+            </select>
+          </div>
+          <div>
+            <label>貸方の勘定科目</label>
+            <select>
+              <option value="">（未選択）</option>
+              <option>現金</option>
+              <option>事業主借</option>
+              <option>未払金</option>
+            </select>
+          </div>
+          <div>
+            <label>税区分</label>
+            <select>
+              <option>課税仕入10%（サンプル）</option>
+              <option>非課税仕入（サンプル）</option>
+              <option>対象外（サンプル）</option>
+            </select>
+          </div>
+          <div>
+            <label>インボイス区分 <span class="required-mark">必須</span></label>
+            <select>
+              <option value="">（未選択）</option>
+              <option>適格</option>
+              <option>区分80%</option>
+              <option>対象外</option>
+            </select>
+          </div>
+          <div class="full">
+            <label>摘要</label>
+            <input type="text" value="サンプルメモ（架空）">
+          </div>
+        </div>
+        <div class="note">口座やカードの明細から作る場合と違い、現金払いは相手方の科目（貸方）もお選びいただく必要があります。</div>
+
+        <div class="note danger" style="margin-top:14px;">⚠ 登録するとMFクラウド会計に仕訳が作られます。この画面から取り消せません。</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" type="button" onclick="mockToast()">この内容で登録する</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- ⑧ 証憑が付いていない仕訳（新規・設計書§6.1）                    -->
+  <!-- ============================================================ -->
+  <section class="tabpage" id="t-novoucher">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>⑧ 証憑が付いていない仕訳</h2>
+          <div class="desc">対象月の仕訳のうち、証憑が添付されていないものです。「証憑不要」に印を付けると、残りが本当の未対応になります。</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="note warn">どの仕訳に証憑が必要かは税理士さまのご判断です。不要なものにチェックを付けると、残りが本当の未対応になります。</div>
+
+        <div class="progress-wrap">
+          <div class="progress-label">対象月: 2026年07月（サンプル）　<b id="novProgressText">12件中5件が対応済み</b></div>
+          <div class="progress-bar"><div class="progress-fill" id="novProgressFill" style="width:41.7%"></div></div>
+        </div>
+
+        <div class="tblwrap">
+          <table>
+            <thead><tr><th>日付</th><th>摘要</th><th class="num">金額</th><th>勘定科目</th><th>証憑不要</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>2026-07-03</td>
+                <td>サンプル商事株式会社 支払（サンプル）</td>
+                <td class="num">999,999円</td>
+                <td>仕入高</td>
+                <td><input type="checkbox" class="nov-check" onchange="novUpdate()"></td>
+                <td><button class="btn-ghost" type="button" onclick="mockToast()">証憑を付ける</button></td>
+              </tr>
+              <tr>
+                <td>2026-07-05</td>
+                <td>振込手数料（サンプル）</td>
+                <td class="num">999円</td>
+                <td>支払手数料</td>
+                <td><input type="checkbox" class="nov-check" onchange="novUpdate()"></td>
+                <td><button class="btn-ghost" type="button" onclick="mockToast()">証憑を付ける</button></td>
+              </tr>
+              <tr>
+                <td>2026-07-08</td>
+                <td>テスト社 通信費（サンプル）</td>
+                <td class="num">999,999円</td>
+                <td>通信費</td>
+                <td><input type="checkbox" class="nov-check" onchange="novUpdate()"></td>
+                <td><button class="btn-ghost" type="button" onclick="mockToast()">証憑を付ける</button></td>
+              </tr>
+              <tr>
+                <td>2026-07-11</td>
+                <td>受取利息（サンプル）</td>
+                <td class="num">999円</td>
+                <td>受取利息</td>
+                <td><input type="checkbox" class="nov-check" onchange="novUpdate()"></td>
+                <td><button class="btn-ghost" type="button" onclick="mockToast()">証憑を付ける</button></td>
+              </tr>
+              <tr>
+                <td>2026-07-15</td>
+                <td>サンプルサービス利用料（サンプル）</td>
+                <td class="num">999,999円</td>
+                <td>支払手数料</td>
+                <td><input type="checkbox" class="nov-check" onchange="novUpdate()"></td>
+                <td><button class="btn-ghost" type="button" onclick="mockToast()">証憑を付ける</button></td>
+              </tr>
+              <tr>
+                <td>2026-07-19</td>
+                <td>売掛金振込入金（サンプル）</td>
+                <td class="num">999,999円</td>
+                <td>売掛金</td>
+                <td><input type="checkbox" class="nov-check" onchange="novUpdate()"></td>
+                <td><button class="btn-ghost" type="button" onclick="mockToast()">証憑を付ける</button></td>
+              </tr>
+              <tr>
+                <td>2026-07-24</td>
+                <td>テスト卸株式会社 仕入（サンプル）</td>
+                <td class="num">999,999円</td>
+                <td>仕入高</td>
+                <td><input type="checkbox" class="nov-check" onchange="novUpdate()"></td>
+                <td><button class="btn-ghost" type="button" onclick="mockToast()">証憑を付ける</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">チェックは画面上の見た目だけが変わるサンプル操作です（実際の保存は行われません）。</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer-badge">これは見た目確認用のモックアップです。実データ・実APIには接続していません。数値・会社名・人名はすべて架空のサンプルです。</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ---- タブ切替（表示の出し分けのみ。データ取得・通信は一切行わない） ----
+  function go(t) {
+    document.querySelectorAll('.tabpage').forEach(function (el) { el.classList.toggle('active', el.id === 't-' + t); });
+    document.querySelectorAll('.tab-btn').forEach(function (el) { el.classList.toggle('active', el.dataset.t === t); });
+    window.scrollTo(0, 0);
+  }
+
+  var _t;
+  function mockToast() {
+    var el = document.getElementById('toast');
+    el.textContent = 'モックのため動作しません';
+    el.classList.add('show');
+    clearTimeout(_t);
+    _t = setTimeout(function () { el.classList.remove('show'); }, 2200);
+  }
+
+  // ---- ⑥ 証憑の紐付け: 左の証憑を選ぶと右の候補仕訳を差し替える（すべて固定サンプル・通信なし） ----
+  var vlCandidateData = {
+    1: [
+      { title: '2026-06-10　サンプル商事株式会社　999,999円', chip: 'chip-green', reason: '日付と金額が完全に一致', sub: '仕入高 / 課税仕入10% / 適格（サンプル仕訳 journal_id #990101）' },
+      { title: '2026-06-13　サンプル商事株式会社　999,999円', chip: 'chip-yellow', reason: '金額は一致・日付が3日ずれ', sub: '仕入高 / 課税仕入10% / 適格（サンプル仕訳 journal_id #990102）' },
+      { title: '2026-05-02　サンプル商事株式会社　888,888円', chip: 'chip-red', reason: '取引先名と日付(±45日)で抽出。金額は照合していません。中身を確認してください。', sub: '仕入高 / 課税仕入10% / 適格（サンプル仕訳 journal_id #990103）' }
+    ],
+    2: [
+      { title: '2026-07-05　テスト社　999,999円', chip: 'chip-green', reason: '日付と金額が完全に一致', sub: '外注費 / 課税仕入10% / 適格（サンプル仕訳 journal_id #990201）' },
+      { title: '2026-07-08　テスト社　999,999円', chip: 'chip-yellow', reason: '金額は一致・日付が3日ずれ', sub: '外注費 / 課税仕入10% / 適格（サンプル仕訳 journal_id #990202）' },
+      { title: '2026-06-01　テスト社　777,777円', chip: 'chip-red', reason: '取引先名と日付(±45日)で抽出。金額は照合していません。中身を確認してください。', sub: '外注費 / 課税仕入10% / 適格（サンプル仕訳 journal_id #990203）' }
+    ],
+    3: [
+      { title: '2026-06-22　サンプルサービス　999,999円', chip: 'chip-green', reason: '日付と金額が完全に一致', sub: '支払手数料 / 課税仕入10% / 適格（サンプル仕訳 journal_id #990301）' },
+      { title: '2026-06-25　サンプルサービス　999,999円', chip: 'chip-yellow', reason: '金額は一致・日付が3日ずれ', sub: '支払手数料 / 課税仕入10% / 適格（サンプル仕訳 journal_id #990302）' },
+      { title: '2026-08-01　サンプルサービス　555,555円', chip: 'chip-red', reason: '取引先名と日付(±45日)で抽出。金額は照合していません。中身を確認してください。', sub: '支払手数料 / 課税仕入10% / 適格（サンプル仕訳 journal_id #990303）' }
+    ]
+  };
+
+  function vlRenderCandidates(idx) {
+    var list = vlCandidateData[idx] || [];
+    var html = list.map(function (c) {
+      return '' +
+        '<div class="cand-card">' +
+          '<div class="cand-top">' +
+            '<span class="cand-title">' + c.title + '</span>' +
+            '<span class="chip ' + c.chip + '">' + c.reason + '</span>' +
+          '</div>' +
+          '<div class="cand-sub">' + c.sub + '</div>' +
+          '<div class="btn-row"><button class="btn btn-primary" type="button" onclick="mockToast()">この仕訳に添付</button></div>' +
+        '</div>';
+    }).join('');
+    if (!html) html = '<div class="cand-empty-hint">左の証憑を選ぶと候補が表示されます（サンプル）。</div>';
+    document.getElementById('vlCandidates').innerHTML = html;
+  }
+
+  function vlSelect(idx) {
+    for (var i = 1; i <= 3; i++) {
+      var el = document.getElementById('vl-item-' + i);
+      if (el) el.classList.toggle('active', i === idx);
+    }
+    vlRenderCandidates(idx);
+  }
+
+  // ---- ⑧ 証憑が付いていない仕訳: チェックで進捗バーを見た目だけ更新（保存はしない） ----
+  var novTotal = 12;
+  var novBaseResolved = 5;
+  function novUpdate() {
+    var checked = document.querySelectorAll('.nov-check:checked').length;
+    var resolved = Math.min(novTotal, novBaseResolved + checked);
+    document.getElementById('novProgressText').textContent = novTotal + '件中' + resolved + '件が対応済み';
+    document.getElementById('novProgressFill').style.width = (resolved / novTotal * 100) + '%';
+  }
+
+  // 初期表示
+  vlRenderCandidates(1);
+</script>
+</body>
+</html>
