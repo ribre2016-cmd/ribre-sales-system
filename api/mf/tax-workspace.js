@@ -23,6 +23,7 @@ const {
 const {
   normalizeText, addDays, VENDOR_DATE_MARGIN_DAYS,
   fetchEvidenceById, attachEvidenceToJournal,
+  fetchJournals, journalVendorText, vendorTokens,
 } = require('./_lib/mf-match-core');
 const { verifySupabaseToken } = require('../openai/_lib/require-auth');
 
@@ -267,6 +268,131 @@ async function setAdvisorEnabled(email, enabled) {
   if (!res.ok) return false;
   const rows = await res.json().catch(() => []);
   return Array.isArray(rows) && rows.length > 0;
+}
+
+/* ---------------- Phase 4: 過去の仕訳から初期値を提案する ----------------
+ * ⚠ これは「前回と同じ」であって「正しい」ではない。
+ *   同じ取引先でも中身が違えば勘定科目は変わる（仕入と消耗品費など）。
+ *   そのため:
+ *     - 自動で登録は絶対にしない。必ず人が「登録」を押す
+ *     - 画面に「前回の仕訳から入れています。確認してください」を必ず出す
+ *     - 迷ったら**提案しない**（勝手に決めつけない）。下記の2条件を満たすときだけ返す
+ */
+const SUGGEST_LOOKBACK_DAYS = 365;   // 何日前までの仕訳を参考にするか
+const SUGGEST_MIN_RATIO = 0.6;       // 最多の組み合わせがこの割合未満なら提案しない
+const SUGGEST_MAX_ITEMS = 200;       // 1回に処理する明細の上限
+
+// 仕訳1件から「借方の組み合わせ」を取り出す。借方が複数ある複合仕訳は対象外（単純なものだけ）
+function journalDebitCombo(j) {
+  const branches = Array.isArray(j.branches) ? j.branches : [];
+  const debits = branches.map((b) => b && b.debitor).filter((d) => d && d.account_id);
+  if (debits.length !== 1) return null; // 複合仕訳は「前回と同じ」を当てにできない
+  const d = debits[0];
+  return {
+    account_id: d.account_id,
+    account_name: d.account_name || '',
+    tax_id: d.tax_id || null,
+    tax_name: d.tax_name || '',
+    sub_account_id: d.sub_account_id || null,
+    sub_account_name: d.sub_account_name || '',
+    invoice_kind: d.invoice_kind || null,
+  };
+}
+
+function comboKey(c) {
+  return [c.account_id, c.tax_id || '', c.sub_account_id || '', c.invoice_kind || ''].join('|');
+}
+
+// 過去の仕訳を「摘要の語」ごとにまとめる。1語につき、借方の組み合わせの出現回数を数える。
+function buildSuggestIndex(journals) {
+  const byToken = new Map(); // token -> Map(comboKey -> {combo, count, lastDate})
+  (journals || []).forEach((j) => {
+    const combo = journalDebitCombo(j);
+    if (!combo) return;
+    const tokens = vendorTokens(journalVendorText(j));
+    if (!tokens.length) return;
+    const key = comboKey(combo);
+    const date = j.transaction_date || '';
+    tokens.forEach((t) => {
+      if (!byToken.has(t)) byToken.set(t, new Map());
+      const m = byToken.get(t);
+      const cur = m.get(key);
+      if (cur) {
+        cur.count += 1;
+        if (date > cur.lastDate) cur.lastDate = date;
+      } else {
+        m.set(key, { combo, count: 1, lastDate: date });
+      }
+    });
+  });
+  return byToken;
+}
+
+// 明細1件に対する提案。条件を満たさなければ null（提案しない）。
+function suggestForContent(index, content) {
+  const tokens = vendorTokens(content);
+  if (!tokens.length) return null;
+  // その明細の語に紐づく組み合わせを全部集めて合算する
+  const merged = new Map();
+  tokens.forEach((t) => {
+    const m = index.get(t);
+    if (!m) return;
+    m.forEach((v, key) => {
+      const cur = merged.get(key);
+      if (cur) {
+        cur.count += v.count;
+        if (v.lastDate > cur.lastDate) cur.lastDate = v.lastDate;
+      } else {
+        merged.set(key, { combo: v.combo, count: v.count, lastDate: v.lastDate });
+      }
+    });
+  });
+  if (!merged.size) return null;
+  const all = Array.from(merged.values());
+  const total = all.reduce((s, v) => s + v.count, 0);
+  all.sort((a, b) => (b.count - a.count) || (a.lastDate < b.lastDate ? 1 : -1));
+  const top = all[0];
+  // 割れているときは提案しない（同じ取引先で科目が分かれている＝人が判断すべき）
+  if (total > 0 && top.count / total < SUGGEST_MIN_RATIO) return null;
+  return Object.assign({}, top.combo, { count: top.count, last_date: top.lastDate, total: total });
+}
+
+async function handleSuggest(res, accessToken, body) {
+  const items = Array.isArray(body && body.items) ? body.items.slice(0, SUGGEST_MAX_ITEMS) : [];
+  if (!items.length) {
+    res.status(200).json({ ok: true, suggestions: {} });
+    return;
+  }
+  const dates = items.map((it) => String(it && it.date || '')).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  if (!dates.length) {
+    res.status(200).json({ ok: true, suggestions: {} });
+    return;
+  }
+  const endDate = dates[dates.length - 1];
+  const startDate = addDays(endDate, -SUGGEST_LOOKBACK_DAYS);
+
+  let journals = [];
+  try {
+    journals = await fetchJournals({ accessToken, startDate, endDate });
+  } catch (e) {
+    if (e && (e.status === 403 || e.status === 401)) {
+      res.status(200).json({ ok: false, error: 'scope_missing' });
+      return;
+    }
+    // 提案は「あれば便利」なだけなので、失敗しても画面は動かす
+    res.status(200).json({ ok: true, suggestions: {}, note: 'journals_fetch_failed' });
+    return;
+  }
+
+  const index = buildSuggestIndex(journals);
+  const suggestions = {};
+  items.forEach((it) => {
+    const id = it && it.transaction_id;
+    if (!id) return;
+    const s = suggestForContent(index, it && it.content);
+    if (s) suggestions[id] = s;
+  });
+  res.status(200).json({ ok: true, suggestions, based_on: { start_date: startDate, end_date: endDate, journals: journals.length } });
 }
 
 /* ---------------- 決算済みの期の扱い（設定） ---------------- */
@@ -616,7 +742,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  if (['bootstrap', 'list', 'journalize'].indexOf(action) < 0) {
+  if (['bootstrap', 'list', 'journalize', 'suggest'].indexOf(action) < 0) {
     res.status(400).json({ ok: false, error: 'invalid_action' });
     return;
   }
@@ -630,6 +756,12 @@ module.exports = async (req, res) => {
       return;
     }
     res.status(500).json({ ok: false, error: 'token_failed' });
+    return;
+  }
+
+  // Phase 4: 過去の仕訳から初期値を提案する（読み取りのみ）
+  if (action === 'suggest') {
+    await handleSuggest(res, accessToken, body);
     return;
   }
 

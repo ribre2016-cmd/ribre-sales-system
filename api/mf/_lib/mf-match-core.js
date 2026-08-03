@@ -648,6 +648,7 @@ module.exports = {
   findFuzzyCandidates,
   findVendorDateCandidates,
   vendorTokens,
+  journalVendorText,
   journalPassesCommonFilters,
   trySingleMatch,
   attachEvidenceToJournal,
