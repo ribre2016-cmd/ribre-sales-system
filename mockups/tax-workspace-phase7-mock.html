@@ -296,6 +296,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
           </ul>
         </div>
       </div>
+      <div class="note info" style="margin-top:12px;font-weight:800;">この画面が止まっても、事務所の業務は止まりません。仕訳はMFクラウド会計に、証憑はMFクラウドBoxに入ります。止まった場合はMFで従来どおり作業できます。失われるのは「質問と回答の履歴」と「月次チェックの確認記録」だけなので、それらは月次でCSVに書き出して事務所側で保管してください。</div>
     </div>
   </div>
 
@@ -357,14 +358,14 @@ tr.lt-lowmatch td { background: #fffbeb; }
       <button class="tab-btn" data-t="voucherlink" type="button" onclick="go('voucherlink')">⑥ 証憑の紐付け</button>
       <button class="tab-btn" data-t="questions" type="button" onclick="go('questions')">質問と回答<span class="tab-badge">2</span></button>
     </div>
-    <div class="tabgroup-label">月末</div>
-    <div class="tabs-row sub">
+    <div class="tabgroup-label" id="grpMonthEndLabel" onclick="toggleTabGroup('monthend')" style="cursor:pointer;user-select:none;">月末 ▸</div>
+    <div class="tabs-row sub" id="grpMonthEnd" style="display:none;">
       <button class="tab-btn" data-t="monthly" type="button" onclick="go('monthly')">⑨ 月次チェック</button>
       <button class="tab-btn" data-t="novoucher" type="button" onclick="go('novoucher')">⑧ 証憑なし仕訳</button>
       <button class="tab-btn" data-t="cash" type="button" onclick="go('cash')">⑦ 現金払い</button>
     </div>
-    <div class="tabgroup-label">資料と管理</div>
-    <div class="tabs-row sub">
+    <div class="tabgroup-label" id="grpDocsLabel" onclick="toggleTabGroup('docs')" style="cursor:pointer;user-select:none;">資料と管理 ▸</div>
+    <div class="tabs-row sub" id="grpDocs" style="display:none;">
       <button class="tab-btn" data-t="awaiting" type="button" onclick="go('awaiting')">② 仕訳待ちの証憑</button>
       <button class="tab-btn" data-t="files" type="button" onclick="go('files')">③ 共有ファイル</button>
       <button class="tab-btn" data-t="history" type="button" onclick="go('history')">④ 操作履歴</button>
@@ -398,12 +399,13 @@ tr.lt-lowmatch td { background: #fffbeb; }
             <div style="font-size:26px;font-weight:900;color:#92400e;">12件</div>
             <div style="font-size:12.5px;font-weight:800;color:#64748b;margin-top:4px;">まだ資料が無い明細（ここを減らすのが仕事）</div>
           </div>
-          <div style="flex:1;min-width:170px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 16px;text-align:center;">
+          <div style="flex:1;min-width:170px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 16px;text-align:center;cursor:pointer;" onclick="jumpToUnmatchedVoucherOnly()" role="button" tabindex="0" title="クリックすると①タブを証憑ありの明細だけに絞り込んで開きます">
             <div style="font-size:26px;font-weight:900;color:#1d4ed8;">5件</div>
-            <div style="font-size:12.5px;font-weight:800;color:#64748b;margin-top:4px;">資料はあるが未仕訳</div>
+            <div style="font-size:12.5px;font-weight:800;color:#64748b;margin-top:4px;">資料はあるが未仕訳<br><span style="text-decoration:underline;">①タブで絞り込んで見る ›</span></div>
           </div>
         </div>
         <div class="note">「証憑が付いている」かどうかは、MF側の明細情報にある証憑ファイルの有無から判定する想定です。<b>この判定方法自体、実データでの検証がまだです</b>（末尾の未確認事項 P7-A）。空振りだった場合は、この画面の台帳（証憑インボックス）側の情報から代わりに判定します。</div>
+        <div class="note warn"><b>このチェックで見つけられないもの:</b> 現金払いはそもそも明細に現れないため、ここには出ません。</div>
 
         <div class="section-title" style="margin-top:20px;">まだ資料が無い明細</div>
         <div class="tblwrap">
@@ -470,7 +472,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
         <div class="btn-row">
           <button class="btn btn-primary" type="button" onclick="mockToast()">まとめて顧客に依頼する（12件）</button>
         </div>
-        <div class="note info">「顧客に聞く」を押すと、質問として顧客（RIBRE）側の画面に届きます（同じ仕組みです。詳しくは「質問と回答」タブ）。「証憑不要にする」は⑧証憑なし仕訳と同じ仕組みです。振込手数料・受取利息など、性質上そもそも領収書等が存在しない取引を消し込むためのものです。</div>
+        <div class="note info">「顧客に聞く」を押すと、質問として顧客（RIBRE）側の画面に届きます（同じ仕組みです。詳しくは「質問と回答」タブ）。「証憑不要にする」は⑧証憑なし仕訳と同じ仕組みです。振込手数料・受取利息など、性質上そもそも領収書等が存在しない取引を消し込むためのものです。<b>この印はあとから取り消せます。押した記録は④操作履歴に残ります。</b></div>
 
         <div class="section-title" style="margin-top:22px;">口座ごとの最新の明細</div>
         <div class="tblwrap">
@@ -529,9 +531,15 @@ tr.lt-lowmatch td { background: #fffbeb; }
         <div id="listView">
           <div class="note info">一覧表示は「確認の単位」をまとめただけで、「実行の単位」は変わりません。チェックした行は1件ずつ順番にMFへ送られ、成功・失敗もMF仕訳登録の履歴も1件ごとに残ります。</div>
 
+          <div class="note" id="ltFilterBar" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;font-weight:900;background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;border-radius:6px;padding:8px 10px;">
+            <span id="ltFilterLabel"></span>
+            <button class="btn-mini" type="button" onclick="ltClearFilter()">絞り込みを解除</button>
+          </div>
+          <div class="note warn" id="ltNoResult" style="display:none;">この絞り込み条件に一致する明細はありません。</div>
+
           <div class="counter-row">
             <span class="chip chip-blue" id="ltCounter">0/20</span>
-            <span class="note" style="margin:0;">チェックした行数（上限20）。20に達すると、残りの行のチェックボックスが自動で無効になります（このサンプルは8件のため実際には届きません）。</span>
+            <span class="note" style="margin:0;">チェックした行数（上限20）。20に達すると、残りの行のチェックボックスが自動で無効になります（このサンプルは11件のため実際には届きません）。</span>
           </div>
 
           <div class="tblwrap" style="margin-top:6px;">
@@ -546,7 +554,10 @@ tr.lt-lowmatch td { background: #fffbeb; }
                 <tr class="lt-row lt-lowmatch" data-idx="1">
                   <td><input type="checkbox" class="lt-check" onchange="ltUpdate()"></td>
                   <td>2026-07-02</td>
-                  <td>サンプル商事株式会社 買掛金支払（サンプル）</td>
+                  <td>
+                    サンプル商事株式会社 買掛金支払（サンプル）
+                    <div class="evi-auto"><span class="chip chip-green">証憑: ✓自動選択（日付・金額が完全一致の候補が1件のため）</span></div>
+                  </td>
                   <td class="num">999,999円</td>
                   <td><select><option selected>仕入高</option><option>外注費</option><option>支払手数料</option></select></td>
                   <td><select><option selected>課税仕入10%</option><option>非課税仕入</option><option>対象外</option></select></td>
@@ -571,7 +582,10 @@ tr.lt-lowmatch td { background: #fffbeb; }
                 <tr class="lt-row" data-idx="3">
                   <td><input type="checkbox" class="lt-check" onchange="ltUpdate()"></td>
                   <td>2026-07-05</td>
-                  <td>サンプル運輸 送料（サンプル）</td>
+                  <td>
+                    サンプル運輸 送料（サンプル）
+                    <div class="evi-auto"><span class="chip chip-yellow">証憑: 候補2件（金額のみ一致・要確認）</span></div>
+                  </td>
                   <td class="num">999円</td>
                   <td><select><option selected>荷造運賃</option><option>支払手数料</option></select></td>
                   <td><select><option selected>課税仕入10%</option><option>対象外</option></select></td>
@@ -593,7 +607,10 @@ tr.lt-lowmatch td { background: #fffbeb; }
                 <tr class="lt-row row-checked" data-idx="5">
                   <td><input type="checkbox" class="lt-check" checked onchange="ltUpdate()"></td>
                   <td>2026-07-10</td>
-                  <td>テスト卸株式会社 仕入（サンプル）</td>
+                  <td>
+                    テスト卸株式会社 仕入（サンプル）
+                    <div class="evi-auto"><span class="chip chip-green">証憑: ✓自動選択（日付・金額が完全一致の候補が1件のため）</span></div>
+                  </td>
                   <td class="num">999,999円</td>
                   <td><select><option selected>仕入高</option><option>外注費</option></select></td>
                   <td><select><option selected>課税仕入10%</option><option>非課税仕入</option></select></td>
@@ -643,11 +660,48 @@ tr.lt-lowmatch td { background: #fffbeb; }
                   <td>提案なし（過去5件中2件＝40%・6割未満で割れているため、自動では入れません）</td>
                   <td><button class="btn-mini" type="button" onclick="clearRow(8)">クリア</button></td>
                 </tr>
+                <tr class="lt-row" data-idx="9">
+                  <td><input type="checkbox" class="lt-check" onchange="ltUpdate()"></td>
+                  <td>2026-07-27</td>
+                  <td>
+                    サンプル不動産 家賃振込（サンプル）
+                    <div class="evi-auto"><span class="chip chip-green">証憑: ✓自動選択（日付・金額が完全一致の候補が1件のため）</span></div>
+                  </td>
+                  <td class="num">198,000円</td>
+                  <td><select><option selected>地代家賃</option><option>賃借料</option></select></td>
+                  <td><select><option selected>課税仕入10%</option><option>非課税仕入</option></select></td>
+                  <td><select><option selected>適格</option><option>対象外</option></select></td>
+                  <td>過去5件中5件（100%・一致していない仕訳はありません）</td>
+                  <td><button class="btn-mini" type="button" onclick="clearRow(9)">クリア</button></td>
+                </tr>
+                <tr class="lt-row" data-idx="10">
+                  <td><input type="checkbox" class="lt-check" onchange="ltUpdate()"></td>
+                  <td>2026-07-28</td>
+                  <td>サンプルリース株式会社 リース料引落（サンプル）</td>
+                  <td class="num">33,000円</td>
+                  <td><select><option selected>リース料</option><option>賃借料</option></select></td>
+                  <td><select><option selected>課税仕入10%</option><option>非課税仕入</option></select></td>
+                  <td><select><option selected>適格</option><option>対象外</option></select></td>
+                  <td>過去5件中5件（100%・一致していない仕訳はありません）</td>
+                  <td><button class="btn-mini" type="button" onclick="clearRow(10)">クリア</button></td>
+                </tr>
+                <tr class="lt-row" data-idx="11">
+                  <td><input type="checkbox" class="lt-check" onchange="ltUpdate()"></td>
+                  <td>2026-07-29</td>
+                  <td>サンプル損害保険 保険料引落（サンプル）</td>
+                  <td class="num">21,200円</td>
+                  <td><select><option selected>保険料</option><option>支払手数料</option></select></td>
+                  <td><select><option selected>課税仕入10%</option><option>非課税仕入</option></select></td>
+                  <td><select><option selected>適格</option><option>対象外</option></select></td>
+                  <td>過去5件中4件（80%・残り1件は別内容）</td>
+                  <td><button class="btn-mini" type="button" onclick="clearRow(11)">クリア</button></td>
+                </tr>
               </tbody>
             </table>
           </div>
 
           <div class="note warn" style="margin-top:14px;">表の勘定科目・税区分・インボイス区分は<b>過去の仕訳から自動で入れた下書き</b>です。自動で選んだだけで正しいとは限りません。特に根拠が黄色く「要確認」と付いている行は一致率が6〜8割にとどまるため、<b>必ず内容を確認してからチェックしてください</b>（行の値はその場で修正、または［クリア］で下書きを空に戻せます）。</div>
+          <div class="note info"><b>このチェックで見つけられないもの:</b> 過去に無い取引には提案が出ません。提案が無いことは異常ではありません。</div>
           <div class="note danger" style="margin-top:8px;">⚠ 登録するとMFクラウド会計に仕訳が作られます。間違えた場合はMFクラウド会計の仕訳帳から編集・削除してください。<b>内容に自信が持てないときは、登録せずに事務所の先輩・担当の税理士にご確認ください。</b></div>
 
           <div class="btn-row" style="justify-content: space-between; align-items: center;">
@@ -672,7 +726,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
           <!-- ★E 登録の取り消し（設計書§5・新設） -->
           <div class="note ok" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
             <span>登録しました（仕訳番号 990101）。MFクラウド会計の仕訳帳でこの番号で確認できます。</span>
-            <button class="btn-undo" type="button" onclick="mockToast()">この登録を取り消す（あと28分）</button>
+            <button class="btn-undo" type="button" onclick="undoRegistration()">この登録を取り消す（あと28分）</button>
           </div>
           <div class="note warn" style="margin-top:8px;">取り消せるのは、次の<b>すべて</b>に当てはまる場合だけです：<b>この画面から登録したもの</b>・<b>自分が登録したもの</b>（管理者は事務所全員の分を取り消せます）・<b>登録から30分以内</b>・<b>証憑をまだ付けていないもの</b>。証憑を付けた仕訳は、MFの証憑が取り消せない仕組みのため取り消せません（詳しくは「用語の説明」→証憑）。</div>
           <div class="note danger" style="margin-top:8px;">⚠ 未確認事項（P7-B）: 仕訳を削除したとき、元の明細が「未仕訳」に戻るかどうかは、MFの仕様に記載がありません。<b>実測して、明細が未仕訳に戻ることを確認できた場合のみ搭載します。</b>戻らないと分かった場合はこの機能自体を出さず、「MFの仕訳帳から削除してください」の案内に戻します。</div>
@@ -731,7 +785,12 @@ tr.lt-lowmatch td { background: #fffbeb; }
       </div>
       <div class="panel-body">
 
-        <div class="section-title">未回答の質問</div>
+        <div class="btn-row" style="justify-content:flex-start;margin-bottom:6px;">
+          <button class="btn-mini" type="button" onclick="mockToast()">質問と回答をCSVでダウンロード（月次）</button>
+        </div>
+        <div class="note info">事務所ご自身でダウンロードし、RIBREが触れない場所に保管してください。自動でメール送信しても、送信元がRIBRE側である以上、改ざんを検知できる強さは変わりません。手元にコピーがあることだけが担保になります。</div>
+
+        <div class="section-title" style="margin-top:18px;">未回答の質問</div>
         <div class="tblwrap">
           <table>
             <thead><tr><th>取引</th><th class="num">金額</th><th>質問内容</th><th>質問日</th><th>状態</th></tr></thead>
@@ -771,7 +830,8 @@ tr.lt-lowmatch td { background: #fffbeb; }
         <div class="field-grid">
           <div class="full">
             <label>取引を選ぶ</label>
-            <select><option selected>ｱﾏｿﾞﾝ ｼﾞｬﾊﾟﾝ　8,200円（2026-07-30・サンプル）</option></select>
+            <select id="qaTxnSelect"><option selected>ｱﾏｿﾞﾝ ｼﾞｬﾊﾟﾝ　8,200円（2026-07-30・サンプル）</option></select>
+            <div class="note" id="qaTxnSelectedHint" style="display:none;margin-top:4px;color:#1d4ed8;">「顧客に聞く」から連動して選択されました。</div>
           </div>
         </div>
         <div class="prior-answer-hint">💬 ｱﾏｿﾞﾝ ｼﾞｬﾊﾟﾝ — 前回（6/14）の回答: 「梱包資材の購入です」（回答者: 佐渡）<br><span style="font-weight:700;">同じ取引先で過去に答えがあれば、質問を書く前にこう表示します。今回もこの内容で合っていそうなら、質問せずそのまま摘要に使えます。</span></div>
@@ -821,12 +881,24 @@ tr.lt-lowmatch td { background: #fffbeb; }
       </div>
       <div class="panel-body">
 
+        <div class="note warn" id="monthlyRemainingBox" style="font-weight:900;">
+          <div id="monthlyRemainingText">📋 <b>7月の未仕訳明細が42件残っています。</b> 登録が終わっていない月では、下の「まだ無い科目」は当然の結果です。まず①未仕訳の明細を片付けてから、このチェックを見てください。</div>
+          <div style="margin-top:8px;"><button class="btn-mini" type="button" id="monthlyDemoBtn" onclick="toggleRemainingDemo()">残件0の場合の表示を見る</button></div>
+        </div>
+
         <div class="month-select-row">対象月:
-          <select><option selected>2026年07月</option><option>2026年06月</option><option>2026年05月</option></select>
+          <select id="monthlySelect" onchange="monthlyMonthChange()">
+            <option selected value="jul">2026年07月</option>
+            <option value="aug">2026年08月（進行中）</option>
+            <option value="jun">2026年06月</option>
+            <option value="may">2026年05月</option>
+          </select>
         </div>
         <div class="note danger">⚠ ここに出てくる内容は「間違っている」という判断ではありません。<b>確認をうながしているだけです。</b>最終的な判断は必ず担当の税理士が行ってください。</div>
+        <div class="note danger" id="monthlyInProgressMsg" style="display:none;font-weight:900;margin-top:10px;">2026年8月はまだ月の途中です。計上漏れの判定は月が終わってから行います。</div>
 
-        <div class="section-title" style="margin-top:18px;">① いつもあるのに今月まだ無い科目</div>
+        <div id="monthlyGapSection">
+        <div class="section-title" id="monthlyGapHeading" style="margin-top:18px;">① いつもあるのに今月まだ無い科目（登録作業中のため参考表示）</div>
         <div class="note info">判定条件: 直近4ヶ月（当月を除く）<b>すべて</b>に金額があり、当月が0の勘定科目を対象にしています。4ヶ月分のデータが揃っていない科目（期首直後など）は判定しません。</div>
         <div class="tblwrap" style="margin-top:8px;">
           <table>
@@ -834,43 +906,67 @@ tr.lt-lowmatch td { background: #fffbeb; }
             <tbody>
               <tr>
                 <td>役員報酬</td><td class="num">594,000</td><td class="num">613,000</td><td class="num">613,000</td><td class="num">613,000</td>
-                <td class="num"><span class="chip chip-red">0円</span></td>
+                <td class="num">
+                  <span class="chip chip-red gapChip">0円</span>
+                  <div class="list-hint" style="text-align:left;">未仕訳明細に候補はありません</div>
+                </td>
                 <td><button class="btn-mini" type="button" onclick="jumpToUnmatched('役員報酬')">未仕訳明細をさがす</button></td>
               </tr>
               <tr>
                 <td>地代家賃</td><td class="num">198,000</td><td class="num">198,000</td><td class="num">198,000</td><td class="num">198,000</td>
-                <td class="num"><span class="chip chip-red">0円</span></td>
+                <td class="num">
+                  <span class="chip chip-red gapChip">0円</span>
+                  <div class="list-hint" style="text-align:left;">未仕訳明細に候補が<b>1件</b>あります</div>
+                </td>
                 <td><button class="btn-mini" type="button" onclick="jumpToUnmatched('地代家賃')">未仕訳明細をさがす</button></td>
               </tr>
               <tr>
                 <td>減価償却費</td><td class="num">369,759</td><td class="num">369,759</td><td class="num">369,759</td><td class="num">369,759</td>
-                <td class="num"><span class="chip chip-red">0円</span></td>
+                <td class="num">
+                  <span class="chip chip-red gapChip">0円</span>
+                  <div class="list-hint" style="text-align:left;">未仕訳明細に候補はありません</div>
+                </td>
                 <td><button class="btn-mini" type="button" onclick="jumpToUnmatched('減価償却費')">未仕訳明細をさがす</button></td>
               </tr>
               <tr>
                 <td>荷造運賃</td><td class="num">248,667</td><td class="num">226,653</td><td class="num">262,293</td><td class="num">245,993</td>
-                <td class="num"><span class="chip chip-red">0円</span></td>
+                <td class="num">
+                  <span class="chip chip-red gapChip">0円</span>
+                  <div class="list-hint" style="text-align:left;">未仕訳明細に候補が<b>1件</b>あります</div>
+                </td>
                 <td><button class="btn-mini" type="button" onclick="jumpToUnmatched('荷造運賃')">未仕訳明細をさがす</button></td>
               </tr>
               <tr>
                 <td>リース料</td><td class="num">37,950</td><td class="num">37,950</td><td class="num">37,950</td><td class="num">33,000</td>
-                <td class="num"><span class="chip chip-red">0円</span></td>
+                <td class="num">
+                  <span class="chip chip-red gapChip">0円</span>
+                  <div class="list-hint" style="text-align:left;">未仕訳明細に候補が<b>1件</b>あります</div>
+                </td>
                 <td><button class="btn-mini" type="button" onclick="jumpToUnmatched('リース料')">未仕訳明細をさがす</button></td>
               </tr>
               <tr>
                 <td>保険料</td><td class="num">12,020</td><td class="num">21,200</td><td class="num">21,200</td><td class="num">21,200</td>
-                <td class="num"><span class="chip chip-red">0円</span></td>
+                <td class="num">
+                  <span class="chip chip-red gapChip">0円</span>
+                  <div class="list-hint" style="text-align:left;">未仕訳明細に候補が<b>1件</b>あります</div>
+                </td>
                 <td><button class="btn-mini" type="button" onclick="jumpToUnmatched('保険料')">未仕訳明細をさがす</button></td>
               </tr>
               <tr>
                 <td>支払手数料【原価】</td><td class="num">187,163</td><td class="num">210,428</td><td class="num">187,055</td><td class="num">193,721</td>
-                <td class="num"><span class="chip chip-red">0円</span></td>
+                <td class="num">
+                  <span class="chip chip-red gapChip">0円</span>
+                  <div class="list-hint" style="text-align:left;">未仕訳明細に候補が<b>1件</b>あります</div>
+                </td>
                 <td><button class="btn-mini" type="button" onclick="jumpToUnmatched('支払手数料【原価】')">未仕訳明細をさがす</button></td>
               </tr>
             </tbody>
           </table>
         </div>
         <div class="note">出典: MF「推移表（損益計算書）」2026年3〜7月の実データ（2026-08-04取得）。7月はまだ月の途中〜登録途中のため、上の科目が0円になっていること自体は正常な可能性もあります。</div>
+        </div><!-- /#monthlyGapSection -->
+
+        <div class="note info" id="monthlyRef23Note" style="display:none;">②③は2026年8月についての参考情報として表示しています（月が終わっていないため、計上漏れの判定そのものは行いません）。</div>
 
         <div class="section-title" style="margin-top:22px;">② 金額が普段と大きく違う科目</div>
         <div class="note info">判定条件: 当月の金額が、過去4ヶ月の<b>中央値</b>の3倍以上または1/3以下、かつ差額が1万円以上の科目を対象にしています（平均ではなく中央値を使うのは、1回の外れ値に基準を引っ張られないためです）。</div>
@@ -882,12 +978,39 @@ tr.lt-lowmatch td { background: #fffbeb; }
         <div class="finding-item">
           <b>支払手数料</b> — 普段は21,685円〜34,535円ですが、<b>5月は221,007円</b>です（中央値の約7倍）。<span class="chip chip-yellow">要確認</span>
           <div class="note" style="margin:6px 0 0;">出典: MF「推移表（損益計算書）」実データ。他の月の具体的な内訳は本実装時にMFの帳簿でご確認ください。</div>
+          <div class="btn-row" style="justify-content:flex-start;margin-top:8px;">
+            <button class="btn-mini" type="button" onclick="jumpToUnmatched('支払手数料')">この科目の未仕訳明細をさがす</button>
+            <button class="btn-mini" type="button" onclick="mockToast()">MFの仕訳帳で見る</button>
+          </div>
         </div>
 
         <div class="section-title" style="margin-top:22px;">③ 符号がおかしい科目</div>
         <div class="note info">判定条件: 費用科目の金額がマイナス、収益科目の金額がマイナスになっている行を対象にしています。</div>
         <div class="finding-item">
           <b>諸会費</b> — <b>3月が −16,760円</b>です。費用科目なのにマイナスになっています。取消や振替が入っていないか確認してください。<span class="chip chip-red">符号が逆</span>
+          <div class="btn-row" style="justify-content:flex-start;margin-top:8px;">
+            <button class="btn-mini" type="button" onclick="jumpToUnmatched('諸会費')">この科目の未仕訳明細をさがす</button>
+            <button class="btn-mini" type="button" onclick="mockToast()">MFの仕訳帳で見る</button>
+          </div>
+        </div>
+
+        <div class="section-title" style="margin-top:22px;">このチェックで見つけられないもの</div>
+        <div class="note warn">
+          ・初めて使った勘定科目への誤った計上（比べる過去がないため）<br>
+          ・過去4ヶ月分のデータが揃っていない科目（期首直後など。<b>判定していません</b>）<br>
+          ・しきい値未満のゆるやかな増減（中央値の2倍程度など）<br>
+          ・金額は正しいが<b>科目や税区分が間違っている</b>もの<br>
+          <b>ここに何も出ないことは「問題なし」を意味しません。</b>
+        </div>
+
+        <div class="section-title" style="margin-top:22px;">人間が確認した記録</div>
+        <div class="finding-item">
+          <label style="display:flex;gap:8px;align-items:flex-start;font-weight:800;cursor:pointer;">
+            <input type="checkbox" id="monthlyConfirmCheck" style="transform:scale(1.2);margin-top:2px;">
+            <span>この月について、上のフラグの有無にかかわらず<b>全科目をひと通り確認しました</b></span>
+          </label>
+          <div class="btn-row"><button class="btn btn-primary" type="button" onclick="monthlyConfirmRecord()">確認を記録する</button></div>
+          <div class="note ok" id="monthlyConfirmResult" style="display:none;margin-top:8px;"></div>
         </div>
 
         <div style="margin-top:20px; border-top:1px solid #e2e8f0; padding-top:6px;">
@@ -926,7 +1049,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
         </div>
       </div>
       <div class="panel-body">
-        <div class="note warn">どの仕訳に証憑が必要かは税理士さまのご判断です。不要なものにチェックを付けると、残りが本当の未対応になります。</div>
+        <div class="note warn">どの仕訳に証憑が必要かは税理士さまのご判断です。不要なものにチェックを付けると、残りが本当の未対応になります。<b>この印はあとから取り消せます。押した記録は④操作履歴に残ります。</b></div>
         <div class="note info">例: 振込手数料・受取利息・売掛金の入金・口座間の振替など、性質上そもそも領収書等が存在しない取引は「証憑不要」として構いません。これは一般的な例であり、最終的なご判断は税理士さまにお願いします。判断に迷う取引は空欄のままにして、後日まとめてご確認ください。</div>
 
         <div class="progress-wrap" style="margin-top:14px;">
@@ -1016,6 +1139,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
       </div>
       <div class="panel-body">
 
+        <div class="note danger" style="font-weight:900;">⚠ <b>この機能は作らない可能性があります。</b> RIBREでは現金レシートを「MFクラウド経費」のスマホアプリで処理する取り決めが既にあります（CLAUDE.md に記載）。同じことを2つの経路で作ると現場が「どっちに入れるんだっけ」と迷います。<b>まず経費アプリで足りているかを確認し、足りているならこの機能は作りません。</b></div>
         <div class="note warn" style="font-weight:900;">この機能はまだ実装されていません。「手動管理の口座（現金など）」が実際に存在するかを実測してから作ります（末尾の未確認事項 P7-C）。</div>
 
         <div class="section-title">流れ（借方・貸方をこの画面で選ぶことはありません）</div>
@@ -1136,7 +1260,18 @@ tr.lt-lowmatch td { background: #fffbeb; }
             <thead>
               <tr><th>日時</th><th>操作した人</th><th>操作</th><th>結果</th><th>仕訳ID</th><th>勘定科目</th><th>税区分</th><th>証憑</th><th>備考</th></tr>
             </thead>
-            <tbody>
+            <tbody id="historyTbody">
+              <tr>
+                <td>2026-07-31 18:05</td>
+                <td>sample.admin@example.com（サンプル）</td>
+                <td>月次チェックを確認（monthly_check_confirmed）</td>
+                <td><span class="chip chip-green">成功</span></td>
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td>対象月: 2026年07月</td>
+              </tr>
               <tr>
                 <td>2026-07-15 10:22</td>
                 <td>sample.staff1@example.com（サンプル）</td>
@@ -1438,6 +1573,8 @@ tr.lt-lowmatch td { background: #fffbeb; }
             <tr><td>補助科目</td><td>勘定科目をさらに細かく分けたものです。<b>空欄のままで問題ありません</b>。</td></tr>
             <tr><td>税区分</td><td>その取引に消費税がどうかかるかの分類です。任意です。消費税の金額はMFクラウド会計が自動で計算します。</td></tr>
             <tr><td>インボイス区分<br>（対象外／適格／8割控除）</td><td><b>必須</b>。<br><b>適格</b>＝適格請求書（インボイス）を受け取った取引。<br><b>対象外</b>＝消費税のかからない取引など、そもそもインボイス制度の対象にならないもの。<br><b>8割控除</b>＝インボイス未登録の相手からの取引で、経過措置により仕入税額の8割まで控除できるもの。<b>迷ったときは登録せず、事務所の担当税理士にご確認ください</b>。</td></tr>
+            <tr><td>対象外</td><td><b>MFクラウド会計の機能</b>です。その明細を仕訳の対象から外します。<b>この画面からは操作できません</b>（MFのAPIに機能がないため）。MFの画面で操作してください。</td></tr>
+            <tr><td>証憑不要</td><td><b>この画面だけの印</b>です。振込手数料など、そもそも領収書が存在しない取引を「資料待ち」のリストから消すために使います。MFには何も送りません。取り消せます。</td></tr>
             <tr><td>証憑（しょうひょう）</td><td>領収書・請求書など、取引の証拠になる書類のことです。</td></tr>
             <tr><td>マッチ待ち</td><td>証憑の添付先になる仕訳がまだ無く、できるのを待っている状態です。失敗ではありません。</td></tr>
             <tr><td>役員借入金</td><td>役員が個人のお金で会社の支払いを立て替えたときに使う勘定科目です。会社が役員に返す義務がある「借り入れ」として扱います（⑦現金払いの貸方に関連しますが、この画面で選ぶことはありません。MFが自動で結び付けます）。</td></tr>
@@ -1455,7 +1592,30 @@ tr.lt-lowmatch td { background: #fffbeb; }
   function go(t) {
     document.querySelectorAll('.tabpage').forEach(function (el) { el.classList.toggle('active', el.id === 't-' + t); });
     document.querySelectorAll('.tab-btn').forEach(function (el) { el.classList.toggle('active', el.dataset.t === t); });
+    ensureTabGroupOpen(t);
     window.scrollTo(0, 0);
+  }
+
+  // ---- タブ群の折りたたみ（§11.7-4・中堅の実測「常時218px占有」指摘） ----
+  var tabGroupIds = { monthend: 'grpMonthEnd', docs: 'grpDocs' };
+  var tabGroupLabels = { monthend: '月末', docs: '資料と管理' };
+  var tabGroupMap = {
+    uketori: null, unmatched: null, voucherlink: null, questions: null,
+    monthly: 'monthend', novoucher: 'monthend', cash: 'monthend',
+    awaiting: 'docs', files: 'docs', history: 'docs', advisor: 'docs', office: 'docs', approval: 'docs'
+  };
+  function toggleTabGroup(key) {
+    var row = document.getElementById(tabGroupIds[key]);
+    var label = document.getElementById(tabGroupIds[key] + 'Label');
+    var willOpen = row.style.display === 'none' || row.style.display === '';
+    row.style.display = willOpen ? 'flex' : 'none';
+    label.textContent = tabGroupLabels[key] + (willOpen ? ' ▾' : ' ▸');
+  }
+  function ensureTabGroupOpen(t) {
+    var g = tabGroupMap[t];
+    if (!g) return;
+    var row = document.getElementById(tabGroupIds[g]);
+    if (row && row.style.display === 'none') toggleTabGroup(g);
   }
 
   var _t;
@@ -1467,13 +1627,93 @@ tr.lt-lowmatch td { background: #fffbeb; }
     _t = setTimeout(function () { el.classList.remove('show'); }, 2600);
   }
   function mockToast() { showToast('モックのため動作しません'); }
+
+  // ---- ① 一覧表示: 実際に絞り込む（§11.3・中堅の実測指摘への対応。トーストで逃げない） ----
+  var ltFilterAccountName = null;
+  var ltFilterVoucherOnly = false;
+  function ltStripAccountLabel(s) { return (s || '').replace(/【.*?】/g, '').trim(); }
+  function ltAccountsMatch(a, b) {
+    a = ltStripAccountLabel(a); b = ltStripAccountLabel(b);
+    if (!a || !b) return false;
+    return a === b || a.indexOf(b) !== -1 || b.indexOf(a) !== -1;
+  }
+  function ltApplyFilter() {
+    var bar = document.getElementById('ltFilterBar');
+    var label = document.getElementById('ltFilterLabel');
+    var noResult = document.getElementById('ltNoResult');
+    var rows = document.querySelectorAll('#listTable tbody tr.lt-row');
+    var visible = 0;
+    rows.forEach(function (tr) {
+      var show = true;
+      if (ltFilterAccountName) {
+        var cells = tr.querySelectorAll('td');
+        var sel = cells[4] ? cells[4].querySelector('select') : null;
+        var accountText = sel ? sel.options[sel.selectedIndex].text : '';
+        show = show && ltAccountsMatch(accountText, ltFilterAccountName);
+      }
+      if (ltFilterVoucherOnly) {
+        show = show && !!tr.querySelector('.evi-auto');
+      }
+      tr.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    if (ltFilterAccountName || ltFilterVoucherOnly) {
+      bar.style.display = 'flex';
+      var parts = [];
+      if (ltFilterAccountName) parts.push('絞り込み中: ' + ltFilterAccountName);
+      if (ltFilterVoucherOnly) parts.push('証憑ありのみ表示');
+      label.textContent = parts.join(' / ') + '（' + visible + '件表示）';
+    } else {
+      bar.style.display = 'none';
+    }
+    noResult.style.display = visible === 0 ? '' : 'none';
+  }
+  function ltClearFilter() {
+    ltFilterAccountName = null;
+    ltFilterVoucherOnly = false;
+    ltApplyFilter();
+  }
   function jumpToUnmatched(name) {
     go('unmatched');
-    showToast('①未仕訳の明細を「' + name + '」で絞り込む想定です（モックのため絞り込みは行われません）');
+    viewSwitch('list');
+    ltFilterVoucherOnly = false;
+    ltFilterAccountName = name;
+    ltApplyFilter();
+    showToast('①未仕訳の明細を「' + name + '」で絞り込みました');
   }
+  function jumpToUnmatchedVoucherOnly() {
+    go('unmatched');
+    viewSwitch('list');
+    ltFilterAccountName = null;
+    ltFilterVoucherOnly = true;
+    ltApplyFilter();
+    showToast('①未仕訳の明細を「証憑あり」だけに絞り込みました');
+  }
+
+  // ---- 質問と回答: 「顧客に聞く」から取引を選択済みで連動させる（§11.3） ----
   function askCustomer(desc) {
     go('questions');
-    showToast('「' + desc + '」について質問を作成する画面へ（モックのため実際の送信は行われません）');
+    var sel = document.getElementById('qaTxnSelect');
+    if (sel) {
+      var prev = sel.querySelector('option[data-injected="1"]');
+      if (prev) prev.remove();
+      var opt = document.createElement('option');
+      opt.textContent = desc;
+      opt.value = desc;
+      opt.setAttribute('data-injected', '1');
+      sel.insertBefore(opt, sel.firstChild);
+      sel.value = desc;
+      var hint = document.getElementById('qaTxnSelectedHint');
+      if (hint) hint.style.display = '';
+    }
+    showToast('「' + desc + '」を選択した状態で質問フォームを開きました');
+  }
+
+  // ---- 登録の取り消し: 確認ダイアログをはさむ（§11.7-1・新人の指摘） ----
+  function undoRegistration() {
+    var ok = window.confirm('この仕訳を取り消します。MFクラウド会計から仕訳が削除されます。よろしいですか？');
+    if (!ok) return;
+    mockToast();
   }
 
   // ---- できないこと: 初期は畳んだ1行リンク。開閉のみ（設計書§5） ----
@@ -1603,6 +1843,69 @@ tr.lt-lowmatch td { background: #fffbeb; }
     vlRenderCandidates(idx);
   }
 
+  // ---- ⑨ 月次チェック: 「月の途中」と「未仕訳の残件数」を区別する（§11.1・最重要） ----
+  var monthlyRemainingZeroDemo = false;
+  function toggleRemainingDemo() {
+    monthlyRemainingZeroDemo = !monthlyRemainingZeroDemo;
+    monthlyRender();
+  }
+  function monthlyMonthChange() {
+    monthlyRender();
+  }
+  function monthlyRender() {
+    var sel = document.getElementById('monthlySelect');
+    var month = sel ? sel.value : 'jul';
+    var inProgress = month === 'aug';
+    var gapSection = document.getElementById('monthlyGapSection');
+    var inProgressMsg = document.getElementById('monthlyInProgressMsg');
+    var ref23 = document.getElementById('monthlyRef23Note');
+    var remainingBox = document.getElementById('monthlyRemainingBox');
+
+    inProgressMsg.style.display = inProgress ? '' : 'none';
+    gapSection.style.display = inProgress ? 'none' : '';
+    ref23.style.display = inProgress ? '' : 'none';
+    remainingBox.style.display = inProgress ? 'none' : '';
+
+    if (inProgress) return;
+
+    var monthLabel = { jul: '7月', jun: '6月', may: '5月' }[month] || '今月';
+    var remaining = monthlyRemainingZeroDemo ? 0 : 42;
+    var textEl = document.getElementById('monthlyRemainingText');
+    var heading = document.getElementById('monthlyGapHeading');
+    var demoBtn = document.getElementById('monthlyDemoBtn');
+    var chips = document.querySelectorAll('.gapChip');
+
+    if (remaining === 0) {
+      remainingBox.classList.remove('warn'); remainingBox.classList.add('danger');
+      textEl.innerHTML = '📋 <b>' + monthLabel + 'の未仕訳明細は0件です。</b> 登録は終わっています。下の「まだ無い科目」に出ている行は、計上漏れの疑いがあります。';
+      heading.textContent = '① いつもあるのに今月まだ無い科目';
+      chips.forEach(function (c) { c.className = 'chip chip-red gapChip'; });
+      demoBtn.textContent = '通常表示（未仕訳が残っている場合）に戻す';
+    } else {
+      remainingBox.classList.remove('danger'); remainingBox.classList.add('warn');
+      textEl.innerHTML = '📋 <b>' + monthLabel + 'の未仕訳明細が' + remaining + '件残っています。</b> 登録が終わっていない月では、下の「まだ無い科目」は当然の結果です。まず①未仕訳の明細を片付けてから、このチェックを見てください。';
+      heading.textContent = '① いつもあるのに今月まだ無い科目（登録作業中のため参考表示）';
+      chips.forEach(function (c) { c.className = 'chip chip-gray gapChip'; });
+      demoBtn.textContent = '残件0の場合の表示を見る';
+    }
+  }
+
+  // ---- ⑨ 月次チェック: 人間が確認した記録（§11.2-2・所長の指摘） ----
+  function monthlyConfirmRecord() {
+    var result = document.getElementById('monthlyConfirmResult');
+    result.style.display = '';
+    result.textContent = '操作履歴に記録しました（sample.admin@example.com・2026-08-04 10:32）';
+    var tbody = document.getElementById('historyTbody');
+    if (tbody) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>2026-08-04 10:32</td><td>sample.admin@example.com（サンプル）</td>' +
+        '<td>月次チェックを確認（monthly_check_confirmed）</td>' +
+        '<td><span class="chip chip-green">成功</span></td>' +
+        '<td>—</td><td>—</td><td>—</td><td>—</td><td>対象月: 2026年07月（今回の操作）</td>';
+      tbody.insertBefore(tr, tbody.firstChild);
+    }
+  }
+
   // ---- ⑧ 証憑が付いていない仕訳: チェックで進捗バーを見た目だけ更新（保存はしない） ----
   var novTotal = 12;
   var novBaseResolved = 5;
@@ -1616,6 +1919,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
   // 初期表示
   ltUpdate();
   vlRenderCandidates(1);
+  monthlyRender();
 </script>
 </body>
 </html>
