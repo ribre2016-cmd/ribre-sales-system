@@ -183,10 +183,72 @@ function txwUpdateTermWarning(month) {
   if (!selectedTerm || !progressing || selectedTerm === progressing) {
     box.style.display = 'none'; box.textContent = ''; return;
   }
-  box.textContent = '⚠ この月は ' + selectedTerm.fiscal_year + '年度（'
+  var head = '⚠ この月は ' + selectedTerm.fiscal_year + '年度（'
     + txwFormatDateSlash(selectedTerm.start_date) + '〜' + txwFormatDateSlash(selectedTerm.end_date)
-    + '）のものです。この期の帳簿はすでに確定している可能性があります。登録先の期と処理方法をご判断ください。';
+    + '）のものです。この期の帳簿はすでに確定している可能性があります。';
+  // 設定が 'block' のときは、押しても登録できないことを先に伝える（サーバーが実際に拒否する）
+  box.textContent = head + (txwClosedTermPolicy === 'block'
+    ? 'この画面の設定により、この期への登録はできません。'
+    : '登録先の期と処理方法をご判断ください。');
+  box.className = txwClosedTermPolicy === 'block' ? 'note danger' : 'note warn';
   box.style.display = 'block';
+}
+
+/* ---------------- 決算済みの期の扱い（税理士に選んでもらう設定・設計書§6-E） ----------------
+ * 'warn'  … 警告を出すだけで登録はできる（既定）
+ * 'block' … 進行中の期以外への登録を拒否する
+ * ⚠ ここの表示はあくまで案内。**実際に止めるのはサーバー側**（handleJournalize）。
+ *   画面のガードは迂回できるため、ここだけで守っているつもりにならないこと。 */
+var txwClosedTermPolicy = 'warn';
+var txwWritable = false;
+
+function txwRenderPolicyBox() {
+  var box = document.getElementById('txwPolicyBox');
+  if (!box) return;
+  clearEl(box);
+  if (!txwWritable) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+
+  box.appendChild(el('div', {
+    text: '決算が終わった期の明細に仕訳を登録しようとしたときの動作',
+    style: 'font-weight:900;margin-bottom:6px'
+  }));
+
+  var row = el('div', { style: 'display:flex;gap:16px;flex-wrap:wrap;align-items:center' });
+  [
+    { v: 'warn', label: '警告を出すだけ（登録はできる）', hint: '前期の修正が必要な場合もあるため、こちらが既定です' },
+    { v: 'block', label: '登録できないようにする', hint: '確定した期の帳簿を絶対に触らせたくない場合' }
+  ].forEach(function (opt) {
+    var id = 'txwPolicy_' + opt.v;
+    var wrap = el('label', { class: 'txw-policy-opt', for: id });
+    var radio = el('input', { type: 'radio', name: 'txwClosedTermPolicy', id: id, value: opt.v });
+    radio.checked = (txwClosedTermPolicy === opt.v);
+    radio.addEventListener('change', function () { if (radio.checked) txwSaveClosedTermPolicy(opt.v); });
+    wrap.appendChild(radio);
+    wrap.appendChild(el('span', { text: ' ' + opt.label, style: 'font-weight:800' }));
+    wrap.appendChild(el('span', { text: '（' + opt.hint + '）', style: 'color:#64748b;font-weight:700;font-size:11px' }));
+    row.appendChild(wrap);
+  });
+  box.appendChild(row);
+  box.appendChild(el('div', {
+    id: 'txwPolicySaved', text: '', style: 'font-weight:800;margin-top:6px;min-height:16px'
+  }));
+}
+
+async function txwSaveClosedTermPolicy(policy) {
+  var msg = document.getElementById('txwPolicySaved');
+  if (msg) { msg.textContent = '保存中…'; msg.style.color = '#2563eb'; }
+  try {
+    var result = await txwApiCall('set_closed_term_policy', { policy: policy });
+    var data = result.data || {};
+    if (!data.ok) throw new Error(data.error || 'failed');
+    txwClosedTermPolicy = policy;
+    if (msg) { msg.textContent = '保存しました'; msg.style.color = '#15803d'; }
+    txwUpdateTermWarning(document.getElementById('txwMonth').value);
+  } catch (e) {
+    if (msg) { msg.textContent = '保存できませんでした。もう一度お試しください。'; msg.style.color = '#b91c1c'; }
+    txwRenderPolicyBox(); // 画面の選択を実際の設定へ戻す
+  }
 }
 
 /* ---------------- ログイン状態の判定（services/auth-gate.js の tokenValid() と同じ規則） ---------------- */
@@ -468,7 +530,12 @@ async function txwLoad() {
   }
 
   if (data.advisor && data.advisor.email) txwSetWho(data.advisor.email);
-  txwRenderUnmatched(Array.isArray(data.items) ? data.items : [], !!data.writable);
+  txwWritable = !!data.writable;
+  // 決算済みの期の扱い。サーバーが返した値を正とする（画面で勝手に決めない）
+  if (['warn', 'block'].indexOf(data.closed_term_policy) >= 0) txwClosedTermPolicy = data.closed_term_policy;
+  txwRenderPolicyBox();
+  txwUpdateTermWarning(month);
+  txwRenderUnmatched(Array.isArray(data.items) ? data.items : [], txwWritable);
   txwRenderAwaiting(Number(data.open_evidence_count) || 0);
   txwRenderFiles(Array.isArray(data.shared_files) ? data.shared_files : []);
   txwSetAdminVisible(!!data.is_member);
@@ -694,6 +761,13 @@ function txwJournalizeErrorMessage(data) {
       return 'この明細は既に仕訳済みです。画面を再読み込みしてください。';
     case 'transaction_not_found':
       return '明細が見つかりませんでした。画面を再読み込みしてください。';
+    case 'closed_term_blocked': {
+      // 「決算済みの期には登録しない」設定によりサーバーが拒否した
+      var t = data.term;
+      var when = t ? (t.fiscal_year + '年度（' + txwFormatDateSlash(t.start_date) + '〜' + txwFormatDateSlash(t.end_date) + '）') : '進行中でない期';
+      return 'この明細は ' + when + ' のもので、「決算が終わった期には登録しない」設定になっているため登録できません。'
+        + '登録が必要な場合は、画面上部の設定を変更してください。';
+    }
     case 'journalize_failed':
       // MFが決算済みの期を拒否した場合などのため、文言を決め打ちせずそのまま出す
       return data.message ? String(data.message) : '仕訳の登録に失敗しました。';

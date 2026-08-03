@@ -101,3 +101,36 @@ drop policy if exists tax_advisor_invites_all_auth on tax_advisor_invites;
 
 -- 確認用
 -- select token, created_by, expires_at, used_at, used_email, revoked_at from tax_advisor_invites order by created_at desc;
+
+-- =====================
+-- 5. 税理士ワークスペースの動作設定（2026-08-03 追加）
+-- =====================
+-- 「決算が終わった期の明細に仕訳を登録しようとしたときどうするか」を税理士に選んでもらう。
+-- 当初は税理士へ口頭で確認する予定だった（設計書§6-E）が、
+-- **設定にすれば回答待ちが不要**になるため画面から選べるようにした。
+--
+-- closed_term_policy:
+--   'warn'  … 警告を出すだけで登録はできる（既定。前期の修正が正しい場合もあるため）
+--   'block' … 進行中の期以外への登録を拒否する
+--
+-- ⚠ 画面のガードは迂回できるため、**サーバー側(handleJournalize)でも必ず判定する**こと。
+create table if not exists tax_workspace_settings (
+  id                 smallint primary key default 1,
+  closed_term_policy text not null default 'warn',
+  updated_by         text,
+  updated_at         timestamptz not null default now(),
+  constraint tax_workspace_settings_single_row check (id = 1),
+  constraint tax_workspace_settings_policy_valid check (closed_term_policy in ('warn', 'block'))
+);
+
+insert into tax_workspace_settings (id, closed_term_policy)
+values (1, 'warn')
+on conflict (id) do nothing;
+
+alter table tax_workspace_settings enable row level security;
+-- ポリシーは作らない（service role のみ）
+drop policy if exists tax_workspace_settings_select_auth on tax_workspace_settings;
+drop policy if exists tax_workspace_settings_all_auth on tax_workspace_settings;
+
+-- 確認用
+-- select * from tax_workspace_settings;

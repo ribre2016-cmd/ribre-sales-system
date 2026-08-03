@@ -269,6 +269,49 @@ async function setAdvisorEnabled(email, enabled) {
   return Array.isArray(rows) && rows.length > 0;
 }
 
+/* ---------------- 決算済みの期の扱い（設定） ---------------- */
+// 'warn'  … 警告を出すだけで登録はできる（既定）
+// 'block' … 進行中の期以外への登録を拒否する
+// ⚠ 画面のガードは迂回できるため、登録処理でも必ずこの値を見て判定する。
+const CLOSED_TERM_POLICIES = ['warn', 'block'];
+
+async function fetchClosedTermPolicy() {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/tax_workspace_settings?id=eq.1&select=closed_term_policy&limit=1`, {
+      headers: supabaseHeaders(),
+    });
+    if (!r.ok) return 'warn';
+    const rows = await r.json().catch(() => []);
+    const v = Array.isArray(rows) && rows[0] && rows[0].closed_term_policy;
+    return CLOSED_TERM_POLICIES.indexOf(v) >= 0 ? v : 'warn';
+  } catch (e) {
+    return 'warn'; // 取得できないときは止めない（作業を妨げない側に倒す）
+  }
+}
+
+async function saveClosedTermPolicy(policy, byEmail) {
+  const p = CLOSED_TERM_POLICIES.indexOf(policy) >= 0 ? policy : null;
+  if (!p) return false;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/tax_workspace_settings?on_conflict=id`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify([{ id: 1, closed_term_policy: p, updated_by: byEmail, updated_at: new Date().toISOString() }]),
+  });
+  return r.ok;
+}
+
+// 今日の日付が入る期を「進行中の期」とし、指定日がそこに入るかを返す。
+// 会計期間が取れないときは null（＝判定できないので止めない）。
+function isInProgressingTerm(terms, dateStr) {
+  const list = Array.isArray(terms) ? terms : [];
+  if (!list.length || !dateStr) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const inTerm = (t, d) => t && t.start_date && t.end_date && d >= t.start_date && d <= t.end_date;
+  const progressing = list.find((t) => inTerm(t, today));
+  if (!progressing) return null;
+  return { ok: inTerm(progressing, dateStr), term: list.find((t) => inTerm(t, dateStr)) || null };
+}
+
 /* ---------------- Phase 3: 仕訳登録＋証憑添付 ---------------- */
 
 // 操作履歴に1行残す。MF側では仕訳が全て「連携アプリ」名義になり誰が作ったか
@@ -396,6 +439,34 @@ async function handleJournalize(res, advisor, accessToken, body) {
   if (tx.journalizing_status !== 'none') {
     res.status(200).json({ ok: false, error: 'already_journalized', status: tx.journalizing_status });
     return;
+  }
+
+  // 1-2. 決算済みの期への登録を拒否する設定なら、ここで止める。
+  // ⚠ 画面側にも同じ判定を入れているが、迂回できるのでサーバーでも必ず見る。
+  const policy = await fetchClosedTermPolicy();
+  if (policy === 'block') {
+    let terms = [];
+    try {
+      const t = await fetchMaster(accessToken, 'term_settings');
+      terms = t.term_settings || [];
+    } catch (e) {
+      terms = []; // 会計期間が取れなければ判定できない＝止めない
+    }
+    const judged = isInProgressingTerm(terms, tx.date || dateHint);
+    if (judged && !judged.ok) {
+      const t = judged.term;
+      await recordAction({
+        actor_email: advisor.email, action: 'journalize', transaction_id: transactionId,
+        account_id: accountId, result: 'failed',
+        error_message: 'closed_term_blocked', payload: { date: tx.date || dateHint, policy },
+      });
+      res.status(200).json({
+        ok: false,
+        error: 'closed_term_blocked',
+        term: t ? { fiscal_year: t.fiscal_year, start_date: t.start_date, end_date: t.end_date } : null,
+      });
+      return;
+    }
   }
 
   // 2. 仕訳を作る。invoice_kind は必ず明示送信する（未確認事項C・既定値に依存しない）
@@ -530,6 +601,21 @@ module.exports = async (req, res) => {
     return;
   }
 
+  // 決算済みの期の扱いは税理士自身が決める（設計書§6-E）。社内メンバーも変更できる。
+  if (action === 'set_closed_term_policy') {
+    const okSave = await saveClosedTermPolicy(body && body.policy, advisor.email);
+    if (!okSave) {
+      res.status(200).json({ ok: false, error: 'invalid_policy' });
+      return;
+    }
+    await recordAction({
+      actor_email: advisor.email, action: 'set_closed_term_policy',
+      result: 'ok', payload: { policy: body.policy },
+    });
+    res.status(200).json({ ok: true, closed_term_policy: body.policy });
+    return;
+  }
+
   if (['bootstrap', 'list', 'journalize'].indexOf(action) < 0) {
     res.status(400).json({ ok: false, error: 'invalid_action' });
     return;
@@ -635,6 +721,8 @@ module.exports = async (req, res) => {
     month: body.month,
     // Phase 3から登録可能。画面はこれを見て登録ボタンを出す。
     writable: true,
+    // 決算済みの期の扱い（'warn' か 'block'）。画面はこれに従って警告か禁止かを切り替える
+    closed_term_policy: await fetchClosedTermPolicy(),
     items,
     shared_files: sharedFiles,
     open_evidence_count: evidences.length,
