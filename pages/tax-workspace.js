@@ -545,6 +545,12 @@ async function txwLoad() {
   }
   if (!data || !data.ok) {
     if (data && data.advisor && data.advisor.email) txwSetWho(data.advisor.email);
+    // 読み込みに失敗した＝登録できる状態ではない。前回の成功時に出した
+    // 「決算が終わった期の扱い」設定欄が残っていると、登録できないのに設定だけ
+    // 生きて見えて食い違うので必ず隠す。
+    txwWritable = false;
+    txwRenderPolicyBox();
+    txwUpdateTermWarning('');
     txwShowGlobalError(txwMapError(data));
     txwSetLoadFailed();
     return;
@@ -719,13 +725,13 @@ function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
   var row1 = el('div', { class: 'jform-row' });
   var accountField = el('div', { class: 'jform-field' });
   accountField.appendChild(el('label', { text: '勘定科目 *' }));
-  var accountInput = txwBuildSearchInput('txwAccountsDatalist', '入力して検索（必須）');
+  var accountInput = txwBuildSearchInput('txwAccountsDatalist', '必須：入力すると候補が出ます（候補から選択）');
   accountField.appendChild(accountInput);
   row1.appendChild(accountField);
 
   var subField = el('div', { class: 'jform-field' });
   subField.appendChild(el('label', { text: '補助科目' }));
-  var subInput = txwBuildSearchInput('txwSubAccountsDatalist', '(任意)入力して検索');
+  var subInput = txwBuildSearchInput('txwSubAccountsDatalist', '任意：入力すると候補が出ます（候補から選択）');
   subField.appendChild(subInput);
   row1.appendChild(subField);
   formWrap.appendChild(row1);
@@ -733,7 +739,7 @@ function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
   var row2 = el('div', { class: 'jform-row' });
   var taxField = el('div', { class: 'jform-field' });
   taxField.appendChild(el('label', { text: '税区分' }));
-  var taxInput = txwBuildSearchInput('txwTaxesDatalist', '(任意)入力して検索');
+  var taxInput = txwBuildSearchInput('txwTaxesDatalist', '任意：入力すると候補が出ます（候補から選択）');
   taxField.appendChild(taxInput);
   row2.appendChild(taxField);
 
@@ -801,6 +807,16 @@ function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
   // Phase 4: この明細がsuggestの対象になるよう、transaction_idで引けるようにしておく。
   txwCardRefsByTx[tx.transaction_id] = refs;
 
+  /* 押す直前に必ず見える位置へ注意書きを置く。
+   * これまでガイドにしか書いていなかったが、ガイドを読んでいない・忘れた人への
+   * 最後の砦として画面にも出す（2026-08-03のレビュー指摘）。
+   * 確認ダイアログは出さない：1件ずつしか登録できず、内容も目の前に出ているため、
+   * 毎回ダイアログを出すと「読まずに閉じる」癖がついて逆に危ない。 */
+  body.appendChild(el('div', {
+    class: 'note warn',
+    text: '⚠ 登録するとMFクラウド会計に仕訳が作られます。この画面から取り消すことはできません。'
+      + '間違えた場合はMFクラウド会計の仕訳帳から編集・削除してください。'
+  }));
   var btnRow = el('div', { class: 'jform-btnrow' });
   btnRow.appendChild(submitBtn);
   body.appendChild(btnRow);
@@ -882,7 +898,12 @@ function txwJournalizeErrorMessage(data) {
     }
     case 'journalize_failed':
       // MFが決算済みの期を拒否した場合などのため、文言を決め打ちせずそのまま出す
-      return data.message ? String(data.message) : '仕訳の登録に失敗しました。';
+      /* MFが返したメッセージは英語・専門用語のことがあり、そのまま出すと
+       * 何をすればよいか分からない。文言は決め打ちせず（MF側の事情を勝手に
+       * 解釈しないため）、前に一言添えて「担当者に伝える」という次の行動を示す。 */
+      return data.message
+        ? '会計システム側でエラーが返されました。次の内容をそのままRIBRE担当者にお伝えください：「' + String(data.message) + '」'
+        : '仕訳の登録に失敗しました。';
     case 'scope_missing':
       return 'MF連携の権限が不足しています。管理者による再連携が必要です。';
     case 'transaction_check_failed':
