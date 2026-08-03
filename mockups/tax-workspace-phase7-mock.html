@@ -296,7 +296,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
           </ul>
         </div>
       </div>
-      <div class="note info" style="margin-top:12px;font-weight:800;">この画面が止まっても、事務所の業務は止まりません。仕訳はMFクラウド会計に、証憑はMFクラウドBoxに入ります。止まった場合はMFで従来どおり作業できます。失われるのは「質問と回答の履歴」と「月次チェックの確認記録」だけなので、それらは月次でCSVに書き出して事務所側で保管してください。</div>
+      <div class="note info" style="margin-top:12px;font-weight:800;">この画面が止まっても、事務所の業務は止まりません。仕訳はMFクラウド会計に、証憑はMFクラウドBoxに入ります。止まった場合はMFで従来どおり作業できます。ただし、<b>この画面にしか残らないもの</b>があります。「質問と回答の履歴」「月次チェックの確認記録」、そして<b>④操作履歴（誰が・いつ・どの根拠で登録／承認／取り消しをしたかの記録）</b>です。仕訳そのものはMFに残っても、<b>事務所としての説明責任の記録はここにしかありません</b>。この3つは月次でCSVに書き出し、RIBREが触れない場所で事務所側でも保管してください。</div>
     </div>
   </div>
 
@@ -750,6 +750,15 @@ tr.lt-lowmatch td { background: #fffbeb; }
       <div class="panel-body">
         <div class="note warn">添付は取り消せません。MFの仕様上、送るたびに新しいファイルが作られます。1つの仕訳に添付できるのは5件までです。</div>
 
+        <div class="note danger" style="margin-top:10px;">
+          <b>この候補さがしで見つけられないもの</b><br>
+          ・<b>日付や金額が一致しない証憑は、候補に出ません。</b>（金額が税込・税抜で食い違っている、日付が請求日と支払日でずれている、など）<br>
+          ・外貨建ての証憑は、金額での照合の対象外です（円換算を推測しないため）<br>
+          ・そもそも仕訳が登録されていない取引には、つなげる先がありません（②仕訳待ちの証憑に入ります）<br>
+          <b>左の一覧が空になっても、すべての証憑がつながったとは限りません。</b>
+          候補に出ない証憑は、MFの画面から直接お願いします。
+        </div>
+
         <div class="vl-grid">
           <div class="vl-col">
             <h3>添付先の無い証憑</h3>
@@ -893,6 +902,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
             <option value="jun">2026年06月</option>
             <option value="may">2026年05月</option>
           </select>
+          <span class="note" style="display:inline-block;margin-left:10px;">※このモックは7月分のデータだけを作り込んでいます。6月・5月を選んでも下の表は変わりません（実装ではAPIから月ごとに取り直します）。</span>
         </div>
         <div class="note danger">⚠ ここに出てくる内容は「間違っている」という判断ではありません。<b>確認をうながしているだけです。</b>最終的な判断は必ず担当の税理士が行ってください。</div>
         <div class="note danger" id="monthlyInProgressMsg" style="display:none;font-weight:900;margin-top:10px;">2026年8月はまだ月の途中です。計上漏れの判定は月が終わってから行います。</div>
@@ -1006,10 +1016,11 @@ tr.lt-lowmatch td { background: #fffbeb; }
         <div class="section-title" style="margin-top:22px;">人間が確認した記録</div>
         <div class="finding-item">
           <label style="display:flex;gap:8px;align-items:flex-start;font-weight:800;cursor:pointer;">
-            <input type="checkbox" id="monthlyConfirmCheck" style="transform:scale(1.2);margin-top:2px;">
+            <input type="checkbox" id="monthlyConfirmCheck" style="transform:scale(1.2);margin-top:2px;" onchange="monthlyConfirmToggle()">
             <span>この月について、上のフラグの有無にかかわらず<b>全科目をひと通り確認しました</b></span>
           </label>
-          <div class="btn-row"><button class="btn btn-primary" type="button" onclick="monthlyConfirmRecord()">確認を記録する</button></div>
+          <div class="btn-row"><button class="btn btn-primary" type="button" id="monthlyConfirmBtn" onclick="monthlyConfirmRecord()" disabled>確認を記録する</button></div>
+          <div class="note" id="monthlyConfirmHint" style="margin-top:8px;">上のチェックを入れると押せます。<b>チェックを入れずに記録することはできません。</b>この記録は「機械が何を出したか」ではなく「人間が確認したこと」を残すためのものなので、実際に確認していないときは押さないでください。</div>
           <div class="note ok" id="monthlyConfirmResult" style="display:none;margin-top:8px;"></div>
         </div>
 
@@ -1135,7 +1146,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
           <h2>⑦ 現金払い</h2>
           <div class="desc">現金など、口座を通らない支払いの証憑を扱います。Phase 5の「仕訳を直接作る」設計をやめ、「明細を作るだけ」に作り直しました。</div>
         </div>
-        <span class="chip chip-red">作り直し（Phase 5から設計変更）</span>
+        <span class="chip chip-red">作るかどうか未定（既存運用と重複の可能性）</span>
       </div>
       <div class="panel-body">
 
@@ -1410,7 +1421,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
             <label><input type="radio" name="officeApproval" onclick="mockToast()"> 承認なしで登録できる（既定）</label>
             <label><input type="radio" name="officeApproval" checked onclick="mockToast()"> 担当者の登録には管理者の承認が必要</label>
           </div>
-          <div class="note">現在の設定は「担当者の登録には管理者の承認が必要」です。そのため「承認待ち」タブが表示されています。設定の変更はここで行えます（既定はOFFで、小規模事務所に承認の手間を強制しません）。新人・担当者が使い始める期間だけでもONにすることをおすすめします。</div>
+          <div class="note">現在の設定は「担当者の登録には管理者の承認が必要」です。そのため「承認待ち」タブが表示されています。設定の変更はここで行えます（既定はOFFで、小規模事務所に承認の手間を強制しません）。<b>新人・担当者には、導入後3〜6ヶ月はONにすることをおすすめします</b>（承認がいちばん効くのは立ち上げの時期です）。また<b>管理者（admin）の役割は、所長ご本人か、真に信頼できる最小人数に限定してください</b>。管理者の登録は承認をスキップするため、人数を絞らないと承認制の意味が薄れます。</div>
         </div>
 
         <div class="admin-block">
@@ -1891,7 +1902,23 @@ tr.lt-lowmatch td { background: #fffbeb; }
   }
 
   // ---- ⑨ 月次チェック: 人間が確認した記録（§11.2-2・所長の指摘） ----
+  function monthlyConfirmToggle() {
+    var box = document.getElementById('monthlyConfirmCheck');
+    var btn = document.getElementById('monthlyConfirmBtn');
+    var hint = document.getElementById('monthlyConfirmHint');
+    if (!box || !btn) return;
+    btn.disabled = !box.checked;
+    if (hint) hint.style.display = box.checked ? 'none' : '';
+  }
+
   function monthlyConfirmRecord() {
+    // チェックが入っていないときは記録しない（所長・新人レビューの指摘。
+    // 「確認した」という記録だけが残るのを防ぐ。ボタンのdisabledと二重で守る）
+    var box = document.getElementById('monthlyConfirmCheck');
+    if (!box || !box.checked) {
+      alert('先に「全科目をひと通り確認しました」にチェックを入れてください。');
+      return;
+    }
     var result = document.getElementById('monthlyConfirmResult');
     result.style.display = '';
     result.textContent = '操作履歴に記録しました（sample.admin@example.com・2026-08-04 10:32）';
