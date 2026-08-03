@@ -78,6 +78,16 @@ var txwSubAccountLookup = { labelToId: {}, options: [] };
 var txwCardRefsByTx = {};
 var txwRenderGen = 0;
 
+/* ---------------- ⑨ 月次チェック用の絞り込み(①タブと共有) ----------------
+ * txwUnmatchedFilter: ⑨の各行「この科目の未仕訳明細をさがす」から①タブへ渡す絞り込み条件。
+ * txwUnmatchedAllItems/txwUnmatchedWritableCache: 直近のtxwLoad()で取得した①タブの全件を
+ * 保持しておき、絞り込みのON/OFFだけで再取得なしに再描画できるようにする。 */
+var txwUnmatchedFilter = { active: false, account: '' };
+var txwUnmatchedAllItems = [];
+var txwUnmatchedWritableCache = false;
+// ⑨タブの直近の応答。確認記録(monthly_check_confirm)を送るときに件数を添えるため保持する。
+var txwMonthlyLastData = null;
+
 // 同じ表示名が複数あるときはIDを付けて区別する（2パス: 先に重複数を数えてから組み立てる）
 function txwBuildLabelLookup(list, labelFn) {
   var counts = {};
@@ -607,10 +617,55 @@ function txwUpdateUnmatchedNote(writable) {
     : 'この明細は閲覧のみです。仕訳の登録・証憑の添付はMFクラウド会計の画面で行ってください。';
 }
 
+// ⑨月次チェックの「この科目の未仕訳明細をさがす」からの絞り込み。
+// 提案されている勘定科目を明細ごとに持っていない(suggestは非同期・writableのカードのみ)ため、
+// 明細の内容(content)にその科目名が含まれるものを残す。バーには「何で絞ったか」を明記する(§3)。
+function txwUnmatchedFilteredItems(items) {
+  if (!txwUnmatchedFilter.active) return items || [];
+  var acc = txwUnmatchedFilter.account;
+  return (items || []).filter(function (tx) { return String((tx && tx.content) || '').indexOf(acc) >= 0; });
+}
+
+function txwRenderUnmatchedFilterBar() {
+  var bar = document.getElementById('txwUnmatchedFilterBar');
+  if (!bar) return;
+  clearEl(bar);
+  if (!txwUnmatchedFilter.active) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+  var row = el('div', { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;' });
+  row.appendChild(el('span', { text: '絞り込み中: ' + txwUnmatchedFilter.account, style: 'font-weight:900' }));
+  var clearBtn = el('button', { type: 'button', class: 'btn-mini', text: '絞り込みを解除' });
+  clearBtn.addEventListener('click', txwClearUnmatchedFilter);
+  row.appendChild(clearBtn);
+  bar.appendChild(row);
+  bar.appendChild(el('div', {
+    style: 'margin-top:4px;',
+    text: '※ 取引内容に「' + txwUnmatchedFilter.account + '」を含むものを表示しています。'
+  }));
+}
+
+// ⑨タブの各行から呼ぶ。①タブへ移動し、その科目名で実際に絞り込む。
+function txwFilterToUnmatched(account) {
+  txwUnmatchedFilter = { active: true, account: String(account || '') };
+  txwGoTab('unmatched');
+  txwRenderUnmatched(txwUnmatchedAllItems, txwUnmatchedWritableCache);
+}
+function txwClearUnmatchedFilter() {
+  txwUnmatchedFilter = { active: false, account: '' };
+  txwRenderUnmatched(txwUnmatchedAllItems, txwUnmatchedWritableCache);
+}
+
 function txwRenderUnmatched(items, writable) {
+  // 次回の絞り込み解除・再絞り込みで再取得なしに再描画できるよう、全件をここへ保持する。
+  txwUnmatchedAllItems = items || [];
+  txwUnmatchedWritableCache = writable;
+
   var container = document.getElementById('txwUnmatchedList');
   clearEl(container);
-  document.getElementById('txwUnmatchedCount').textContent = '未仕訳 ' + items.length + '件';
+  txwRenderUnmatchedFilterBar();
+  var displayItems = txwUnmatchedFilteredItems(items);
+  document.getElementById('txwUnmatchedCount').textContent = '未仕訳 ' + displayItems.length + '件'
+    + (txwUnmatchedFilter.active ? '（絞り込み中）' : '');
   txwUpdateUnmatchedNote(writable);
 
   // 新しい世代の描画を始める。前の世代のsuggest応答が後から返ってきても無視するための番号。
@@ -618,12 +673,15 @@ function txwRenderUnmatched(items, writable) {
   var myGen = txwRenderGen;
   txwCardRefsByTx = {};
 
-  if (!items.length) {
-    container.appendChild(el('div', { class: 'evidence-empty', text: '未仕訳の明細はありません。' }));
+  if (!displayItems.length) {
+    container.appendChild(el('div', {
+      class: 'evidence-empty',
+      text: txwUnmatchedFilter.active ? 'この絞り込み条件に一致する明細はありません。' : '未仕訳の明細はありません。'
+    }));
     return;
   }
 
-  items.forEach(function (tx) {
+  displayItems.forEach(function (tx) {
     var card = el('div', { class: 'jcard' });
 
     var head = el('div', { class: 'jcard-head' });
@@ -681,7 +739,7 @@ function txwRenderUnmatched(items, writable) {
   });
 
   // 明細の描画はここで完了。suggestは続けて後から呼ぶが、描画をブロックしない(§A末尾)。
-  if (writable) txwLoadSuggestions(items, myGen);
+  if (writable) txwLoadSuggestions(displayItems, myGen);
 }
 
 /* ---------------- Phase 3: 仕訳登録フォーム ---------------- */
@@ -962,6 +1020,15 @@ function txwRefreshUnmatchedCount() {
   var el2 = document.getElementById('txwUnmatchedCount');
   if (!el2) return;
   var rest = document.querySelectorAll('.jcard:not(.jcard-collapsed)').length;
+  // ⚠ 数えているのは「今表示されているカード」なので、絞り込み中は
+  //   その科目の分しか見ていない。「すべて処理しました」と言い切ると
+  //   他の科目に未仕訳が残っていても終わったと誤解させる。
+  if (txwUnmatchedFilter && txwUnmatchedFilter.active) {
+    el2.textContent = rest
+      ? ('未仕訳 ' + rest + '件（絞り込み中）')
+      : 'この絞り込みの分は処理しました（絞り込みを解除すると残りが見えます）';
+    return;
+  }
   el2.textContent = rest ? ('未仕訳 ' + rest + '件') : 'この月の未仕訳はすべて処理しました';
 }
 
@@ -1336,6 +1403,8 @@ function txwGoTab(t) {
   }
   // 操作履歴は開くたびに読み直す（自分や他の人の登録が随時増えるため）
   if (t === 'history') txwLoadActionLog();
+  // ⑨月次チェックも開くたびに読み直す（推移表・未仕訳件数とも随時変わるため）
+  if (t === 'monthly') txwLoadMonthlyCheck();
 }
 
 /* ---------------- ④ 操作履歴 ----------------
@@ -1413,6 +1482,327 @@ async function txwLoadActionLog() {
   body.appendChild(wrap);
 }
 
+/* ---------------- ⑨ 月次チェック ----------------
+ * action:'monthly_check' は読み取り専用（MFへ書き込まない）。タブを開くたび・対象月を
+ * 変えるたび・しきい値を変えて「この条件で見直す」を押すたびに呼ぶ。
+ * ⚠ month_in_progress:true のときAPIはmissingを空で返す（月の途中は計上漏れ判定をしない）。
+ * ⚠ 判定結果を人間が確認した記録(monthly_check_confirm)はサーバー側でもconfirmed!==trueを
+ *   拒否する。画面のdisabledはあくまで案内であって、それだけに頼らない。 */
+function txwMonthlyFormatMonth(month) {
+  var m = /^(\d{4})-(\d{2})$/.exec(String(month || ''));
+  if (!m) return String(month || '');
+  return Number(m[2]) + '月';
+}
+function txwMonthlyFormatYearMonth(month) {
+  var m = /^(\d{4})-(\d{2})$/.exec(String(month || ''));
+  if (!m) return String(month || '');
+  return m[1] + '年' + Number(m[2]) + '月';
+}
+
+function txwMonthlyMapError(data) {
+  switch (data && data.error) {
+    case 'report_scope_missing':
+      return '月次チェックにはMF連携のやり直しが必要です。証憑インボックスの「再連携」を押してください。';
+    case 'scope_missing':
+      return 'MF連携の権限が不足しています。管理者による再連携が必要です。';
+    case 'no_term_for_month':
+      return data.message ? String(data.message) : 'その月を含む会計年度がMFに見つかりません。';
+    case 'invalid_month':
+      return '対象月の指定が正しくありません。';
+    case 'not_connected':
+      return 'MFと連携されていません。管理者にご連絡ください。';
+    default:
+      return data && data.message ? String(data.message) : 'エラーが発生しました。しばらくしてからもう一度お試しください。';
+  }
+}
+
+function txwShowMonthlyError(msg) {
+  var box = document.getElementById('txwMonthlyGlobalError');
+  box.textContent = msg;
+  box.style.display = 'block';
+  document.getElementById('txwMonthlyBody').style.display = 'none';
+  clearEl(document.getElementById('txwMonthlyStatusBox'));
+}
+
+// 先頭: 対象月の未仕訳の残件数と、登録の進み具合(§11.1)。partial/registration_done/
+// unjournalized_countの組み合わせで文言と色を切り替える。3つは互いに排他になるよう
+// サーバー側で設計されている(unjournalized_count===nullのときはpartialも常にtrueだが、
+// 「件数が取れなかった」を先に判定することでこの文言だけを出す)。
+function txwRenderMonthlyStatus(data) {
+  var box = document.getElementById('txwMonthlyStatusBox');
+  clearEl(box);
+  var monthLabel = txwMonthlyFormatMonth(data.month);
+  var cnt = data.unjournalized_count;
+  if (cnt === null || cnt === undefined) {
+    box.appendChild(el('div', {
+      class: 'note warn',
+      text: '未仕訳の件数が取れませんでした。登録が終わっているかご自身でご確認ください。'
+    }));
+  } else if (data.partial === true) {
+    box.appendChild(el('div', {
+      class: 'note warn', style: 'font-weight:900;',
+      text: monthLabel + 'の未仕訳明細が' + cnt + '件残っています。登録が終わっていない月では、'
+        + '下の「まだ無い科目」は当然の結果です。まず①未仕訳の明細を片付けてから、このチェックを見てください。'
+    }));
+  } else if (data.registration_done === true) {
+    box.appendChild(el('div', {
+      class: 'note danger',
+      text: monthLabel + 'の未仕訳明細は0件です。登録は終わっています。下の「まだ無い科目」は、計上漏れの疑いがあります。'
+    }));
+  }
+  if (data.month_in_progress === true) {
+    box.appendChild(el('div', {
+      class: 'note danger', style: 'margin-top:8px;',
+      text: txwMonthlyFormatYearMonth(data.month) + 'はまだ月の途中です。計上漏れの判定は月が終わってから行います。'
+    }));
+    box.appendChild(el('div', {
+      class: 'note info', style: 'margin-top:8px;',
+      text: '②③はこの月についての参考情報として表示しています（月が終わっていないため、計上漏れの判定そのものは行いません）。'
+    }));
+  }
+}
+
+// ① いつもあるのに今月まだ無い科目(missing)。partialのときは見出しに「参考表示」を付け、
+// 行の見た目もグレーにする。partialでないときだけ赤くする(§11.1)。
+function txwRenderMonthlyMissing(data) {
+  var heading = document.getElementById('txwMonthlyMissingHeading');
+  heading.textContent = '① いつもあるのに今月まだ無い科目' + (data.partial ? '（登録作業中のため参考表示）' : '');
+
+  var list = document.getElementById('txwMonthlyMissingList');
+  clearEl(list);
+
+  if (data.month_in_progress) {
+    list.appendChild(el('div', { class: 'evidence-empty', text: '月が終わっていないため、この判定は行いません。' }));
+    return;
+  }
+
+  var missing = Array.isArray(data.missing) ? data.missing : [];
+  if (!missing.length) {
+    list.appendChild(el('div', { class: 'evidence-empty', text: '該当する科目はありません。' }));
+    return;
+  }
+  missing.forEach(function (row) {
+    var item = el('div', { class: 'txw-monthly-item ' + (data.partial ? 'gray' : 'danger') });
+    var pastText = (Array.isArray(row.past) ? row.past : []).map(function (v) { return yen(v); }).join(' → ');
+    item.appendChild(el('div', { class: 'txw-mi-title', text: row.account + ' — 過去: ' + pastText + ' → 当月 0円' }));
+    var btnRow = el('div', { class: 'txw-mi-btnrow' });
+    var btn = el('button', { type: 'button', class: 'btn-mini', text: 'この科目の未仕訳明細をさがす' });
+    btn.addEventListener('click', function () { txwFilterToUnmatched(row.account); });
+    btnRow.appendChild(btn);
+    item.appendChild(btnRow);
+    list.appendChild(item);
+  });
+}
+
+// ② 金額が普段と大きく違う科目(outliers)。中央値と比べて何倍かを添える。
+// suppressed_low_outliers>0のときは黙って減らさず、必ずその旨を出す(§12)。
+function txwRenderMonthlyOutliers(data) {
+  var suppressedBox = document.getElementById('txwMonthlySuppressedNote');
+  var suppressed = Number(data.suppressed_low_outliers) || 0;
+  if (suppressed > 0) {
+    suppressedBox.style.display = 'block';
+    suppressedBox.textContent = '※ 登録が途中のため、「普段より少ない」側の' + suppressed + '件は表示していません。'
+      + '登録が終わっていない月ではほとんどが「少ない」と判定され、役に立たないためです。登録が終わってからもう一度ご覧ください。';
+  } else {
+    suppressedBox.style.display = 'none';
+    suppressedBox.textContent = '';
+  }
+
+  var list = document.getElementById('txwMonthlyOutlierList');
+  clearEl(list);
+  var outliers = Array.isArray(data.outliers) ? data.outliers : [];
+  if (!outliers.length) {
+    list.appendChild(el('div', { class: 'evidence-empty', text: '該当する科目はありません。' }));
+    return;
+  }
+  var monthLabel = txwMonthlyFormatMonth(data.month);
+  outliers.forEach(function (row) {
+    var med = Number(row.past_median) || 0;
+    var val = Math.abs(Number(row.value) || 0);
+    var multipleText = '';
+    if (row.direction === 'low' && val > 0) {
+      multipleText = '中央値の約1/' + Math.max(1, Math.round(med / val));
+    } else if (med > 0) {
+      multipleText = '中央値の約' + Math.max(1, Math.round(val / med)) + '倍';
+    }
+    var item = el('div', { class: 'txw-monthly-item warn' });
+    item.appendChild(el('div', {
+      class: 'txw-mi-title',
+      text: row.account + ' — 普段は約' + yen(med) + 'ですが、' + monthLabel + 'は' + yen(val) + 'です'
+        + (multipleText ? '（' + multipleText + '）' : '')
+    }));
+    var btnRow = el('div', { class: 'txw-mi-btnrow' });
+    var btn = el('button', { type: 'button', class: 'btn-mini', text: 'この科目の未仕訳明細をさがす' });
+    btn.addEventListener('click', function () { txwFilterToUnmatched(row.account); });
+    btnRow.appendChild(btn);
+    btnRow.appendChild(el('a', {
+      class: 'btn-mini', href: 'https://biz.moneyforward.com/', target: '_blank', rel: 'noopener noreferrer',
+      text: 'MFクラウド会計で見る'
+    }));
+    item.appendChild(btnRow);
+    list.appendChild(item);
+  });
+}
+
+// ③ 符号がおかしい科目(sign_issues)
+function txwRenderMonthlySignIssues(data) {
+  var list = document.getElementById('txwMonthlySignIssueList');
+  clearEl(list);
+  var rows = Array.isArray(data.sign_issues) ? data.sign_issues : [];
+  if (!rows.length) {
+    list.appendChild(el('div', { class: 'evidence-empty', text: '該当する科目はありません。' }));
+    return;
+  }
+  var monthLabel = txwMonthlyFormatMonth(data.month);
+  rows.forEach(function (row) {
+    var item = el('div', { class: 'txw-monthly-item danger' });
+    item.appendChild(el('div', {
+      class: 'txw-mi-title',
+      text: row.account + ' — ' + monthLabel + 'が' + yen(row.value) + 'です。取消や振替が入っていないか確認してください。'
+    }));
+    var btnRow = el('div', { class: 'txw-mi-btnrow' });
+    var btn = el('button', { type: 'button', class: 'btn-mini', text: 'この科目の未仕訳明細をさがす' });
+    btn.addEventListener('click', function () { txwFilterToUnmatched(row.account); });
+    btnRow.appendChild(btn);
+    btnRow.appendChild(el('a', {
+      class: 'btn-mini', href: 'https://biz.moneyforward.com/', target: '_blank', rel: 'noopener noreferrer',
+      text: 'MFクラウド会計で見る'
+    }));
+    item.appendChild(btnRow);
+    list.appendChild(item);
+  });
+}
+
+// 判定条件（criteriaの実際の値を使う。§5）
+function txwRenderMonthlyCriteria(data) {
+  var c = data.criteria || {};
+  var lookback = c.lookback != null ? c.lookback : 4;
+  var ratio = c.ratio != null ? c.ratio : 3;
+  var minDiff = c.min_diff != null ? c.min_diff : 10000;
+  document.getElementById('txwMonthlyCriteriaNote').textContent =
+    '判定条件: 過去' + lookback + 'ヶ月すべてに計上があり当月0／中央値の' + ratio + '倍以上または1/' + ratio
+    + '以下かつ差額' + yen(minDiff) + '以上';
+}
+
+function txwRenderMonthlyCheck(data) {
+  txwRenderMonthlyStatus(data);
+  document.getElementById('txwMonthlyBody').style.display = 'block';
+  txwRenderMonthlyMissing(data);
+  txwRenderMonthlyOutliers(data);
+  txwRenderMonthlySignIssues(data);
+  txwRenderMonthlyCriteria(data);
+
+  // しきい値入力欄を、サーバーが実際に使った値に合わせる(不正な入力は既定へ戻されるため)。
+  var c = data.criteria || {};
+  if (c.ratio != null) document.getElementById('txwMonthlyRatioInput').value = c.ratio;
+  if (c.min_diff != null) document.getElementById('txwMonthlyMinDiffInput').value = c.min_diff;
+
+  // 新しいデータを見たので、確認記録は毎回チェックし直してもらう(押しっぱなし連投を防ぐ)。
+  document.getElementById('txwMonthlyConfirmCheck').checked = false;
+  document.getElementById('txwMonthlyConfirmBtn').disabled = true;
+  var resultBox = document.getElementById('txwMonthlyConfirmResult');
+  resultBox.style.display = 'none';
+  resultBox.textContent = '';
+}
+
+async function txwLoadMonthlyCheck() {
+  var month = document.getElementById('txwMonth').value;
+  if (!month) return;
+
+  document.getElementById('txwMonthlyGlobalError').style.display = 'none';
+  document.getElementById('txwMonthlyGlobalError').textContent = '';
+
+  var ratioInput = document.getElementById('txwMonthlyRatioInput');
+  var minDiffInput = document.getElementById('txwMonthlyMinDiffInput');
+  var payload = { month: month };
+  var ratioVal = Number(ratioInput.value);
+  var minDiffVal = Number(minDiffInput.value);
+  if (Number.isFinite(ratioVal)) payload.ratio = ratioVal;
+  if (Number.isFinite(minDiffVal)) payload.min_diff = minDiffVal;
+
+  var recheckBtn = document.getElementById('txwMonthlyRecheckBtn');
+  recheckBtn.disabled = true;
+
+  var result;
+  try {
+    result = await txwApiCall('monthly_check', payload);
+  } catch (e) {
+    recheckBtn.disabled = false;
+    txwShowMonthlyError('通信に失敗しました。ネットワークをご確認のうえ、もう一度お試しください。');
+    return;
+  }
+  recheckBtn.disabled = false;
+
+  if (result.status === 401) {
+    txwShowGate('ログインの有効期限が切れました。もう一度ログインしてください。');
+    return;
+  }
+  var data = result.data || {};
+  if (!data.ok) {
+    txwShowMonthlyError(txwMonthlyMapError(data));
+    return;
+  }
+  txwMonthlyLastData = data;
+  txwRenderMonthlyCheck(data);
+}
+
+// チェックが入っているときだけ「確認を記録する」を押せるようにする。
+// ⚠ HTML側にも静的にdisabledを書いてあるため、JSが動かなくても押せないまま側に壊れる。
+function txwMonthlyConfirmToggle() {
+  var checked = document.getElementById('txwMonthlyConfirmCheck').checked;
+  document.getElementById('txwMonthlyConfirmBtn').disabled = !checked;
+}
+
+// 「機械が出したフラグの有無にかかわらず、人間が全科目を確認した」という記録。
+// サーバー側(handleMonthlyCheckConfirm)でもconfirmed!==trueを拒否する。二重の安全側。
+async function txwMonthlyConfirmRecord() {
+  var checkEl = document.getElementById('txwMonthlyConfirmCheck');
+  var btn = document.getElementById('txwMonthlyConfirmBtn');
+  if (!checkEl.checked) return;
+
+  var month = document.getElementById('txwMonth').value;
+  var data = txwMonthlyLastData || {};
+  btn.disabled = true;
+  var resultBox = document.getElementById('txwMonthlyConfirmResult');
+  resultBox.style.display = 'none';
+
+  var payload = {
+    month: month,
+    confirmed: true,
+    flag_counts: {
+      missing: Array.isArray(data.missing) ? data.missing.length : 0,
+      outliers: Array.isArray(data.outliers) ? data.outliers.length : 0,
+      sign_issues: Array.isArray(data.sign_issues) ? data.sign_issues.length : 0,
+    },
+    unjournalized_count: (data.unjournalized_count === null || data.unjournalized_count === undefined)
+      ? null : Number(data.unjournalized_count),
+  };
+
+  var result;
+  try {
+    result = await txwApiCall('monthly_check_confirm', payload);
+  } catch (e) {
+    alert('通信に失敗しました。ネットワークをご確認のうえ、もう一度お試しください。');
+    btn.disabled = !checkEl.checked;
+    return;
+  }
+  if (result.status === 401) {
+    txwShowGate('ログインの有効期限が切れました。もう一度ログインしてください。');
+    return;
+  }
+  var resData = result.data || {};
+  if (!resData.ok) {
+    alert('記録に失敗しました。もう一度お試しください。');
+    btn.disabled = !checkEl.checked;
+    return;
+  }
+  var when = resData.recorded_at ? new Date(resData.recorded_at).toLocaleString('ja-JP') : '';
+  resultBox.textContent = '操作履歴に記録しました（' + (resData.by || '') + '・' + when + '）';
+  resultBox.style.display = 'block';
+  checkEl.checked = false;
+  btn.disabled = true;
+}
+
 /* ---------------- 初期化 ---------------- */
 function txwCurrentMonthDefault() {
   var d = new Date();
@@ -1441,10 +1831,19 @@ function txwInit() {
   document.getElementById('txwInviteCreateBtn').addEventListener('click', txwCreateInvite);
   document.getElementById('txwInviteListReloadBtn').addEventListener('click', txwLoadInvites);
   document.getElementById('txwAdvisorListReloadBtn').addEventListener('click', txwLoadAdvisors);
+  document.getElementById('txwMonthlyRecheckBtn').addEventListener('click', txwLoadMonthlyCheck);
+  document.getElementById('txwMonthlyConfirmCheck').addEventListener('change', txwMonthlyConfirmToggle);
+  document.getElementById('txwMonthlyConfirmBtn').addEventListener('click', txwMonthlyConfirmRecord);
 
   var monthInput = document.getElementById('txwMonth');
   monthInput.value = txwCurrentMonthDefault();
-  monthInput.addEventListener('change', txwLoad);
+  // 対象月を変えたら①〜⑤に加え、⑨月次チェックも(表示中なら)読み直す。
+  // ⑨は「対象月に連動」が要件のため、開いていないタブへの無駄な取得はしない。
+  monthInput.addEventListener('change', function () {
+    txwLoad();
+    var monthlyPage = document.getElementById('t-monthly');
+    if (monthlyPage && monthlyPage.classList.contains('active')) txwLoadMonthlyCheck();
+  });
 
   if (txwIsLoggedIn()) { txwHandleLoginSuccess(); }
   else { txwShowGate(''); }

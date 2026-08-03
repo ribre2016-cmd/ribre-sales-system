@@ -469,6 +469,219 @@ function isInProgressingTerm(terms, dateStr) {
   return { ok: inTerm(progressing, dateStr), term: list.find((t) => inTerm(t, dateStr)) || null };
 }
 
+/* ---------------- Phase 7: ⑨月次チェック（読み取り専用） ----------------
+   設計書: docs/TAX_WORKSPACE_PHASE7_PLAN.md §2 / §11.1 / §11.2
+   MFへは GET /reports/* しか呼ばない。**何も書き込まない。**
+   実測(§16): report.read は再連携済みで使える。 */
+
+// 推移表の入れ子（financial_statement_item の下に account）を平らにする。
+// 各科目に、属する大分類（売上高合計・販売費及び一般管理費合計 など）を持たせる。
+function flattenReportRows(rows, sectionName, out) {
+  const list = Array.isArray(rows) ? rows : [];
+  const acc = out || [];
+  list.forEach((r) => {
+    if (!r) return;
+    if (r.type === 'account') {
+      acc.push({ name: r.name, section: sectionName || '', values: Array.isArray(r.values) ? r.values : [] });
+    } else {
+      // 大分類の名前は最上位のものを引き継ぐ（「販売費及び一般管理費合計」など）
+      flattenReportRows(r.rows, sectionName || r.name, acc);
+    }
+  });
+  return acc;
+}
+
+function median(nums) {
+  const a = nums.slice().sort((x, y) => x - y);
+  if (!a.length) return 0;
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : Math.round((a[mid - 1] + a[mid]) / 2);
+}
+
+// 対象月がどの会計年度に属するか。term_settings から取る（3/1〜2/28をコードに書かない）。
+function findTermFor(terms, monthStart) {
+  const list = Array.isArray(terms) ? terms : [];
+  return list.find((t) => t && t.start_date && t.end_date && monthStart >= t.start_date && monthStart <= t.end_date) || null;
+}
+
+// 月がまだ終わっていないか（§11.1-2: 進行中の月は計上漏れ判定を出さない）
+function isMonthInProgress(monthEnd) {
+  const today = new Date().toISOString().slice(0, 10);
+  return today <= monthEnd;
+}
+
+const MC_DEFAULTS = { lookback: 4, ratio: 3, minDiff: 10000 };
+
+async function handleMonthlyCheck(res, advisor, accessToken, body) {
+  const range = monthRange(body.month);
+  if (!range) { res.status(400).json({ ok: false, error: 'invalid_month' }); return; }
+
+  // しきい値は画面から変えられる（§2.2）。おかしな値は既定へ戻す。
+  const ratio = Number(body.ratio) >= 1.5 && Number(body.ratio) <= 20 ? Number(body.ratio) : MC_DEFAULTS.ratio;
+  const minDiff = Number(body.min_diff) >= 0 && Number(body.min_diff) <= 10000000
+    ? Math.round(Number(body.min_diff)) : MC_DEFAULTS.minDiff;
+
+  let terms = [];
+  try {
+    terms = (await fetchMaster(accessToken, 'term_settings')).term_settings || [];
+  } catch (e) {
+    if (e && (e.status === 403 || e.status === 401)) {
+      res.status(200).json({ ok: false, error: 'scope_missing' }); return;
+    }
+    res.status(200).json({ ok: false, error: 'term_settings_failed', message: e && e.message }); return;
+  }
+
+  const term = findTermFor(terms, range.start);
+  if (!term) {
+    res.status(200).json({ ok: false, error: 'no_term_for_month', message: 'その月を含む会計年度がMFに見つかりません' });
+    return;
+  }
+
+  const targetMonthNum = Number(range.start.slice(5, 7));
+
+  // 会計年度の頭から対象月までを取る。列は会計年度内の月の並びで返る。
+  let report;
+  try {
+    report = await fetchMaster(
+      accessToken,
+      `reports/transition_pl?type=monthly&fiscal_year=${encodeURIComponent(term.fiscal_year)}&end_month=${targetMonthNum}`
+    );
+  } catch (e) {
+    if (e && (e.status === 403 || e.status === 401)) {
+      // 再連携がまだ、という一番ありがちな失敗を名指しで返す
+      res.status(200).json({ ok: false, error: 'report_scope_missing' }); return;
+    }
+    res.status(200).json({ ok: false, error: 'report_failed', message: e && e.message }); return;
+  }
+
+  const columns = (report.columns || []).map(String);
+  const idx = columns.indexOf(String(targetMonthNum));
+  if (idx < 0) {
+    res.status(200).json({ ok: false, error: 'month_not_in_report', columns });
+    return;
+  }
+
+  const flat = flattenReportRows(report.rows, '', []);
+  const missing = [];
+  const outliers = [];
+  const signIssues = [];
+
+  flat.forEach((row) => {
+    const cur = Number(row.values[idx] || 0);
+    // 直近 lookback ヶ月（対象月を含まない）。足りなければ判定しない（§2.2）
+    const from = idx - MC_DEFAULTS.lookback;
+    const past = from >= 0 ? row.values.slice(from, idx).map((v) => Number(v || 0)) : null;
+
+    // (3) 符号がおかしい（過去の件数に関係なく判定できる）
+    if (cur < 0) {
+      signIssues.push({ account: row.name, section: row.section, value: cur });
+    }
+    if (!past || past.length < MC_DEFAULTS.lookback) return;
+
+    // (1) いつもあるのに今月まだ無い
+    if (cur === 0 && past.every((v) => v !== 0)) {
+      missing.push({
+        account: row.name, section: row.section,
+        past, past_median: median(past.map(Math.abs)),
+      });
+      return; // 0円なので外れ値判定はしない
+    }
+
+    // (2) 金額が普段と大きく違う（平均でなく中央値。§2.2）
+    const med = median(past.map(Math.abs));
+    if (med > 0 && cur !== 0) {
+      const a = Math.abs(cur);
+      const high = a >= med * ratio;
+      const low = a <= med / ratio;
+      if ((high || low) && Math.abs(a - med) >= minDiff) {
+        outliers.push({
+          account: row.name, section: row.section,
+          value: cur, past, past_median: med,
+          direction: high ? 'high' : 'low',
+        });
+      }
+    }
+  });
+
+  // §11.1-1: その月の未仕訳の残件数。これが無いと「月の途中」と「計上漏れ」を区別できない。
+  let unjournalizedCount = null;
+  try {
+    const txs = await fetchUnjournalizedTransactions({
+      accessToken, startDate: range.start, endDate: range.end,
+    });
+    unjournalizedCount = txs.length;
+  } catch (e) {
+    unjournalizedCount = null; // 取れなくても月次チェック自体は出す
+  }
+
+  const inProgress = isMonthInProgress(range.end);
+  // 登録が途中かどうか。未仕訳の残件数が取れなかったときは「途中かもしれない」側に倒す。
+  const registrationDone = unjournalizedCount === 0;
+  const partial = inProgress || !registrationDone;
+
+  // ⚠ 実データで確かめて分かったこと（2026-08-04）:
+  //   登録が途中の月では「金額が普段より**少ない**」側の外れ値が大量に出る。
+  //   7月の実データでは売上高・通信費・支払手数料・消耗品費・諸会費・支払報酬料の
+  //   6件すべてが「少ない」で、いずれも「まだ登録していないだけ」だった。
+  //   一方「**多い**」側は、登録が途中でも意味がある（登録していないものが
+  //   多く見えることはないため）。
+  //   よって登録が途中の月では low を出さない。§11.1 の考え方を外れ値にも広げる。
+  const shownOutliers = partial ? outliers.filter((o) => o.direction === 'high') : outliers;
+  const suppressedLow = partial ? outliers.filter((o) => o.direction === 'low').length : 0;
+
+  res.status(200).json({
+    ok: true,
+    month: body.month,
+    fiscal_year: term.fiscal_year,
+    // 進行中の月では計上漏れの判定を出さない（§11.1-2）
+    month_in_progress: inProgress,
+    // 未仕訳が残っている月では、計上漏れは「当然の結果」なので参考表示にする（§11.1-1）
+    unjournalized_count: unjournalizedCount,
+    registration_done: registrationDone,
+    // 画面はこれを見て「参考表示」か「本気の警告」かを切り替える
+    partial,
+    criteria: { lookback: MC_DEFAULTS.lookback, ratio, min_diff: minDiff },
+    missing: inProgress ? [] : missing,
+    outliers: shownOutliers,
+    // 伏せた件数は必ず伝える。黙って減らすと「出ていない＝問題なし」を招く（§12）
+    suppressed_low_outliers: suppressedLow,
+    sign_issues: signIssues,
+    checked_by: advisor.email,
+  });
+}
+
+// 「機械が出さなかった科目も含め、人間が確認した」という記録（§11.2-2 / §14.1）。
+// ⚠ 画面のdisabledだけに頼らない。**チェックが無ければサーバー側で拒否する。**
+//    この記録は監査証跡なので、経路を1つに絞る。
+async function handleMonthlyCheckConfirm(res, advisor, body) {
+  if (body.confirmed !== true) {
+    res.status(200).json({ ok: false, error: 'not_confirmed' });
+    return;
+  }
+  const range = monthRange(body.month);
+  if (!range) { res.status(400).json({ ok: false, error: 'invalid_month' }); return; }
+  await recordAction({
+    advisor_email: advisor.email,
+    action: 'monthly_check_confirmed',
+    transaction_id: null,
+    journal_id: null,
+    result: 'ok',
+    payload: {
+      month: body.month,
+      // 何に対して「確認した」と言ったのかを残す（後から意味が分かるように）
+      statement: 'フラグの有無にかかわらず全科目をひと通り確認した',
+      flags: {
+        missing: Number(body.flag_counts && body.flag_counts.missing) || 0,
+        outliers: Number(body.flag_counts && body.flag_counts.outliers) || 0,
+        sign_issues: Number(body.flag_counts && body.flag_counts.sign_issues) || 0,
+      },
+      unjournalized_count: body.unjournalized_count === null || body.unjournalized_count === undefined
+        ? null : Number(body.unjournalized_count),
+    },
+  });
+  res.status(200).json({ ok: true, recorded_at: new Date().toISOString(), by: advisor.email });
+}
+
 /* ---------------- Phase 3: 仕訳登録＋証憑添付 ---------------- */
 
 // 操作履歴に1行残す。MF側では仕訳が全て「連携アプリ」名義になり誰が作ったか
@@ -838,6 +1051,16 @@ module.exports = async (req, res) => {
   }
 
   // Phase 4: 過去の仕訳から初期値を提案する（読み取りのみ）
+  if (action === 'monthly_check') {
+    await handleMonthlyCheck(res, advisor, accessToken, body);
+    return;
+  }
+
+  if (action === 'monthly_check_confirm') {
+    await handleMonthlyCheckConfirm(res, advisor, body);
+    return;
+  }
+
   if (action === 'suggest') {
     await handleSuggest(res, accessToken, body);
     return;

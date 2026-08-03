@@ -123,6 +123,20 @@ tr:nth-child(even) td { background: #fafcff; }
 .invite-row { display: flex; gap: 8px; align-items: center; }
 .invite-url-input { flex: 1; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; font-family: monospace; background: #fff; }
 
+/* ---- ⑨ 月次チェック ---- */
+.txw-monthly-h { font-size: 14.5px; margin: 22px 0 8px; color: #123a7a; }
+.txw-monthly-h:first-child { margin-top: 0; }
+.txw-monthly-item { border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; border: 1px solid #e2e8f0; }
+.txw-monthly-item .txw-mi-title { font-weight: 900; }
+.txw-monthly-item .txw-mi-btnrow { margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; }
+.txw-monthly-item .txw-mi-btnrow a.btn-mini { text-decoration: none; display: inline-block; }
+.txw-monthly-item.gray { background: #f8fafc; }
+.txw-monthly-item.gray .txw-mi-title { color: #64748b; }
+.txw-monthly-item.danger { background: #fef2f2; border-color: #fecaca; }
+.txw-monthly-item.danger .txw-mi-title { color: #991b1b; }
+.txw-monthly-item.warn { background: #fffbeb; border-color: #fde68a; }
+.txw-monthly-item.warn .txw-mi-title { color: #92400e; }
+
 /* ---- ログインゲート ---- */
 .txw-gate {
   position: fixed; inset: 0; z-index: 2000;
@@ -197,6 +211,7 @@ tr:nth-child(even) td { background: #fafcff; }
     <button class="tab-btn" data-t="files" type="button">③ 共有ファイル</button>
     <button class="tab-btn" data-t="history" type="button">④ 操作履歴</button>
     <button class="tab-btn" data-t="admin" type="button" id="txwAdminTabBtn" style="display:none">⑤ 税理士の管理</button>
+    <button class="tab-btn" data-t="monthly" type="button" id="txwMonthlyTabBtn">⑨ 月次チェック</button>
   </div>
 
   <!-- ① 未仕訳の明細 -->
@@ -204,6 +219,7 @@ tr:nth-child(even) td { background: #fafcff; }
     <div class="note info" id="txwUnmatchedNote" style="margin-bottom:14px;">
       1件ずつ内容を確認して登録してください。一括登録はありません。
     </div>
+    <div class="note info" id="txwUnmatchedFilterBar" style="display:none;margin-bottom:14px;"></div>
     <div class="panel">
       <div class="panel-head">
         <div>
@@ -291,6 +307,81 @@ tr:nth-child(even) td { background: #fafcff; }
         <div class="admin-block">
           <h3>税理士の一覧<button id="txwAdvisorListReloadBtn" class="btn-mini" type="button">更新</button></h3>
           <div id="txwAdvisorListBody"><div class="txw-loading">読み込み中…</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑨ 月次チェック（読み取り専用。MFの推移表から自動で確認する） -->
+  <section class="tabpage" id="t-monthly">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>⑨ 月次チェック</h2>
+          <div class="desc">先月まであった費用が今月も入っているか、金額や符号がおかしくないかを、MFの推移表から自動で確認します。</div>
+        </div>
+        <span class="chip chip-green">読み取り専用・MFへの書き込みなし</span>
+      </div>
+      <div class="panel-body">
+        <div id="txwMonthlyGlobalError" class="note danger" style="display:none;margin-bottom:14px;"></div>
+        <div id="txwMonthlyStatusBox" style="margin-bottom:14px;"></div>
+
+        <div class="note danger" style="margin-bottom:14px;">
+          ここに出てくる内容は「間違っている」という判断ではありません。<b>確認をうながしているだけです。</b>最終的な判断は必ず担当の税理士が行ってください。
+        </div>
+
+        <div id="txwMonthlyBody" style="display:none">
+          <h3 class="txw-monthly-h" id="txwMonthlyMissingHeading">① いつもあるのに今月まだ無い科目</h3>
+          <div id="txwMonthlyMissingList"></div>
+
+          <h3 class="txw-monthly-h">② 金額が普段と大きく違う科目</h3>
+          <div id="txwMonthlySuppressedNote" class="note warn" style="display:none;margin-bottom:8px;"></div>
+          <div id="txwMonthlyOutlierList"></div>
+
+          <h3 class="txw-monthly-h">③ 符号がおかしい科目</h3>
+          <div id="txwMonthlySignIssueList"></div>
+
+          <h3 class="txw-monthly-h">判定条件と、このチェックで見つけられないもの</h3>
+          <div class="note info" id="txwMonthlyCriteriaNote" style="margin-bottom:10px;"></div>
+          <div class="jform-row" style="align-items:flex-end;">
+            <div class="jform-field">
+              <label>倍率のしきい値（中央値の何倍・何分の1から異常とするか）</label>
+              <input type="number" id="txwMonthlyRatioInput" min="1.5" max="20" step="0.5" value="3">
+            </div>
+            <div class="jform-field">
+              <label>最小差額のしきい値（円）</label>
+              <input type="number" id="txwMonthlyMinDiffInput" min="0" max="10000000" step="1000" value="10000">
+            </div>
+            <div class="jform-field" style="flex:0 0 auto;">
+              <button class="btn btn-primary" type="button" id="txwMonthlyRecheckBtn">この条件で見直す</button>
+            </div>
+          </div>
+          <div class="note warn" style="margin-top:10px;">
+            このチェックで見つけられないもの:<br>
+            ・初めて使った勘定科目への誤った計上（比べる過去がないため）<br>
+            ・過去のデータが揃っていない科目（期首直後など。判定していません）<br>
+            ・しきい値未満のゆるやかな増減（中央値の2倍程度など）<br>
+            ・金額は正しいが科目や税区分が間違っているもの<br>
+            <b>ここに何も出ないことは「問題なし」を意味しません。</b>
+          </div>
+
+          <h3 class="txw-monthly-h">人間が確認した記録</h3>
+          <div style="border:1px solid #dbe3ef;border-radius:8px;padding:12px 14px;">
+            <label style="display:flex;gap:8px;align-items:flex-start;font-weight:800;cursor:pointer;">
+              <input type="checkbox" id="txwMonthlyConfirmCheck" style="margin-top:3px;">
+              <span>この月について、上のフラグの有無にかかわらず全科目をひと通り確認しました</span>
+            </label>
+            <div class="jform-btnrow" style="justify-content:flex-start;margin-top:10px;">
+              <!-- ⚠ JSが動かなくても押せないままになるよう、静的にdisabledを書く -->
+              <button class="btn btn-primary" type="button" id="txwMonthlyConfirmBtn" disabled>確認を記録する</button>
+            </div>
+            <div class="note" style="margin-top:8px;">チェックを入れずに記録することはできません。実際に確認していないときは押さないでください。</div>
+            <div id="txwMonthlyConfirmResult" class="note ok" style="display:none;margin-top:8px;"></div>
+          </div>
+
+          <h3 class="txw-monthly-h">参考: 試算表</h3>
+          <div class="note">試算表はこの画面では作っていません。MFクラウド会計の試算表画面でご覧ください。</div>
+          <div style="margin-top:8px;"><a href="https://biz.moneyforward.com/" target="_blank" rel="noopener noreferrer">MFクラウド会計を開く</a></div>
         </div>
       </div>
     </div>
