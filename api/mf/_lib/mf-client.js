@@ -28,6 +28,13 @@ const MF_ACCOUNTING_API_BASE = 'https://api-accounting.moneyforward.com';
 //   accounts.read / taxes.read / trade_partners.read … 勘定科目・税区分・取引先の選択欄に使う（Phase 1で必要）
 //   journal.write … 明細からの仕訳作成に使う（Phase 3で使用。再連携を2回させないため先に取得しておく）
 // journal.write は取得するだけで、Phase 3の実装まではどこからも呼ばない。
+// 税理士ワークスペース Phase 7(docs/TAX_WORKSPACE_PHASE7_PLAN.md)で追加（2026-08-04）:
+//   report.read             … ⑨月次チェック（推移表・試算表）。Phase 7 で最も価値が高い機能がこれ1つに懸かる
+//   offices.read            … 会計年度設定。3/1〜2/28という前提をコードに書かずAPIから取れる
+//   connected_account.read  … ⑩資料の受け取り（口座ごとのデータ到達状況）
+// いずれも**読み取り専用**。書き込み系（transaction.write / trade_partners.write）は
+// 使う機能が決まっていないため、あえて足していない（設計書§1.1から方針変更）。
+// ⑦現金払いを作ると決めた時点で transaction.write を足して再連携する。
 const MF_SCOPE = [
   'mfc/accounting/voucher.write',
   'mfc/accounting/journal.read',
@@ -36,6 +43,9 @@ const MF_SCOPE = [
   'mfc/accounting/taxes.read',
   'mfc/accounting/trade_partners.read',
   'mfc/accounting/journal.write',
+  'mfc/accounting/report.read',
+  'mfc/accounting/offices.read',
+  'mfc/accounting/connected_account.read',
 ].join(' ');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
