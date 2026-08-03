@@ -1,18 +1,23 @@
-/* 税理士ワークスペース（Phase 3・仕訳登録＋証憑添付 + 招待リンクによる自己登録 + 社内管理パネル）
+/* 税理士ワークスペース（Phase 4・過去の仕訳から初期値を提案 + 仕訳登録＋証憑添付
+ * + 招待リンクによる自己登録 + 社内管理パネル）
  * 設計書: docs/TAX_WORKSPACE_PLAN.md
  * 依存: core.js(escHtml/sess/email/LS/yen/sb), supabase-auth.js(signIn/signUp/signOut)
  *
  * ⚠ 叩くAPIは POST /api/mf/tax-workspace のみ。action は 'bootstrap'（勘定科目・税区分・
  *   補助科目・会計期間などの選択肢マスタ）/ 'list'（明細・証憑・共有ファイル） /
- *   'journalize'（仕訳登録。1件ずつ） / 'redeem_invite'（招待リンクの引き換え）/
+ *   'suggest'（過去の仕訳から初期値を提案。listの直後に呼ぶ） /
+ *   'journalize'（仕訳登録。1件ずつ） / 'set_closed_term_policy' / 'redeem_invite'（招待リンクの引き換え）/
  *   'invite_create' / 'invite_list' / 'invite_revoke' / 'advisor_list' /
  *   'advisor_set_enabled'（社内メンバー向け管理。is_member:true のときだけ⑤タブから使う）。
  *   他のAPIエンドポイントは一切叩かない。
  * ⚠ 一括登録・全件登録のボタンは作らない（設計書§5-2・§9-2）。1回の操作で1件だけ。
  * ⚠ 消費税額はアプリ側で計算しない。tax_id を渡すだけで、税額の計算はMFに任せる。
- * ⚠ 勘定科目・税区分・補助科目・インボイス区分に初期値を入れない（すべて未選択。Phase 4まで）。
  * ⚠ 証憑候補のチェックボックスは初期状態オフ。自動では選ばない。
  * ⚠ 証憑の添付に失敗しても仕訳は取り消さない（成功と失敗を分けて表示するだけ）。
+ * ⚠ Phase 4: suggestが返した提案は入力欄に「下書き」として入れるだけで、絶対に自動登録しない。
+ *   提案が無い明細に「それらしい値」を勝手に入れない（suggestionsにキーが無ければ空のまま）。
+ *   提案が入ったカードには必ず「前回の仕訳から入れています。確認してください」を出し、
+ *   「クリア」で4項目（勘定科目・補助科目・税区分・インボイス区分）を空に戻せるようにする。
  * ⚠ innerHTMLに外部由来の文字列を入れない。DOM組み立て（el()）とtextContentのみを使う。
  * ⚠ services/auth-gate.js は読み込まない（社内メール専用の入口ガードで税理士は弾かれる）。
  *   代わりにこのファイルが自前のログインゲートを持つ。
@@ -66,6 +71,13 @@ var txwAccountLookup = { labelToId: {}, options: [] };
 var txwTaxLookup = { labelToId: {}, options: [] };
 var txwSubAccountLookup = { labelToId: {}, options: [] };
 
+/* ---------------- Phase 4: 過去の仕訳から初期値を提案 ----------------
+ * txwCardRefsByTx: transaction_id → そのカードの入力欄refs（writableなカードのみ登録）。
+ * txwRenderGen: 明細一覧を描画し直すたびに増える世代番号。suggestは非同期のため、
+ * 応答が返ってきた時点で古い世代なら(=その間に月を変えた等)何もしない(取り違え防止)。 */
+var txwCardRefsByTx = {};
+var txwRenderGen = 0;
+
 // 同じ表示名が複数あるときはIDを付けて区別する（2パス: 先に重複数を数えてから組み立てる）
 function txwBuildLabelLookup(list, labelFn) {
   var counts = {};
@@ -75,14 +87,23 @@ function txwBuildLabelLookup(list, labelFn) {
     return b;
   });
   var labelToId = {};
+  var idToLabel = {};
   var options = [];
   (list || []).forEach(function (item, i) {
     var b = bases[i];
     var label = counts[b] > 1 ? (b + '（' + item.id + '）') : b;
     labelToId[label] = String(item.id);
+    idToLabel[String(item.id)] = label;
     options.push(label);
   });
-  return { labelToId: labelToId, options: options };
+  return { labelToId: labelToId, idToLabel: idToLabel, options: options };
+}
+
+// ID → datalistのラベル文字列。マスタに存在しないID(未確認・削除済みなど)は空文字を返す。
+// Phase 4の提案(suggest)はこれを使ってラベルを逆引きする。見つからなければ空のまま入れる(§9-2相当の安全側)。
+function txwIdToLabel(lookup, id) {
+  if (id === null || id === undefined || id === '') return '';
+  return (lookup && lookup.idToLabel && lookup.idToLabel[String(id)]) || '';
 }
 
 function txwBuildLookups() {
@@ -586,6 +607,11 @@ function txwRenderUnmatched(items, writable) {
   document.getElementById('txwUnmatchedCount').textContent = '未仕訳 ' + items.length + '件';
   txwUpdateUnmatchedNote(writable);
 
+  // 新しい世代の描画を始める。前の世代のsuggest応答が後から返ってきても無視するための番号。
+  txwRenderGen += 1;
+  var myGen = txwRenderGen;
+  txwCardRefsByTx = {};
+
   if (!items.length) {
     container.appendChild(el('div', { class: 'evidence-empty', text: '未仕訳の明細はありません。' }));
     return;
@@ -647,6 +673,9 @@ function txwRenderUnmatched(items, writable) {
     card.appendChild(body);
     container.appendChild(card);
   });
+
+  // 明細の描画はここで完了。suggestは続けて後から呼ぶが、描画をブロックしない(§A末尾)。
+  if (writable) txwLoadSuggestions(items, myGen);
 }
 
 /* ---------------- Phase 3: 仕訳登録フォーム ---------------- */
@@ -672,6 +701,20 @@ function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
     body.appendChild(formWrap);
     return;
   }
+
+  // Phase 4: 過去の仕訳からの提案を出す枠。中身はtxwApplySuggestionが提案があるときだけ埋める。
+  // 「勝手に決めつけない」設計のため、既定は非表示(display:none)。
+  var suggestNote = document.createElement('div');
+  suggestNote.className = 'note warn suggest-note';
+  suggestNote.style.display = 'none';
+  var suggestText = document.createElement('span');
+  suggestNote.appendChild(suggestText);
+  var suggestClearBtn = document.createElement('button');
+  suggestClearBtn.type = 'button';
+  suggestClearBtn.className = 'btn-mini';
+  suggestClearBtn.textContent = 'クリア';
+  suggestNote.appendChild(suggestClearBtn);
+  formWrap.appendChild(suggestNote);
 
   var row1 = el('div', { class: 'jform-row' });
   var accountField = el('div', { class: 'jform-field' });
@@ -740,13 +783,80 @@ function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
     card: card, statusArea: statusArea, submitBtn: submitBtn,
     accountInput: accountInput, subInput: subInput, taxInput: taxInput,
     invoiceSelect: invoiceSelect, memoInput: memoInput, evidenceCheckboxes: evidenceCheckboxes,
+    suggestNote: suggestNote, suggestText: suggestText, updateSubmitEnabled: updateSubmitEnabled,
   };
   submitBtn.addEventListener('click', function () { txwSubmitJournal(tx, refs); });
+
+  // 「クリア」: 提案で入った4項目(勘定科目・補助科目・税区分・インボイス区分)をすべて空に戻す(§C)。
+  // メモ・証憑のチェックは提案が触っていないのでそのまま残す。
+  suggestClearBtn.addEventListener('click', function () {
+    accountInput.value = '';
+    subInput.value = '';
+    taxInput.value = '';
+    invoiceSelect.value = '';
+    updateSubmitEnabled();
+    suggestNote.style.display = 'none';
+  });
+
+  // Phase 4: この明細がsuggestの対象になるよう、transaction_idで引けるようにしておく。
+  txwCardRefsByTx[tx.transaction_id] = refs;
 
   var btnRow = el('div', { class: 'jform-btnrow' });
   btnRow.appendChild(submitBtn);
   body.appendChild(btnRow);
   body.appendChild(statusArea);
+}
+
+/* ---------------- Phase 4: 過去の仕訳からの提案(suggest) ---------------- */
+// suggestは補助機能。失敗しても明細一覧の表示・登録操作には一切影響させない。
+async function txwLoadSuggestions(items, gen) {
+  var payloadItems = (items || [])
+    .filter(function (tx) { return tx && txwCardRefsByTx[tx.transaction_id]; })
+    .slice(0, 200)
+    .map(function (tx) { return { transaction_id: tx.transaction_id, content: tx.content, date: tx.date }; });
+  if (!payloadItems.length) return;
+
+  var result;
+  try {
+    result = await txwApiCall('suggest', { items: payloadItems });
+  } catch (e) {
+    return; // 通信失敗。提案が入らないだけで、明細自体は普通に操作できる
+  }
+  if (gen !== txwRenderGen) return; // その間に月が変わる等で描画し直されていたら捨てる
+
+  var data = result.data || {};
+  // ok:false（scope_missingなど）や note:'journals_fetch_failed' のときも suggestions は
+  // 空(または存在しない)ものとして扱い、画面は通常どおり操作できる状態のままにする。
+  var suggestions = (data.ok && data.suggestions && typeof data.suggestions === 'object') ? data.suggestions : {};
+  Object.keys(suggestions).forEach(function (txId) {
+    var refs = txwCardRefsByTx[txId];
+    if (!refs) return; // 応答にキーはあるが、writableでない/描画されていないカードは無視
+    txwApplySuggestion(refs, suggestions[txId]);
+  });
+}
+
+// 提案1件をカードへ反映する。IDに対応するラベルが無い項目は空のままにする(§9-2, 決めつけない)。
+function txwApplySuggestion(refs, sugg) {
+  if (!sugg) return;
+  var accLabel = txwIdToLabel(txwAccountLookup, sugg.account_id);
+  var subLabel = txwIdToLabel(txwSubAccountLookup, sugg.sub_account_id);
+  var taxLabel = txwIdToLabel(txwTaxLookup, sugg.tax_id);
+  if (accLabel) refs.accountInput.value = accLabel;
+  if (subLabel) refs.subInput.value = subLabel;
+  if (taxLabel) refs.taxInput.value = taxLabel;
+  var validInvoiceKinds = ['INVOICE_KIND_NOT_TARGET', 'INVOICE_KIND_QUALIFIED', 'INVOICE_KIND_UNQUALIFIED_80'];
+  if (sugg.invoice_kind && validInvoiceKinds.indexOf(sugg.invoice_kind) >= 0) {
+    refs.invoiceSelect.value = sugg.invoice_kind;
+  }
+  refs.updateSubmitEnabled();
+
+  var count = Number(sugg.count) || 0;
+  var total = Number(sugg.total) || 0;
+  var countText = (total > count) ? (total + '件中' + count + '件') : (count + '件');
+  var lastDateText = sugg.last_date ? txwFormatDateSlash(sugg.last_date) : '不明';
+  refs.suggestText.textContent =
+    '前回の仕訳から入れています。確認してください。（過去' + countText + '・最終 ' + lastDateText + '）';
+  refs.suggestNote.style.display = 'flex';
 }
 
 function txwShowCardError(refs, msg) {
