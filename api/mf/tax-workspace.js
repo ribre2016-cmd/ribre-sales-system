@@ -132,7 +132,7 @@ function evidenceMatchesTransaction(ev, tx) {
 
 // 税理士へ共有しているファイル一覧（署名URL付き）。オーナーの行から読む。
 async function fetchSharedFiles() {
-  const url = `${SUPABASE_URL}/rest/v1/app_settings?skey=eq.tax_docs_index&select=user_email,value&limit=50`;
+  const url = `${SUPABASE_URL}/rest/v1/app_settings?skey=eq.tax_docs_index&user_email=in.(${MEMBER_EMAILS.map(encodeURIComponent).join(',')})&select=user_email,value&limit=50`;
   const res = await fetch(url, { headers: supabaseHeaders() });
   if (!res.ok) return [];
   const rows = await res.json().catch(() => []);
@@ -647,6 +647,18 @@ async function handleJournalize(res, advisor, accessToken, body) {
     return;
   }
   const journalId = (created && created.journal && created.journal.id) || null;
+
+  /* 2-2. 仕訳ができたことを**この時点で先に記録する**。
+   * ⚠ 以前は証憑の添付まで終えてから1回だけ記録していたため、
+   *   添付の途中で関数が実行時間上限に達すると
+   *   「MFに仕訳は実在するのに、こちらの記録が1行も無い」状態になりえた。
+   *   MF側では誰が作ったか分からないので、それは証跡が消えたのと同じ。
+   *   仕訳の作成と証憑の添付を別の行に分けて、作成の記録が必ず先に残るようにする。 */
+  await recordAction({
+    actor_email: advisor.email, action: 'journalize', transaction_id: transactionId,
+    journal_id: journalId, account_id: accountId, tax_id: body.tax_id || null,
+    result: 'ok', payload,
+  });
 
   // 3. 証憑を添付する。⚠ ここが失敗しても仕訳は取り消さない（§3.2）
   const attached = [];

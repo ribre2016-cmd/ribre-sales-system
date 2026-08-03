@@ -18,6 +18,14 @@ const { fetchEvidenceById, updateEvidence, trySingleMatch, attachEvidenceToJourn
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const MF_STORAGE_BUCKET = 'mf-evidence';
+// 証憑の再送・削除・プレビューができる社内メンバー。
+// api/mf/tax-workspace.js の MEMBER_EMAILS、supabase_mf_owner_rls.sql の許可リストと同じ2件。
+const MEMBER_EMAILS = ['ribre2016@gmail.com', 'k.sado@ribre.co.jp'];
+function isMemberEmail(userEmail) {
+  const e = String(userEmail || '').trim().toLowerCase();
+  if (!e) return false;
+  return MEMBER_EMAILS.some((m) => m.toLowerCase() === e);
+}
 const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1MB（resend/delete/previewはevidence_idのみでファイル本体を含まない）
 
 function supabaseHeaders() {
@@ -230,7 +238,7 @@ const TAX_DOWNLOADS_SKEY = 'tax_docs_downloads';
 // 共有トークンから、そのトークンを持つapp_settingsの行（＝オーナー）を探す
 async function findShareOwnerRow(token) {
   const r = await fetch(
-    `${SUPABASE_URL}/rest/v1/app_settings?skey=eq.tax_docs_index&select=user_email,value&limit=50`,
+    `${SUPABASE_URL}/rest/v1/app_settings?skey=eq.tax_docs_index&user_email=in.(${MEMBER_EMAILS.map(encodeURIComponent).join(',')})&select=user_email,value&limit=50`,
     { headers: supabaseHeaders() }
   );
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -316,7 +324,7 @@ async function handleTaxShareList(res, shareToken) {
   }
   try {
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/app_settings?skey=eq.tax_docs_index&select=user_email,value&limit=50`,
+      `${SUPABASE_URL}/rest/v1/app_settings?skey=eq.tax_docs_index&user_email=in.(${MEMBER_EMAILS.map(encodeURIComponent).join(',')})&select=user_email,value&limit=50`,
       { headers: supabaseHeaders() }
     );
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -395,6 +403,16 @@ module.exports = async (req, res) => {
   const user = await verifySupabaseToken(req);
   if (!user) {
     res.status(401).json({ ok: false, error: 'unauthorized' });
+    return;
+  }
+
+  /* ⚠ ログイン済みかどうかだけでは足りない（2026-08-03のセキュリティレビューで判明）。
+   * このSupabaseプロジェクトは他アプリと共用で、さらに税理士ワークスペースの追加により
+   * **社外の税理士もログインアカウントを持つ**ようになった。
+   * 証憑の再送・削除・プレビューは社内メンバーだけの操作なので、必ずメールで絞る。
+   * 出典: supabase_mf_owner_rls.sql の会員許可リストと同じ2件。 */
+  if (!isMemberEmail(user.email)) {
+    res.status(403).json({ ok: false, error: 'member_only' });
     return;
   }
 
