@@ -813,7 +813,9 @@ async function txwLoadSuggestions(items, gen) {
   var payloadItems = (items || [])
     .filter(function (tx) { return tx && txwCardRefsByTx[tx.transaction_id]; })
     .slice(0, 200)
-    .map(function (tx) { return { transaction_id: tx.transaction_id, content: tx.content, date: tx.date }; });
+    // side（入金か出金か）は必須。サーバーはこれで借方・貸方どちらを提案に使うか決める。
+    // 入金の明細で借方を見ると「普通預金」を提案してしまう（MFが自動で埋める側のため）。
+    .map(function (tx) { return { transaction_id: tx.transaction_id, content: tx.content, date: tx.date, side: tx.side }; });
   if (!payloadItems.length) return;
 
   var result;

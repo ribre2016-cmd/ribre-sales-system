@@ -282,60 +282,89 @@ const SUGGEST_LOOKBACK_DAYS = 365;   // 何日前までの仕訳を参考にす�
 const SUGGEST_MIN_RATIO = 0.6;       // 最多の組み合わせがこの割合未満なら提案しない
 const SUGGEST_MAX_ITEMS = 200;       // 1回に処理する明細の上限
 
-// 仕訳1件から「借方の組み合わせ」を取り出す。借方が複数ある複合仕訳は対象外（単純なものだけ）
-function journalDebitCombo(j) {
+function sideCombo(s) {
+  if (!s || !s.account_id) return null;
+  return {
+    account_id: s.account_id,
+    account_name: s.account_name || '',
+    tax_id: s.tax_id || null,
+    tax_name: s.tax_name || '',
+    sub_account_id: s.sub_account_id || null,
+    sub_account_name: s.sub_account_name || '',
+    invoice_kind: s.invoice_kind || null,
+  };
+}
+
+/* 仕訳1件から借方・貸方それぞれの組み合わせを取り出す。
+ * ⚠ **どちらの側を提案に使うかは明細の収支で決まる**（2026-08-03のレビューで判明した重大な誤り）。
+ *   `POST /transactions/journalize` に渡すのは「連携口座の反対側」の科目で、
+ *   MFは口座側を自動で埋める。実データで確認した対応は次のとおり:
+ *     出金(EXPENSE): 借方=支払手数料など(渡す側) / 貸方=普通預金(MFが自動)
+ *     入金(INCOME) : 借方=普通預金(MFが自動)      / 貸方=売上高など(渡す側)
+ *   当初は常に借方を見ていたため、**入金の明細に「普通預金」を提案してしまう**誤りがあった。
+ * 借方または貸方が複数ある複合仕訳は「前回と同じ」を当てにできないので対象外。 */
+function journalCombos(j) {
   const branches = Array.isArray(j.branches) ? j.branches : [];
   const debits = branches.map((b) => b && b.debitor).filter((d) => d && d.account_id);
-  if (debits.length !== 1) return null; // 複合仕訳は「前回と同じ」を当てにできない
-  const d = debits[0];
+  const credits = branches.map((b) => b && b.creditor).filter((c) => c && c.account_id);
   return {
-    account_id: d.account_id,
-    account_name: d.account_name || '',
-    tax_id: d.tax_id || null,
-    tax_name: d.tax_name || '',
-    sub_account_id: d.sub_account_id || null,
-    sub_account_name: d.sub_account_name || '',
-    invoice_kind: d.invoice_kind || null,
+    debit: debits.length === 1 ? sideCombo(debits[0]) : null,
+    credit: credits.length === 1 ? sideCombo(credits[0]) : null,
   };
+}
+
+// 明細の収支から、提案に使う側を決める（api/mf/tax-workspace.js の他の判定と揃える）
+function comboSideForTransaction(side) {
+  const s = String(side || '').toLowerCase();
+  if (s.indexOf('incom') >= 0 || s.indexOf('credit') >= 0) return 'credit';
+  return 'debit'; // EXPENSE と不明は借方（出金の方が件数が多く、外した場合も提案が出ないだけ）
 }
 
 function comboKey(c) {
   return [c.account_id, c.tax_id || '', c.sub_account_id || '', c.invoice_kind || ''].join('|');
 }
 
-// 過去の仕訳を「摘要の語」ごとにまとめる。1語につき、借方の組み合わせの出現回数を数える。
+// 過去の仕訳を「摘要の語」ごとにまとめる。借方・貸方を**別々に**数える。
+// どちらを使うかは提案時に明細の収支で決める（journalCombos のコメント参照）。
 function buildSuggestIndex(journals) {
-  const byToken = new Map(); // token -> Map(comboKey -> {combo, count, lastDate})
+  const byToken = new Map(); // token -> { debit: Map(key->{combo,count,lastDate}), credit: 同 }
   (journals || []).forEach((j) => {
-    const combo = journalDebitCombo(j);
-    if (!combo) return;
+    const combos = journalCombos(j);
     const tokens = vendorTokens(journalVendorText(j));
     if (!tokens.length) return;
-    const key = comboKey(combo);
     const date = j.transaction_date || '';
     tokens.forEach((t) => {
-      if (!byToken.has(t)) byToken.set(t, new Map());
-      const m = byToken.get(t);
-      const cur = m.get(key);
-      if (cur) {
-        cur.count += 1;
-        if (date > cur.lastDate) cur.lastDate = date;
-      } else {
-        m.set(key, { combo, count: 1, lastDate: date });
-      }
+      if (!byToken.has(t)) byToken.set(t, { debit: new Map(), credit: new Map() });
+      const slot = byToken.get(t);
+      ['debit', 'credit'].forEach((side) => {
+        const combo = combos[side];
+        if (!combo) return;
+        const key = comboKey(combo);
+        const m = slot[side];
+        const cur = m.get(key);
+        if (cur) {
+          cur.count += 1;
+          if (date > cur.lastDate) cur.lastDate = date;
+        } else {
+          m.set(key, { combo, count: 1, lastDate: date });
+        }
+      });
     });
   });
   return byToken;
 }
 
 // 明細1件に対する提案。条件を満たさなければ null（提案しない）。
-function suggestForContent(index, content) {
+function suggestForContent(index, content, txSide) {
   const tokens = vendorTokens(content);
   if (!tokens.length) return null;
+  const useSide = comboSideForTransaction(txSide);
   // その明細の語に紐づく組み合わせを全部集めて合算する
   const merged = new Map();
   tokens.forEach((t) => {
-    const m = index.get(t);
+    const slot = index.get(t);
+    if (!slot) return;
+    const m = slot[useSide];
     if (!m) return;
     m.forEach((v, key) => {
       const cur = merged.get(key);
@@ -389,7 +418,7 @@ async function handleSuggest(res, accessToken, body) {
   items.forEach((it) => {
     const id = it && it.transaction_id;
     if (!id) return;
-    const s = suggestForContent(index, it && it.content);
+    const s = suggestForContent(index, it && it.content, it && it.side);
     if (s) suggestions[id] = s;
   });
   res.status(200).json({ ok: true, suggestions, based_on: { start_date: startDate, end_date: endDate, journals: journals.length } });
