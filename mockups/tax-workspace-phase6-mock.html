@@ -197,7 +197,7 @@ tr.row-disabled td { color: #94a3b8; }
       <div class="sub">docs/TAX_WORKSPACE_PHASE6_PLAN.md に基づく画面案 ／ 実装は未着手・設計とモックのみ</div>
     </div>
     <div class="topbar-right">
-      <span class="who">ログイン中: sample.staff1@example.com（サンプル・担当者）</span>
+      <span class="who">ログイン中: sample.admin@example.com（サンプル・管理者）</span>
       <label style="font-size:12.5px;font-weight:800;">対象月
         <select><option selected>2026年07月（サンプル）</option></select>
       </label>
@@ -389,20 +389,24 @@ tr.row-disabled td { color: #94a3b8; }
                   <td>該当する提案はありません</td>
                 </tr>
                 <tr class="lt-row" data-idx="8">
-                  <td><input type="checkbox" class="lt-check" onchange="ltUpdate()"></td>
+                  <td>
+                    <input type="checkbox" class="lt-check" disabled>
+                    <div class="list-hint">勘定科目とインボイス区分を選ぶと選択できます</div>
+                  </td>
                   <td>2026-07-16</td>
                   <td>サンプルストア 消耗品（サンプル）</td>
                   <td class="num">999円</td>
-                  <td><select><option selected>消耗品費</option><option>会議費</option></select></td>
-                  <td><select><option selected>課税仕入10%</option><option>対象外</option></select></td>
-                  <td><select><option selected>適格</option><option>対象外</option></select></td>
-                  <td>過去5件中2件（残り3件は別内容）</td>
+                  <td><select><option selected>（未選択）</option><option>消耗品費</option><option>会議費</option></select></td>
+                  <td><select><option selected>（未選択）</option><option>課税仕入10%</option><option>対象外</option></select></td>
+                  <td><select><option selected>（未選択）</option><option>適格</option><option>対象外</option></select></td>
+                  <td>提案なし（過去5件中2件＝6割未満で割れているため、自動では入れません）</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <div class="note danger" style="margin-top:14px;">⚠ 登録するとMFクラウド会計に仕訳が作られます。この画面から取り消すことはできません。間違えた場合はMFクラウド会計の仕訳帳から編集・削除してください。<b>内容に自信が持てないときは、登録せずに事務所の先輩・担当の税理士にご確認ください。</b></div>
+          <div class="note warn" style="margin-top:14px;">表の勘定科目・税区分・インボイス区分は<b>過去の仕訳から自動で入れた下書き</b>です。自動で選んだだけで正しいとは限りません。<b>各行の内容を確認してからチェックしてください</b>（行の値はその場で修正できます）。</div>
+          <div class="note danger" style="margin-top:8px;">⚠ 登録するとMFクラウド会計に仕訳が作られます。この画面から取り消すことはできません。間違えた場合はMFクラウド会計の仕訳帳から編集・削除してください。<b>内容に自信が持てないときは、登録せずに事務所の先輩・担当の税理士にご確認ください。</b></div>
 
           <div class="btn-row" style="justify-content: space-between; align-items: center;">
             <div class="always-hint">勘定科目とインボイス区分を選ぶと、その行をチェックできます。</div>
