@@ -787,7 +787,10 @@ module.exports = async (req, res) => {
   if (action === 'action_log') {
     try {
       let url = `${SUPABASE_URL}/rest/v1/tax_advisor_actions`
-        + `?select=id,actor_email,action,transaction_id,journal_id,result,error_message,created_at`
+        // 税務調査で「この仕訳は誰が・何を入れたか」を画面だけで答えられるようにする。
+        // 以前は日時・操作者・結果しか返しておらず、勘定科目や金額を調べるには
+        // SQLを直接見る必要があった（2026-08-04の所長目線レビュー指摘）。
+        + `?select=id,actor_email,action,transaction_id,journal_id,account_id,tax_id,evidence_ids,result,error_message,payload,created_at`
         + `&order=created_at.desc&limit=200`;
       if (!isMember) {
         url += `&actor_email=eq.${encodeURIComponent(advisor.email)}`;

@@ -949,6 +949,36 @@ function txwCollapseCardSuccess(card, data) {
       text: '⚠ この明細から仕訳が' + data.duplicate_warning + '件見つかりました。MFの画面でご確認ください。'
     }));
   }
+  // 残りの件数をその場で更新する（読み込み直すまで数字が減らず、
+  // どこまで終わったか分からなかった）
+  txwRefreshUnmatchedCount();
+  // 次の未登録カードの最初の入力欄へ移す。
+  // 件数をまたぐ連続作業でマウスに持ち替えずに済む。
+  txwFocusNextCard(card);
+}
+
+// まだ登録していないカードの数を数え直して表示する
+function txwRefreshUnmatchedCount() {
+  var el2 = document.getElementById('txwUnmatchedCount');
+  if (!el2) return;
+  var rest = document.querySelectorAll('.jcard:not(.jcard-collapsed)').length;
+  el2.textContent = rest ? ('未仕訳 ' + rest + '件') : 'この月の未仕訳はすべて処理しました';
+}
+
+// 登録が終わったカードの次にある「まだ登録していないカード」の勘定科目欄へ移動する
+function txwFocusNextCard(doneCard) {
+  var cards = [].slice.call(document.querySelectorAll('.jcard'));
+  var i = cards.indexOf(doneCard);
+  for (var k = i + 1; k < cards.length; k++) {
+    if (cards[k].classList.contains('jcard-collapsed')) continue;
+    var input = cards[k].querySelector('input[list="txwAccountsDatalist"]');
+    if (!input) continue;
+    try {
+      cards[k].scrollIntoView({ block: 'center', behavior: 'smooth' });
+      input.focus();
+    } catch (e) {}
+    return;
+  }
 }
 
 async function txwSubmitJournal(tx, refs) {
@@ -1358,7 +1388,9 @@ async function txwLoadActionLog() {
   var table = el('table');
   var thead = el('thead');
   var htr = el('tr');
-  ['日時', '操作した人', '操作', '結果', '仕訳ID', '備考'].forEach(function (h) { htr.appendChild(el('th', { text: h })); });
+  // 税務調査で画面だけで答えられるように、勘定科目・税区分・証憑まで出す
+  ['日時', '操作した人', '操作', '結果', '仕訳ID', '勘定科目', '税区分', '証憑', '備考']
+    .forEach(function (h) { htr.appendChild(el('th', { text: h })); });
   thead.appendChild(htr);
   table.appendChild(thead);
   var tbody = el('tbody');
@@ -1369,6 +1401,10 @@ async function txwLoadActionLog() {
     tr.appendChild(el('td', { text: txwActionLabel(a.action) }));
     tr.appendChild(el('td', { text: txwResultLabel(a.result) }));
     tr.appendChild(el('td', { text: a.journal_id || '-' }));
+    // IDのままでは読めないので、マスタから名前へ逆引きする。見つからなければIDをそのまま出す
+    tr.appendChild(el('td', { text: txwIdToLabel(txwAccountLookup, a.account_id) || a.account_id || '-' }));
+    tr.appendChild(el('td', { text: txwIdToLabel(txwTaxLookup, a.tax_id) || a.tax_id || '-' }));
+    tr.appendChild(el('td', { text: (a.evidence_ids && a.evidence_ids.length) ? (a.evidence_ids.length + '件') : '-' }));
     tr.appendChild(el('td', { text: a.error_message || '' }));
     tbody.appendChild(tr);
   });
