@@ -1271,6 +1271,77 @@ function txwGoTab(t) {
     txwLoadInvites();
     txwLoadAdvisors();
   }
+  // 操作履歴は開くたびに読み直す（自分や他の人の登録が随時増えるため）
+  if (t === 'history') txwLoadActionLog();
+}
+
+/* ---------------- ④ 操作履歴 ----------------
+ * MF側では仕訳が全て「連携アプリ」名義で作られ、誰が作ったか分からない。
+ * そのため**この履歴がこの機能の唯一の監査証跡**（設計書§5-5）。
+ * 社内メンバーは全件、税理士は自分の操作だけ見える。 */
+function txwActionLabel(a) {
+  if (a === 'journalize') return '仕訳の登録';
+  if (a === 'set_closed_term_policy') return '設定の変更';
+  return a || '-';
+}
+function txwResultLabel(r) {
+  if (r === 'ok') return '成功';
+  if (r === 'journal_ok_voucher_failed') return '仕訳のみ成功（証憑の添付は失敗）';
+  if (r === 'failed') return '失敗';
+  return r || '-';
+}
+
+async function txwLoadActionLog() {
+  var body = document.getElementById('txwHistoryBody');
+  if (!body) return;
+  clearEl(body);
+  body.appendChild(el('div', { class: 'txw-loading', text: '読み込み中…' }));
+  var result;
+  try {
+    result = await txwApiCall('action_log', {});
+  } catch (e) {
+    clearEl(body);
+    body.appendChild(el('div', { class: 'note danger', text: '操作履歴の取得に失敗しました。時間をおいてお試しください。' }));
+    return;
+  }
+  var data = result.data || {};
+  clearEl(body);
+  if (!data.ok) {
+    body.appendChild(el('div', { class: 'note danger', text: '操作履歴の取得に失敗しました（' + (data.error || '不明') + '）。' }));
+    return;
+  }
+  var rows = Array.isArray(data.actions) ? data.actions : [];
+  body.appendChild(el('div', {
+    class: 'note info',
+    text: data.scope === 'all'
+      ? 'すべての方の操作を新しい順に表示しています（最大200件）。この記録は消せません。'
+      : 'ご自身の操作を新しい順に表示しています（最大200件）。この記録は消せません。'
+  }));
+  if (!rows.length) {
+    body.appendChild(el('div', { class: 'hist-empty', text: 'まだ操作の記録はありません。' }));
+    return;
+  }
+  var wrap = el('div', { style: 'overflow-x:auto' });
+  var table = el('table');
+  var thead = el('thead');
+  var htr = el('tr');
+  ['日時', '操作した人', '操作', '結果', '仕訳ID', '備考'].forEach(function (h) { htr.appendChild(el('th', { text: h })); });
+  thead.appendChild(htr);
+  table.appendChild(thead);
+  var tbody = el('tbody');
+  rows.forEach(function (a) {
+    var tr = el('tr');
+    tr.appendChild(el('td', { text: a.created_at ? new Date(a.created_at).toLocaleString('ja-JP') : '-' }));
+    tr.appendChild(el('td', { text: a.actor_email || '-' }));
+    tr.appendChild(el('td', { text: txwActionLabel(a.action) }));
+    tr.appendChild(el('td', { text: txwResultLabel(a.result) }));
+    tr.appendChild(el('td', { text: a.journal_id || '-' }));
+    tr.appendChild(el('td', { text: a.error_message || '' }));
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  body.appendChild(wrap);
 }
 
 /* ---------------- 初期化 ---------------- */

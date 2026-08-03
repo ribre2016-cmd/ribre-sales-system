@@ -756,6 +756,29 @@ module.exports = async (req, res) => {
     return;
   }
 
+  /* 操作履歴の閲覧（設計書§3.6・§5-5）。
+   * MF側では仕訳が全て「連携アプリ」名義で作られ誰が作ったか分からないため、
+   * これがこの機能の**唯一の監査証跡**。書き込むだけで誰も見られない状態だと
+   * 証跡として機能しないので、画面から読めるようにする（2026-08-03のレビュー指摘）。
+   * 社内メンバーは全件、税理士は**自分の操作だけ**見られる。 */
+  if (action === 'action_log') {
+    try {
+      let url = `${SUPABASE_URL}/rest/v1/tax_advisor_actions`
+        + `?select=id,actor_email,action,transaction_id,journal_id,result,error_message,created_at`
+        + `&order=created_at.desc&limit=200`;
+      if (!isMember) {
+        url += `&actor_email=eq.${encodeURIComponent(advisor.email)}`;
+      }
+      const r = await fetch(url, { headers: supabaseHeaders() });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const rows = await r.json().catch(() => []);
+      res.status(200).json({ ok: true, actions: Array.isArray(rows) ? rows : [], scope: isMember ? 'all' : 'own' });
+    } catch (e) {
+      res.status(200).json({ ok: false, error: 'action_log_failed', message: e && e.message });
+    }
+    return;
+  }
+
   // 決算済みの期の扱いは税理士自身が決める（設計書§6-E）。社内メンバーも変更できる。
   if (action === 'set_closed_term_policy') {
     const okSave = await saveClosedTermPolicy(body && body.policy, advisor.email);
