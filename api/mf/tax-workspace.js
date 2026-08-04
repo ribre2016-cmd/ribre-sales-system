@@ -528,15 +528,32 @@ function csvEscape(v) {
   return needsQuote ? chr34 + s.split(chr34).join(chr34 + chr34) + chr34 : s;
 }
 
+/* ⚠ 以前は limit=5000 の1回取得で、超えた分を**黙って捨てて**いた。
+ *   しかも画面に件数を出していなかったため、
+ *   「全部揃っていると思って提出したら古い分が抜けていた」が起こりうる状態だった。
+ *   税務調査で使う前提の機能としては致命的（所長レビューの指摘・2026-08-04）。
+ *   → 最後まで取り切る。上限に達した場合は truncated を必ず返し、画面で警告する。 */
+const CSV_PAGE = 1000;
+const CSV_HARD_LIMIT = 100000;   // 応答が大きくなりすぎないための安全弁
+
 async function handleActionLogCsv(res, advisor, isAdmin, body) {
   const month = String((body && body.month) || '');
-  let url = `${SUPABASE_URL}/rest/v1/tax_advisor_actions?select=*&order=created_at.desc&limit=5000`;
-  if (!isAdmin) url += `&actor_email=eq.${encodeURIComponent(advisor.email)}`;
+  let base = `${SUPABASE_URL}/rest/v1/tax_advisor_actions?select=*&order=created_at.desc`;
+  if (!isAdmin) base += `&actor_email=eq.${encodeURIComponent(advisor.email)}`;
   const r = monthRange(month);
-  if (r) url += `&created_at=gte.${r.start}T00:00:00Z&created_at=lte.${r.end}T23:59:59Z`;
-  const resp = await fetch(url, { headers: supabaseHeaders() });
-  if (!resp.ok) { res.status(200).json({ ok: false, error: 'action_log_failed' }); return; }
-  const rows = await resp.json().catch(() => []);
+  if (r) base += `&created_at=gte.${r.start}T00:00:00Z&created_at=lte.${r.end}T23:59:59Z`;
+
+  const rows = [];
+  let truncated = false;
+  for (let offset = 0; offset < CSV_HARD_LIMIT; offset += CSV_PAGE) {
+    const resp = await fetch(`${base}&limit=${CSV_PAGE}&offset=${offset}`, { headers: supabaseHeaders() });
+    if (!resp.ok) { res.status(200).json({ ok: false, error: 'action_log_failed' }); return; }
+    const page = await resp.json().catch(() => null);
+    if (!Array.isArray(page)) { res.status(200).json({ ok: false, error: 'action_log_failed' }); return; }
+    rows.push(...page);
+    if (page.length < CSV_PAGE) break;                 // 最後まで取り切った
+    if (rows.length >= CSV_HARD_LIMIT) { truncated = true; break; }
+  }
   const header = ['日時', '操作した人', '操作', '結果', '明細ID', '仕訳ID', '勘定科目ID', '税区分ID',
     '証憑の件数', '入力', 'エラー', '内容'];
   const lines = [header.join(',')];
@@ -551,7 +568,12 @@ async function handleActionLogCsv(res, advisor, isAdmin, body) {
     ].map(csvEscape).join(','));
   });
   // Excelで開いたときに文字化けしないよう BOM を付ける
-  res.status(200).json({ ok: true, csv: String.fromCharCode(65279) + lines.join(chr13 + chr10), rows: lines.length - 1 });
+  res.status(200).json({
+    ok: true, csv: String.fromCharCode(65279) + lines.join(chr13 + chr10),
+    rows: lines.length - 1,
+    // 上限に達したか。画面はこれを見て警告を出す（黙って減らさない）
+    truncated, hard_limit: CSV_HARD_LIMIT,
+  });
 }
 
 /* ---------------- Phase 7: ⑨月次チェック（読み取り専用） ----------------
@@ -925,11 +947,12 @@ const APPROVAL_POLICIES = ['none', 'required'];
 
 async function fetchApprovalPolicy() {
   try {
-    const url = `${SUPABASE_URL}/rest/v1/tax_workspace_settings?skey=eq.approval_policy&select=value&limit=1`;
+    // tax_workspace_settings は id=1 の1行だけを持つ設定テーブル（既存の closed_term_policy と同じ行）
+    const url = `${SUPABASE_URL}/rest/v1/tax_workspace_settings?id=eq.1&select=approval_policy&limit=1`;
     const res = await fetch(url, { headers: supabaseHeaders() });
     if (!res.ok) return 'none';
     const rows = await res.json().catch(() => []);
-    const v = Array.isArray(rows) && rows[0] ? rows[0].value : null;
+    const v = Array.isArray(rows) && rows[0] ? rows[0].approval_policy : null;
     return APPROVAL_POLICIES.indexOf(v) >= 0 ? v : 'none';
   } catch (e) {
     // 設定が読めないときは「承認しない」に倒す。読めないことを理由に登録を止めない
@@ -937,11 +960,13 @@ async function fetchApprovalPolicy() {
   }
 }
 
+// ⚠ 画面からは呼んでいない（変更はSQLで行う運用）。将来つなぐときのために形だけ残す。
 async function saveApprovalPolicy(policy, byEmail) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/tax_workspace_settings`, {
-    method: 'POST',
-    headers: { ...supabaseHeaders(), Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify([{ skey: 'approval_policy', value: policy, updated_by: byEmail, updated_at: new Date().toISOString() }]),
+  if (APPROVAL_POLICIES.indexOf(policy) < 0) return false;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/tax_workspace_settings?id=eq.1`, {
+    method: 'PATCH',
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+    body: JSON.stringify({ approval_policy: policy, updated_by: byEmail, updated_at: new Date().toISOString() }),
   });
   return res.ok;
 }

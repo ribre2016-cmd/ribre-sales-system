@@ -464,6 +464,8 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
           <button id="txwCsvMonthBtn" class="btn-mini" type="button" style="margin-left:0;">CSVでダウンロード（この月）</button>
           <button id="txwCsvAllBtn" class="btn-mini" type="button">CSVでダウンロード（全期間）</button>
         </div>
+        <!-- 何件出力したかを必ず出す。件数が分からないと「古い分が抜けていた」に気づけない -->
+        <div id="txwCsvResultNote" class="note" style="display:none;margin-bottom:12px;"></div>
         <div class="note danger" style="margin-bottom:12px;">
           この記録はRIBRE側では技術的に書き換えられます。事務所ご自身でダウンロードし、RIBREが触れない場所に保管してください。月次での保存をおすすめします。
         </div>

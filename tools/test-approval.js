@@ -71,7 +71,21 @@ has('差し戻しの理由は必須', /reason_required/);
 has('インボイス区分は承認待ちに積む前にも必須', /invoice_kind_required/);
 has('承認・差し戻しも操作履歴に残す', /action: 'approve_journalize'[\s\S]*action: 'reject_journalize'/);
 has('CSVはBOM付き（Excelで文字化けしない）', /String\.fromCharCode\(65279\)/);
-has('CSVはadminなら全件・staffは自分の分だけ', /if \(!isAdmin\) url \+= `&actor_email=eq\./);
+has('CSVはadminなら全件・staffは自分の分だけ', /if \(!isAdmin\) base \+= `&actor_email=eq\./);
+has('CSVは最後まで取り切る（ページを回す）', /for \(let offset = 0; offset < CSV_HARD_LIMIT/);
+has('CSVが打ち切られたら必ず伝える', /truncated, hard_limit: CSV_HARD_LIMIT/);
+
+// 画面側（pages/tax-workspace.js）も確かめる
+const ui = fs.readFileSync(path.join(__dirname, '..', 'pages', 'tax-workspace.js'), 'utf8');
+function hasUi(label, re) {
+  const ok = re.test(ui);
+  if (!ok) ng++;
+  console.log((ok ? '  ○ ' : '  × ') + label);
+}
+hasUi('画面がCSVの件数を出す', /txwCsvResultNote/);
+hasUi('打ち切りのときは危険色で警告する', /data\.truncated[\s\S]{0,200}note danger/);
+hasUi('候補が割れている行にも理由を書く', /件は別の内容でした/);
+hasUi('根拠が少ない行にも理由を書く', /根拠は過去/);
 
 console.log('\n===== 結果 =====');
 console.log(ng === 0 ? '全件 期待どおり ○' : (ng + '件 期待とちがう ×'));

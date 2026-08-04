@@ -1466,6 +1466,19 @@ function txwApplySuggestionToRow(refs, sugg) {
     refs.badgeEl = badge;
   }
   if (refs.thinEl) { refs.thinEl.remove(); refs.thinEl = null; }
+  /* 候補が割れているときにも、なぜ黄色なのかを言葉で書く。
+   * 札だけだと根拠テキストを読み込まないと理由が分からず、注意喚起が一段弱い
+   * （新人レビューの指摘・2026-08-04）。 */
+  if (splitMatch && !thinEvidence) {
+    var split = el('div', {
+      style: 'margin-top:2px;color:var(--hm-amber);font-weight:800;',
+      text: '過去の仕訳が' + total + '件中' + count + '件でこの内容、残り' + (total - count)
+        + '件は別の内容でした。今回がどちらかは決められないので、'
+        + '金額と内容をご自身で確かめてから登録してください。'
+    });
+    refs.tdReason.appendChild(split);
+    refs.thinEl = split;   // 次の描画で消す対象は同じ扱いでよい
+  }
   if (thinEvidence) {
     var thin = el('div', {
       style: 'margin-top:2px;color:var(--hm-amber);font-weight:800;',
@@ -2465,7 +2478,7 @@ async function txwLoadApprovalPolicyBlock() {
   var sqlBox = el('div', { class: 'invite-box' });
   var sqlRow = el('div', { class: 'invite-row' });
   var sqlInput = el('input', { type: 'text', readonly: 'readonly', class: 'invite-url-input' });
-  sqlInput.value = "update tax_workspace_settings set value = '\"required\"'::jsonb where skey = 'approval_policy';";
+  sqlInput.value = "update tax_workspace_settings set approval_policy = 'required' where id = 1;";
   sqlRow.appendChild(sqlInput);
   var copyBtn = el('button', { type: 'button', class: 'btn-mini', text: 'コピー' });
   copyBtn.addEventListener('click', function () { txwCopyInviteUrl(sqlInput, copyBtn); });
@@ -2879,6 +2892,23 @@ async function txwDownloadActionLogCsv(scope) {
     a.click();
     document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+
+    /* ⚠ 何件出たかを必ず出す。件数を出さないと「全部揃っていると思って提出したら
+     *   古い分が抜けていた」に気づけない（所長レビューの指摘・2026-08-04）。 */
+    var note = document.getElementById('txwCsvResultNote');
+    if (note) {
+      var n = Number(data.rows) || 0;
+      if (data.truncated) {
+        note.className = 'note danger';
+        note.textContent = n + '件を出力しましたが、上限（' + (data.hard_limit || '?')
+          + '件）に達したため、これより古い記録は含まれていません。'
+          + '月ごとのダウンロードに分けて、抜けが無いようにしてください。';
+      } else {
+        note.className = 'note ok';
+        note.textContent = n + '件を出力しました（この条件の記録はすべて含まれています）。';
+      }
+      note.style.display = '';
+    }
   } catch (e) {
     alert('CSVのダウンロードに失敗しました。時間をおいてもう一度お試しください。');
   } finally {
