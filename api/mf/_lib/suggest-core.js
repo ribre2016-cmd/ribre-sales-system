@@ -13,6 +13,8 @@ const SUGGEST_MIN_RATIO = 0.6;       // 最多の組み合わせがこの割合�
 // 実データで「振込 カ)リ-ブル」に、たった2件の近似から『未収入金』が提案されていた。
 // 摘要が同じなら1件でも根拠になるが、語が似ているだけの2件は当てにならない。
 const SUGGEST_SIMILAR_MIN_COUNT = 3;
+// これだけ集まったら、それより古い会計期間は取りに行かない（応答時間とレート制限のため）
+const SUGGEST_ENOUGH_JOURNALS = 600;
 const SUGGEST_MAX_ITEMS = 200;       // 1回に処理する明細の上限
 
 // 提案に使ってはいけない勘定科目。
@@ -230,6 +232,11 @@ async function fetchJournalsForSuggest({ accessToken, endDate, terms, fetchJourn
     return fetchJournals({ accessToken, startDate: endDate.slice(0, 8) + '01', endDate });
   }
 
+  // 新しい期から順に取る。十分な件数が集まったらそこで打ち切る。
+  // 実測で1年分は約1,900件あり、1ページ200件＝10往復以上（1件ごとに350msの間隔）に
+  // なるため、取りすぎると応答が遅くなりレート制限にも近づく。
+  // 提案は「同じ摘要の過去の仕訳」を見るだけなので、当期分で足りることが多い。
+  ranges.sort((a, b) => (a.startDate < b.startDate ? 1 : -1));
   const all = [];
   for (const r of ranges) {
     // 1つの期で失敗しても、取れた分だけで提案を作る（全部落とさない）
@@ -239,11 +246,13 @@ async function fetchJournalsForSuggest({ accessToken, endDate, terms, fetchJourn
     } catch (e) {
       console.error('仕訳の取得に失敗（この期はとばす）', r.startDate, r.endDate, e && e.message);
     }
+    if (all.length >= SUGGEST_ENOUGH_JOURNALS) break;
   }
   return all;
 }
 
 module.exports = {
+  SUGGEST_ENOUGH_JOURNALS,
   SUGGEST_SIMILAR_MIN_COUNT,
   addDaysStr,
   fetchJournalsForSuggest,
