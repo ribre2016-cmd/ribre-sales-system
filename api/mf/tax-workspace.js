@@ -364,7 +364,10 @@ async function handleSuggest(res, accessToken, body) {
     const s = suggestForContent(index, it && it.content, it && it.side);
     if (s) suggestions[id] = s;
   });
-  res.status(200).json({ ok: true, suggestions, based_on: { start_date: startDate, end_date: endDate, journals: journals.length } });
+  res.status(200).json({
+    ok: true, suggestions,
+    based_on: { end_date: endDate, journals: journals.length, terms: terms.length },
+  });
 }
 
 /* ---------------- 決算済みの期の扱い（設定） ---------------- */
@@ -1064,7 +1067,19 @@ module.exports = async (req, res) => {
 
   // Phase 4: 過去の仕訳から初期値を提案する（読み取りのみ）
   if (action === 'suggest') {
-    await handleSuggest(res, accessToken, body);
+    // ⚠ 例外で500(HTML)を返すと、画面には「該当する提案はありません」としか出ず
+    //   原因が見えない。実際にこれで3回、誤った原因を追いかけた（2026-08-04）。
+    //   読み取りだけの機能なので、失敗しても理由をJSONで返す。
+    try {
+      await handleSuggest(res, accessToken, body);
+    } catch (e) {
+      console.error('suggest failed', e);
+      if (!res.headersSent) {
+        res.status(200).json({
+          ok: false, error: 'suggest_failed', message: (e && e.message) || String(e),
+        });
+      }
+    }
     return;
   }
 

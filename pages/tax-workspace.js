@@ -1735,7 +1735,7 @@ async function txwLoadSuggestions(items, gen) {
     result = await txwApiCall('suggest', { items: payloadItems });
   } catch (e) {
     if (gen !== txwRenderGen) return;
-    txwFillNoSuggestionText(payloadItems, {});
+    txwFillNoSuggestionText(payloadItems, {}, '提案を取得できませんでした（通信）');
     return; // 通信失敗。提案が入らないだけで、明細自体は普通に操作できる
   }
   if (gen !== txwRenderGen) return; // その間に月が変わる等で描画し直されていたら捨てる
@@ -1744,23 +1744,34 @@ async function txwLoadSuggestions(items, gen) {
   // ok:false（scope_missingなど）や note:'journals_fetch_failed' のときも suggestions は
   // 空(または存在しない)ものとして扱い、画面は通常どおり操作できる状態のままにする。
   var suggestions = (data.ok && data.suggestions && typeof data.suggestions === 'object') ? data.suggestions : {};
+  /* ⚠「提案が0件」と「提案を取れなかった」は意味がまったく違う。
+   *   同じ文言にすると、不具合が『該当なし』に化けて見えなくなる。
+   *   実際にこれで、サーバーが500を返しているのに気づけなかった（2026-08-04）。 */
+  var failNote = '';
+  if (!data.ok) {
+    failNote = '提案を取得できませんでした（' + (data.error || ('HTTP ' + result.status)) + '）';
+  } else if (data.note === 'journals_fetch_failed') {
+    failNote = '提案を取得できませんでした（過去の仕訳を読めませんでした）';
+  }
   Object.keys(suggestions).forEach(function (txId) {
     var cardRefs = txwCardRefsByTx[txId];
     if (cardRefs) txwApplySuggestion(cardRefs, suggestions[txId]);
     var rowRefs = txwListRowRefsByTx[txId];
     if (rowRefs) txwApplySuggestionToRow(rowRefs, suggestions[txId]);
   });
-  txwFillNoSuggestionText(payloadItems, suggestions);
+  txwFillNoSuggestionText(payloadItems, suggestions, failNote);
 }
 
 // 一覧表示の「提案の根拠」欄: 提案が無い(=suggestionsにキーが無い)行を
 // 「提案を確認中…」のまま止めず、「該当する提案はありません」で確定させる。
-function txwFillNoSuggestionText(payloadItems, suggestions) {
+function txwFillNoSuggestionText(payloadItems, suggestions, failNote) {
+  var text = failNote || '該当する提案はありません';
   (payloadItems || []).forEach(function (it) {
     if (suggestions[it.transaction_id]) return;
     var rowRefs = txwListRowRefsByTx[it.transaction_id];
     if (rowRefs && rowRefs.reasonText.textContent === '提案を確認中…') {
-      rowRefs.reasonText.textContent = '該当する提案はありません';
+      rowRefs.reasonText.textContent = text;
+      if (failNote) rowRefs.reasonText.style.color = 'var(--hm-danger)';
     }
   });
 }
