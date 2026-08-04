@@ -1852,6 +1852,22 @@ function txwCurrentMonthDefault() {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 }
 
+// 対象月は端末に覚えておく。月をまたぐ作業（7月分を8月に登録する等）が普通なので、
+// 更新のたびに今月へ戻ると毎回選び直すことになる。
+var TXW_MONTH_KEY = 'ribre_txw_month';
+function txwSaveMonth(month) {
+  try {
+    if (/^\d{4}-\d{2}$/.test(String(month || ''))) localStorage.setItem(TXW_MONTH_KEY, month);
+  } catch (e) { /* 保存できなくても動作には影響しない */ }
+}
+function txwRestoreMonth() {
+  try {
+    var m = localStorage.getItem(TXW_MONTH_KEY);
+    if (/^\d{4}-\d{2}$/.test(String(m || ''))) return m;
+  } catch (e) { /* 読めなければ既定へ */ }
+  return txwCurrentMonthDefault();
+}
+
 var txwWasLoggedIn = false;
 function txwSessionWatch() {
   var loggedIn = txwIsLoggedIn();
@@ -1879,10 +1895,11 @@ function txwInit() {
   document.getElementById('txwMonthlyConfirmBtn').addEventListener('click', txwMonthlyConfirmRecord);
 
   var monthInput = document.getElementById('txwMonth');
-  monthInput.value = txwCurrentMonthDefault();
+  monthInput.value = txwRestoreMonth();
   // 対象月を変えたら①〜⑤に加え、⑨月次チェックも(表示中なら)読み直す。
   // ⑨は「対象月に連動」が要件のため、開いていないタブへの無駄な取得はしない。
   monthInput.addEventListener('change', function () {
+    txwSaveMonth(monthInput.value);
     txwLoad();
     var monthlyPage = document.getElementById('t-monthly');
     if (monthlyPage && monthlyPage.classList.contains('active')) txwLoadMonthlyCheck();
