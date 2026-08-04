@@ -758,8 +758,11 @@ function txwRenderUnmatched(items, writable) {
   txwRenderUnmatchedFilterBar();
   txwRenderAcctFilterBar();
   var displayItems = txwUnmatchedFilteredItems(items);
+  // 絞り込み中は「全体で何件あるか」も必ず添える。絞った件数だけを出すと
+  // 未仕訳が減ったように見えてしまう。
+  var filtering = txwUnmatchedFilter.active || !!txwAcctFilter;
   document.getElementById('txwUnmatchedCount').textContent = '未仕訳 ' + displayItems.length + '件'
-    + (txwUnmatchedFilter.active ? '（絞り込み中）' : '');
+    + (filtering ? '（絞り込み中／全' + (items || []).length + '件）' : '');
   txwUpdateUnmatchedNote(writable);
 
   // 新しい世代の描画を始める。前の世代のsuggest応答が後から返ってきても無視するための番号。
@@ -781,11 +784,13 @@ function txwRenderUnmatched(items, writable) {
   if (listTbody) clearEl(listTbody);
 
   if (!displayItems.length) {
-    var emptyMsg = txwUnmatchedFilter.active ? 'この絞り込み条件に一致する明細はありません。' : '未仕訳の明細はありません。';
+    var emptyMsg = (txwUnmatchedFilter.active || txwAcctFilter)
+      ? 'この絞り込み条件に一致する明細はありません。' : '未仕訳の明細はありません。';
     container.appendChild(el('div', { class: 'evidence-empty', text: emptyMsg }));
     if (listTbody) {
       var trEmpty = document.createElement('tr');
-      trEmpty.appendChild(el('td', { colspan: '9', class: 'evidence-empty', text: emptyMsg }));
+      // 列数は表の見出しと合わせる（口座・カードの列を足したので10）
+      trEmpty.appendChild(el('td', { colspan: '10', class: 'evidence-empty', text: emptyMsg }));
       listTbody.appendChild(trEmpty);
     }
     txwListUpdateCounter();
@@ -1779,7 +1784,7 @@ function txwRefreshUnmatchedCount() {
   // ⚠ 数えているのは「今表示されているカード」なので、絞り込み中は
   //   その科目の分しか見ていない。「すべて処理しました」と言い切ると
   //   他の科目に未仕訳が残っていても終わったと誤解させる。
-  if (txwUnmatchedFilter && txwUnmatchedFilter.active) {
+  if ((txwUnmatchedFilter && txwUnmatchedFilter.active) || txwAcctFilter) {
     el2.textContent = rest
       ? ('未仕訳 ' + rest + '件（絞り込み中）')
       : 'この絞り込みの分は処理しました（絞り込みを解除すると残りが見えます）';
