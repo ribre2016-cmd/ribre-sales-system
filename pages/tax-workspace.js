@@ -274,7 +274,7 @@ function txwRenderPolicyBox() {
     radio.addEventListener('change', function () { if (radio.checked) txwSaveClosedTermPolicy(opt.v); });
     wrap.appendChild(radio);
     wrap.appendChild(el('span', { text: ' ' + opt.label, style: 'font-weight:800' }));
-    wrap.appendChild(el('span', { text: '（' + opt.hint + '）', style: 'color:#64748b;font-weight:700;font-size:11px' }));
+    wrap.appendChild(el('span', { text: '（' + opt.hint + '）', style: 'color:var(--hm-muted);font-weight:700;font-size:11px' }));
     row.appendChild(wrap);
   });
   box.appendChild(row);
@@ -285,16 +285,16 @@ function txwRenderPolicyBox() {
 
 async function txwSaveClosedTermPolicy(policy) {
   var msg = document.getElementById('txwPolicySaved');
-  if (msg) { msg.textContent = '保存中…'; msg.style.color = '#2563eb'; }
+  if (msg) { msg.textContent = '保存中…'; msg.style.color = 'var(--hm-blue)'; }
   try {
     var result = await txwApiCall('set_closed_term_policy', { policy: policy });
     var data = result.data || {};
     if (!data.ok) throw new Error(data.error || 'failed');
     txwClosedTermPolicy = policy;
-    if (msg) { msg.textContent = '保存しました'; msg.style.color = '#15803d'; }
+    if (msg) { msg.textContent = '保存しました'; msg.style.color = 'var(--hm-green-dark)'; }
     txwUpdateTermWarning(document.getElementById('txwMonth').value);
   } catch (e) {
-    if (msg) { msg.textContent = '保存できませんでした。もう一度お試しください。'; msg.style.color = '#b91c1c'; }
+    if (msg) { msg.textContent = '保存できませんでした。もう一度お試しください。'; msg.style.color = 'var(--hm-danger)'; }
     txwRenderPolicyBox(); // 画面の選択を実際の設定へ戻す
   }
 }
@@ -337,7 +337,7 @@ function txwShowGate(msg) {
   txwUpdateInviteNote();
   var m = document.getElementById('txwGateMsg');
   m.textContent = msg || '';
-  m.style.color = '#b91c1c';
+  m.style.color = 'var(--hm-danger)';
 }
 function txwHideGate() {
   document.getElementById('txwGate').style.display = 'none';
@@ -393,9 +393,9 @@ async function txwGateLogin() {
   var e = (document.getElementById('txwGateEmail').value || '').trim();
   var p = (document.getElementById('txwGatePass').value || '').trim();
   var msgEl = document.getElementById('txwGateMsg');
-  if (!e || !p) { msgEl.textContent = 'メールとパスワードを入力してください'; msgEl.style.color = '#b91c1c'; return; }
+  if (!e || !p) { msgEl.textContent = 'メールとパスワードを入力してください'; msgEl.style.color = 'var(--hm-danger)'; return; }
   msgEl.textContent = 'ログイン中…';
-  msgEl.style.color = '#2563eb';
+  msgEl.style.color = 'var(--hm-blue)';
   try {
     // 既存のログインフォーム(#email/#password)に値を渡して signIn() を実行
     document.getElementById('email').value = e;
@@ -418,9 +418,9 @@ async function txwGateSignup() {
   var e = (document.getElementById('txwGateEmail').value || '').trim();
   var p = (document.getElementById('txwGatePass').value || '').trim();
   var msgEl = document.getElementById('txwGateMsg');
-  if (!e || !p) { msgEl.textContent = 'メールとパスワードを入力してください'; msgEl.style.color = '#b91c1c'; return; }
+  if (!e || !p) { msgEl.textContent = 'メールとパスワードを入力してください'; msgEl.style.color = 'var(--hm-danger)'; return; }
   msgEl.textContent = '登録中…';
-  msgEl.style.color = '#2563eb';
+  msgEl.style.color = 'var(--hm-blue)';
   try {
     document.getElementById('email').value = e;
     document.getElementById('password').value = p;
@@ -435,12 +435,12 @@ async function txwGateSignup() {
     await window.signUp();
     var text = out ? (out.textContent || '') : '';
     if (text && text.indexOf('登録しました') < 0) {
-      msgEl.style.color = '#b91c1c';
+      msgEl.style.color = 'var(--hm-danger)';
       msgEl.textContent = '登録できませんでした: ' + text.replace(/\s*(ERROR|OK)\s*$/, '').trim();
       return;
     }
-  } catch (err) { msgEl.style.color = '#b91c1c'; msgEl.textContent = '登録に失敗しました'; return; }
-  msgEl.style.color = '#15803d';
+  } catch (err) { msgEl.style.color = 'var(--hm-danger)'; msgEl.textContent = '登録に失敗しました'; return; }
+  msgEl.style.color = 'var(--hm-green-dark)';
   msgEl.textContent = '登録しました。続けて「ログイン」を押してください。'
     + '（確認メールが届いた場合は、先にメール内のリンクを開いてください）';
 }
@@ -494,9 +494,9 @@ function txwShowInfoBanner(msg, kind) {
   var e = document.getElementById('txwInfoBanner');
   e.textContent = msg;
   if (kind === 'error') {
-    e.style.background = '#fef2f2';
-    e.style.borderColor = '#fecaca';
-    e.style.color = '#991b1b';
+    e.style.background = 'var(--hm-orange-soft)';
+    e.style.borderColor = 'var(--hm-danger)';
+    e.style.color = 'var(--hm-danger)';
   } else {
     e.style.background = '';
     e.style.borderColor = '';
@@ -751,23 +751,26 @@ function txwClearUnmatchedFilter() {
 /* 口座・カードごとにまとめる（MFの画面と同じ並べ方）。
  * ひと続きの一覧だと「何の明細か分からない」という指摘を受けた対応（2026-08-04）。
  * 件数の多い口座から並べる。開閉の状態は口座ごとに端末へ覚える。 */
-var TXW_ACCT_OPEN_KEY = 'ribre_txw_acct_closed';
-function txwLoadClosedAccts() {
+// ⚠ 既定は「閉じた状態」。口座が10前後あり、全部開くと最初から
+//    とても長い画面になるため（MFの画面も口座ごとに畳まれている）。
+//    そこで「開いた口座」を覚える方式にする（記録が無い＝閉じている）。
+var TXW_ACCT_OPEN_KEY = 'ribre_txw_acct_open';
+function txwLoadOpenAccts() {
   try {
     var raw = localStorage.getItem(TXW_ACCT_OPEN_KEY);
     var arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr) ? arr : [];
   } catch (e) { return []; }
 }
-function txwSaveClosedAccts(list) {
+function txwSaveOpenAccts(list) {
   try { localStorage.setItem(TXW_ACCT_OPEN_KEY, JSON.stringify(list || [])); } catch (e) {}
 }
-function txwIsAcctClosed(key) { return txwLoadClosedAccts().indexOf(key) >= 0; }
+function txwIsAcctClosed(key) { return txwLoadOpenAccts().indexOf(key) < 0; }
 function txwToggleAcct(key) {
-  var list = txwLoadClosedAccts();
+  var list = txwLoadOpenAccts();
   var i = list.indexOf(key);
   if (i >= 0) list.splice(i, 1); else list.push(key);
-  txwSaveClosedAccts(list);
+  txwSaveOpenAccts(list);
 }
 
 // 明細を口座・カードごとに分ける。[{key, label, items}] を件数の多い順で返す
@@ -1212,7 +1215,7 @@ function txwBuildListRow(tx, writable) {
     evLabel.style.display = 'flex';
     evLabel.style.alignItems = 'center';
     evLabel.style.gap = '5px';
-    evLabel.style.color = '#15803d';
+    evLabel.style.color = 'var(--hm-green-dark)';
     evLabel.style.fontWeight = '800';
     var evCb = document.createElement('input');
     evCb.type = 'checkbox';
@@ -1226,7 +1229,7 @@ function txwBuildListRow(tx, writable) {
     refs.evidenceId = ev0.evidence_id;
   } else if (cands.length) {
     tdContent.appendChild(el('div', {
-      class: 'evi-auto', style: 'color:#92400e;font-weight:800;',
+      class: 'evi-auto', style: 'color:var(--hm-amber);font-weight:800;',
       text: '証憑候補があります。カード表示でご確認のうえ選んでください。'
     }));
   }
@@ -1366,7 +1369,7 @@ function txwApplySuggestionToRow(refs, sugg) {
   if (sugg.sub_account_id) {
     var subName = sugg.sub_account_name || '補助科目';
     var hint = el('div', {
-      style: 'margin-top:2px;color:#92400e;font-weight:700;',
+      style: 'margin-top:2px;color:var(--hm-amber);font-weight:700;',
       text: '※ 補助科目「' + subName + '」の提案がありますが、一覧には補助科目の欄がありません。'
         + '付けたい場合はカード表示に切り替えて登録してください。'
     });

@@ -1,0 +1,67 @@
+/* Hallmark — RIBRE 共通デザイントークン
+ *
+ * Direction: quiet editorial operations UI · flat evidence-led workspace
+ * Brand: RIBRE / リーブル
+ * pre-emit critique: P5 H5 E4 S5 R5 V4
+ *
+ * ★これが唯一の正。色・書体を変えるときはこのファイルだけを直す。
+ *   PCフロー(flow.html)から切り出して共通化した（2026-07-31）。
+ *
+ * 使い方: 自分のCSSより「前」に読み込む。
+ *   <link rel="stylesheet" href="hallmark.css">
+ *   <link rel="stylesheet" href="自分のCSS">
+ *
+ * 他のプロジェクトで使うとき:
+ *   Vercel等は「そのプロジェクトのフォルダ内」しか配信しないため、
+ *   このファイルをコピーして置くこと。原本の置き場所は
+ *   C:\Users\ksado\.claude\design\hallmark.css （どのセッションからも読める）
+ */
+
+:root {
+  /* 面 — 紙のような落ち着いた白緑。画面全体の背景〜カード */
+  --hm-canvas:#f4f6f1;      /* 画面の地 */
+  --hm-rail:#edf3eb;        /* サイドバー等の帯 */
+  --hm-paper:#fbfcf8;       /* カード・パネルの面 */
+
+  /* 文字 */
+  --hm-ink:#172019;         /* 本文・見出し */
+  --hm-ink-soft:#334139;    /* 少し弱い文字 */
+  --hm-muted:#667069;       /* 補足・ラベル */
+  --hm-line:#d8ded7;        /* 罫線・枠 */
+
+  /* 意味のある色 — 用途を守ること（緑=主要/肯定、青=情報、橙=注意、赤=危険） */
+  --hm-green:#137a43;       /* 主要アクション・良い状態 */
+  --hm-green-dark:#0b5430;  /* 主要アクションのホバー */
+  --hm-green-soft:#dff3e6;  /* 良い状態の背景 */
+  --hm-blue:#245fa8;        /* 情報・フォーカス */
+  --hm-blue-soft:#e6effa;
+  --hm-orange:#a84d18;      /* 注意 */
+  --hm-orange-soft:#faeadf;
+  --hm-amber:#8a6412;       /* 警告・要確認 */
+  --hm-amber-soft:#f6efd9;
+  --hm-danger:#a83b32;      /* 危険・失敗 */
+
+  /* 効果 */
+  --hm-shadow:rgba(23,32,25,.08);
+  --hm-overlay:rgba(23,32,25,.84);
+
+  /* 書体 — 見出しは表情のある face、本文は可読性重視の UD 系 */
+  --hm-font-display:"Segoe UI Variable Display","Yu Gothic UI",sans-serif;
+  --hm-font-body:"BIZ UDPGothic","Yu Gothic UI",Meiryo,sans-serif;
+}
+
+/* 基本ルール（どの画面でも共通。部品のスタイルは各プロジェクトのCSSで書く） */
+html, body { overflow-x:clip; }
+body {
+  background:var(--hm-canvas);
+  color:var(--hm-ink);
+  font-family:var(--hm-font-body);
+  font-variant-numeric:tabular-nums;   /* 数字の桁を揃える（金額・件数が並ぶ画面のため） */
+}
+button, input { color:inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible {
+  outline:2px solid var(--hm-blue);
+  outline-offset:2px;
+}
+button:active { transform:translateY(1px); }
+button:disabled { cursor:not-allowed; opacity:.58; }
