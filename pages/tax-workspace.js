@@ -8,8 +8,15 @@
  *   'suggest'（過去の仕訳から初期値を提案。listの直後に呼ぶ） /
  *   'journalize'（仕訳登録。1件ずつ） / 'set_closed_term_policy' / 'redeem_invite'（招待リンクの引き換え）/
  *   'invite_create' / 'invite_list' / 'invite_revoke' / 'advisor_list' /
- *   'advisor_set_enabled'（社内メンバー向け管理。is_member:true のときだけ⑤タブから使う）。
+ *   'advisor_set_enabled'（社内メンバー向け管理。is_member:true のときだけ⑤タブから使う）/
+ *   'request_list'（⑩承認待ちの一覧。adminは全員分・担当者は自分の分） /
+ *   'request_approve' / 'request_reject'（承認・差し戻し。adminのみ） /
+ *   'action_log_csv'（④操作履歴のCSVダウンロード）。
  *   他のAPIエンドポイントは一切叩かない。
+ * ⚠ Phase 6: 役割(role)の変更・承認要否(approval_policy)の変更は、サーバー側の関数
+ *   （setAdvisorRole/saveApprovalPolicy）はあるが、それを呼ぶ action がディスパッチに
+ *   まだ無い。画面側で action を作って叩くことはしない（無いAPIを画面が先回りして
+ *   作らない）。⑤タブでは現在値の表示と、Supabase SQL Editorで実行するSQL例の提示だけ行う。
  * ⚠ 一括登録・全件登録のボタンは作らない（設計書§5-2・§9-2）。1回の操作で1件だけ。
  * ⚠ 消費税額はアプリ側で計算しない。tax_id を渡すだけで、税額の計算はMFに任せる。
  * ⚠ 証憑候補のチェックボックスは初期状態オフ。自動では選ばない。
@@ -36,6 +43,8 @@ function txwParseInviteToken(hash) {
 }
 var txwInviteToken = txwParseInviteToken(location.hash);
 var txwAdminLoaded = false; // ⑤タブのデータ(招待一覧・税理士一覧)を初回表示時だけ読み込むためのフラグ
+// ⑩承認待ち・⑤承認の設定で共有する直近の承認要否設定('none'/'required')。表示専用。
+var txwApprovalPolicyValue = 'none';
 
 /* signIn()/signOut()(services/supabase-auth.js)がログイン・ログアウト後に呼ぶ共通フック。
  * ログイン済みになったら画面を表示し、招待トークンがあれば引き換えてから通常のデータを読み込む。 */
@@ -1645,6 +1654,26 @@ function txwMarkListRowDone(refs, data) {
   refs.tr.classList.remove('txw-lt-lowmatch');
   clearEl(refs.tr);
   var wrap = el('div');
+  // ⚠ 承認制のときは journalize が{ok:true, requested:true}を返す(MFへはまだ何も送っていない)。
+  //   「登録しました」と混同しない（txwCollapseCardSuccessと同じ理由）。
+  if (data && data.requested) {
+    wrap.appendChild(el('div', {
+      class: 'note warn', style: 'margin:0;',
+      text: '承認を依頼しました。管理者が承認するとMFへ登録されます。まだMFには送られていません。'
+    }));
+    var td0 = document.createElement('td');
+    td0.setAttribute('colspan', '8');
+    td0.appendChild(wrap);
+    refs.tr.appendChild(td0);
+    var cardRefs0 = txwCardRefsByTx[refs.txId];
+    if (cardRefs0 && cardRefs0.card && !cardRefs0.card.classList.contains('jcard-collapsed')) {
+      txwCollapseCardSuccess(cardRefs0.card, data, refs.txId);
+    } else {
+      txwRefreshUnmatchedCount();
+    }
+    txwListUpdateCounter();
+    return;
+  }
   var msg = '登録しました（仕訳ID ' + (data && data.journal_id != null ? data.journal_id : '不明') + '）';
   var attached = data && Array.isArray(data.attached) ? data.attached : [];
   if (attached.length) msg += '　証憑' + attached.length + '件を添付しました。';
@@ -1663,7 +1692,7 @@ function txwMarkListRowDone(refs, data) {
     }));
   }
   var td = document.createElement('td');
-  td.setAttribute('colspan', '9');
+  td.setAttribute('colspan', '8');
   td.appendChild(wrap);
   refs.tr.appendChild(td);
 
@@ -1682,7 +1711,7 @@ function txwMarkListRowSkipped(refs) {
   refs.tr.classList.remove('txw-lt-lowmatch');
   clearEl(refs.tr);
   var td = document.createElement('td');
-  td.setAttribute('colspan', '9');
+  td.setAttribute('colspan', '8');
   td.appendChild(el('div', {
     class: 'note warn', style: 'margin:0;',
     text: 'スキップ（想定内）：この明細は既に仕訳済みでした。画面を再読み込みすると一覧から消えます。'
@@ -1708,10 +1737,13 @@ function txwSyncListRowFromCard(txId, data) {
   rowRefs.tr.classList.add('txw-lt-row-done');
   rowRefs.tr.classList.remove('txw-lt-lowmatch');
   clearEl(rowRefs.tr);
-  var msg = '登録しました（仕訳ID ' + (data && data.journal_id != null ? data.journal_id : '不明') + '）';
+  var requested = !!(data && data.requested);
+  var msg = requested
+    ? '承認を依頼しました。管理者が承認するとMFへ登録されます。まだMFには送られていません。'
+    : '登録しました（仕訳ID ' + (data && data.journal_id != null ? data.journal_id : '不明') + '）';
   var td = document.createElement('td');
-  td.setAttribute('colspan', '9');
-  td.appendChild(el('div', { class: 'note ok', style: 'margin:0;', text: msg }));
+  td.setAttribute('colspan', '8');
+  td.appendChild(el('div', { class: 'note ' + (requested ? 'warn' : 'ok'), style: 'margin:0;', text: msg }));
   rowRefs.tr.appendChild(td);
   txwListUpdateCounter(); // 完了した行をチェック数・上限判定から外す
 }
@@ -1778,7 +1810,11 @@ async function txwListConfirm() {
       return;
     }
     if (r.ok) {
-      txwListUpdateExecRow(rightEl, '✓ 登録済み（仕訳ID ' + (r.data.journal_id != null ? r.data.journal_id : '不明') + '）', 'ok');
+      if (r.data && r.data.requested) {
+        txwListUpdateExecRow(rightEl, '📨 承認を依頼しました（まだMFには送っていません）', 'skip');
+      } else {
+        txwListUpdateExecRow(rightEl, '✓ 登録済み（仕訳ID ' + (r.data.journal_id != null ? r.data.journal_id : '不明') + '）', 'ok');
+      }
       txwMarkListRowDone(refs, r.data);
       consecutiveFail = 0;
     } else if (r.kind === 'already') {
@@ -1938,9 +1974,22 @@ function txwJournalizeErrorMessage(data) {
 
 // 登録成功時: カードを畳んで結果を表示する(§B)。仕訳の成功と証憑添付の失敗は必ず分けて表示する。
 // transactionId を渡すと、一覧表示の同じ行（存在すれば）も畳んで両表示の状態・件数を一致させる。
+// ⚠ 承認制（approval_policy:'required'）のとき、担当者の登録は journalize が
+//   { ok:true, requested:true } を返す（MFへはまだ何も送っていない）。
+//   「登録しました」とここを混同すると、送っていないのに送ったと誤解させてしまう。必ず分ける。
 function txwCollapseCardSuccess(card, data, transactionId) {
   clearEl(card);
   card.classList.add('jcard-collapsed');
+  if (data && data.requested) {
+    card.appendChild(el('div', {
+      class: 'note warn',
+      text: '承認を依頼しました。管理者が承認するとMFへ登録されます。まだMFには送られていません。'
+    }));
+    txwRefreshUnmatchedCount();
+    txwFocusNextCard(card);
+    if (transactionId) txwSyncListRowFromCard(transactionId, data);
+    return;
+  }
   var attached = Array.isArray(data.attached) ? data.attached : [];
   var mainMsg = '登録しました（仕訳ID ' + (data.journal_id != null ? data.journal_id : '不明') + '）';
   if (attached.length) mainMsg += '　証憑' + attached.length + '件を添付しました。';
@@ -2295,6 +2344,18 @@ async function txwRevokeInvite(token, btn) {
   } catch (e) { alert('取り消しに失敗しました。'); btn.disabled = false; }
 }
 
+// 役割(role)の表示名。'admin'（管理者）以外はすべて担当者扱い（サーバーの既定と同じ）。
+function txwRoleLabel(role) {
+  return role === 'admin' ? '管理者' : '担当者';
+}
+/* 役割の変更API(advisor_set_role等)はディスパッチに無い。ここでAPIを先回りして
+ * 作らず、Supabase SQL Editorで実行するSQLの文字列を組み立てて見せるだけにする
+ * （利用者の指示・supabase_tax_approval.sql §4のSQLと同じ形）。 */
+function txwRoleSql(emailStr, newRole) {
+  var safeEmail = String(emailStr || '').replace(/'/g, "''");
+  return "update tax_advisors set role = '" + newRole + "' where lower(email) = lower('" + safeEmail + "');";
+}
+
 function txwRenderAdvisors(advisors) {
   var body = document.getElementById('txwAdvisorListBody');
   clearEl(body);
@@ -2305,7 +2366,7 @@ function txwRenderAdvisors(advisors) {
   var table = document.createElement('table');
   var thead = el('thead');
   var trh = el('tr');
-  ['メール', '登録日時', '状態', '操作'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
+  ['メール', '登録日時', '役割', '状態', '操作'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
   thead.appendChild(trh);
   table.appendChild(thead);
   var tbody = document.createElement('tbody');
@@ -2313,6 +2374,9 @@ function txwRenderAdvisors(advisors) {
     var tr = el('tr');
     tr.appendChild(el('td', { text: a.email || '' }));
     tr.appendChild(el('td', { text: txwFormatDateTime(a.created_at) }));
+    var tdRole = el('td');
+    tdRole.appendChild(el('span', { class: 'chip ' + (a.role === 'admin' ? 'chip-blue' : 'chip-gray'), text: txwRoleLabel(a.role) }));
+    tr.appendChild(tdRole);
     var tdSt = el('td');
     tdSt.appendChild(el('span', { class: 'chip ' + (a.enabled ? 'chip-green' : 'chip-gray'), text: a.enabled ? '有効' : '無効' }));
     tr.appendChild(tdSt);
@@ -2320,11 +2384,99 @@ function txwRenderAdvisors(advisors) {
     var toggleBtn = el('button', { type: 'button', class: 'btn-mini', text: a.enabled ? '無効にする' : '有効にする' });
     toggleBtn.addEventListener('click', function () { txwSetAdvisorEnabled(a.email, !a.enabled, toggleBtn); });
     tdOp.appendChild(toggleBtn);
+
+    // 役割の切り替え: この画面からは変更できない。SQLの例を表示するだけ（§ガイド方針）。
+    var newRole = a.role === 'admin' ? 'staff' : 'admin';
+    var sqlBtn = el('button', { type: 'button', class: 'btn-mini', text: '役割を変えるSQLを見る' });
+    var sqlBox = el('div', { class: 'invite-box', style: 'display:none;margin-top:8px;' });
+    var sqlRow = el('div', { class: 'invite-row' });
+    var sqlInput = el('input', { type: 'text', readonly: 'readonly', class: 'invite-url-input' });
+    sqlInput.value = txwRoleSql(a.email, newRole);
+    sqlRow.appendChild(sqlInput);
+    var copyBtn = el('button', { type: 'button', class: 'btn-mini', text: 'コピー' });
+    copyBtn.addEventListener('click', function () { txwCopyInviteUrl(sqlInput, copyBtn); });
+    sqlRow.appendChild(copyBtn);
+    sqlBox.appendChild(sqlRow);
+    sqlBox.appendChild(el('div', {
+      class: 'note warn',
+      text: '役割はこの画面からは変更できません。Supabaseの SQL Editor で上のSQLを実行すると「'
+        + txwRoleLabel(newRole) + '」に変わります。'
+    }));
+    sqlBtn.addEventListener('click', function () {
+      sqlBox.style.display = (sqlBox.style.display === 'none') ? 'block' : 'none';
+    });
+    tdOp.appendChild(sqlBtn);
+    tdOp.appendChild(sqlBox);
+
     tr.appendChild(tdOp);
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
   body.appendChild(table);
+}
+
+/* ---------------- Phase 6: 承認の設定（表示のみ・保存APIは未接続） ----------------
+ * saveApprovalPolicy はサーバーにあるが、それを呼ぶ action がディスパッチに無い。
+ * ここでは 'request_list' が返す approval_policy を表示するだけにし、
+ * 変更はSupabaseのSQLで行う案内を出す（利用者の指示・APIに無い機能は作らない）。 */
+function txwApprovalPolicyLabel(v) {
+  return v === 'required' ? '承認する（管理者の承認が必要）' : '承認しない（担当者がそのまま登録できます）';
+}
+
+async function txwLoadApprovalPolicyBlock() {
+  var box = document.getElementById('txwApprovalPolicyBox');
+  if (!box) return;
+  clearEl(box);
+  box.appendChild(el('div', { class: 'txw-loading', text: '読み込み中…' }));
+  var result;
+  try {
+    result = await txwApiCall('request_list', {});
+  } catch (e) {
+    clearEl(box);
+    box.appendChild(el('div', { class: 'evidence-empty', text: '読み込めませんでした。' }));
+    return;
+  }
+  var data = result.data || {};
+  clearEl(box);
+  if (!data.ok) {
+    box.appendChild(el('div', { class: 'evidence-empty', text: '読み込めませんでした。' }));
+    return;
+  }
+  var policy = (data.approval_policy === 'required') ? 'required' : 'none';
+  txwApprovalPolicyValue = policy;
+
+  var row = el('div', { style: 'display:flex;gap:16px;flex-wrap:wrap;align-items:center;' });
+  [
+    { v: 'none', label: '承認しない（既定）' },
+    { v: 'required', label: '承認する（管理者の承認が必要）' }
+  ].forEach(function (opt) {
+    var id = 'txwApprovalPolicyView_' + opt.v;
+    var wrap = el('label', { class: 'txw-policy-opt', for: id });
+    // ⚠ 保存できないため常にdisabled。現在値の表示専用。
+    var radio = el('input', { type: 'radio', name: 'txwApprovalPolicyRadio', id: id, value: opt.v, disabled: 'disabled' });
+    radio.checked = (policy === opt.v);
+    wrap.appendChild(radio);
+    wrap.appendChild(el('span', { text: ' ' + opt.label, style: 'font-weight:800' }));
+    row.appendChild(wrap);
+  });
+  box.appendChild(row);
+  box.appendChild(el('div', { class: 'note', text: '現在の設定: ' + txwApprovalPolicyLabel(policy) }));
+
+  var sqlBox = el('div', { class: 'invite-box' });
+  var sqlRow = el('div', { class: 'invite-row' });
+  var sqlInput = el('input', { type: 'text', readonly: 'readonly', class: 'invite-url-input' });
+  sqlInput.value = "update tax_workspace_settings set value = '\"required\"'::jsonb where skey = 'approval_policy';";
+  sqlRow.appendChild(sqlInput);
+  var copyBtn = el('button', { type: 'button', class: 'btn-mini', text: 'コピー' });
+  copyBtn.addEventListener('click', function () { txwCopyInviteUrl(sqlInput, copyBtn); });
+  sqlRow.appendChild(copyBtn);
+  sqlBox.appendChild(sqlRow);
+  sqlBox.appendChild(el('div', {
+    class: 'note warn',
+    text: '変更はこの画面からはできません。Supabaseの SQL Editor で上のSQLを実行してください'
+      + '（「承認しない」に戻す場合は値を \'"none"\'::jsonb に変えて実行します）。'
+  }));
+  box.appendChild(sqlBox);
 }
 
 async function txwLoadAdvisors() {
@@ -2352,6 +2504,245 @@ async function txwSetAdvisorEnabled(emailStr, enabled, btn) {
   } catch (e) { alert('更新に失敗しました。'); btn.disabled = false; }
 }
 
+/* ---------------- Phase 6: ⑩ 承認待ち ----------------
+ * 設計書: docs/TAX_WORKSPACE_PHASE6_PLAN.md §2.3 / §10.2
+ * action:'request_list' が返す is_admin で表示を分ける。
+ * ⚠ admin向けの一覧は「承認待ち」(status==='pending')だけに絞る。決定済みの依頼は
+ *   ④操作履歴（approve_journalize/reject_journalize）で追える。
+ * ⚠ 担当者向けの一覧はステータスを問わず全件見せる（承認待ち／承認済み／差し戻しが分かるように）。 */
+function txwInvoiceKindLabel(v) {
+  if (v === 'INVOICE_KIND_NOT_TARGET') return '対象外';
+  if (v === 'INVOICE_KIND_QUALIFIED') return '適格';
+  if (v === 'INVOICE_KIND_UNQUALIFIED_80') return '8割控除';
+  return '（未選択）';
+}
+function txwApprovalSnapshotText(snap) {
+  if (!snap) return '(不明)';
+  return (snap.date || '(日付不明)') + '　' + yen(Math.abs(Number(snap.value) || 0)) + '　' + (snap.content || '(内容なし)');
+}
+
+async function txwLoadApprovalTab() {
+  var descEl = document.getElementById('txwApprovalPolicyDesc');
+  var body = document.getElementById('txwApprovalBody');
+  if (descEl) descEl.textContent = '現在の設定を確認しています…';
+  if (body) { clearEl(body); body.appendChild(el('div', { class: 'txw-loading', text: '読み込み中…' })); }
+
+  var result;
+  try {
+    result = await txwApiCall('request_list', {});
+  } catch (e) {
+    if (descEl) descEl.textContent = '現在の設定を確認できませんでした。';
+    if (body) { clearEl(body); body.appendChild(el('div', { class: 'note danger', text: '通信に失敗しました。もう一度お試しください。' })); }
+    return;
+  }
+  if (result.status === 401) { txwShowGate('ログインの有効期限が切れました。もう一度ログインしてください。'); return; }
+
+  var data = result.data || {};
+  if (!data.ok) {
+    if (descEl) descEl.textContent = '現在の設定を確認できませんでした。';
+    if (body) { clearEl(body); body.appendChild(el('div', { class: 'note danger', text: '読み込めませんでした（' + (data.error || data.message || '不明') + '）。' })); }
+    return;
+  }
+
+  var policy = (data.approval_policy === 'required') ? 'required' : 'none';
+  txwApprovalPolicyValue = policy;
+  if (descEl) descEl.textContent = '現在の設定: ' + txwApprovalPolicyLabel(policy);
+
+  var rows = Array.isArray(data.requests) ? data.requests : [];
+  if (data.is_admin) txwRenderApprovalAdmin(rows);
+  else txwRenderApprovalStaff(rows);
+}
+
+function txwApprovalErrorMessage(data) {
+  switch (data && data.error) {
+    case 'request_not_found': return 'この依頼は見つかりませんでした。一覧を更新してください。';
+    case 'already_decided': return '既に他の操作で処理済みでした（他の管理者が先に処理した可能性があります）。一覧を更新してください。';
+    case 'already_journalized': return 'この明細は既に仕訳済みです。一覧を更新してください。';
+    case 'transaction_not_found': return '明細が見つかりませんでした。一覧を更新してください。';
+    case 'transaction_check_failed': return data.message ? String(data.message) : '明細の確認に失敗しました。もう一度お試しください。';
+    case 'admin_only': return '管理者のみ実行できます。';
+    case 'reason_required': return '理由を入力してください。';
+    default: return txwJournalizeErrorMessage(data);
+  }
+}
+
+function txwRenderApprovalAdmin(rows) {
+  var body = document.getElementById('txwApprovalBody');
+  clearEl(body);
+  var pending = (rows || []).filter(function (r) { return r && r.status === 'pending'; });
+  if (!pending.length) {
+    body.appendChild(el('div', { class: 'evidence-empty', text: '承認待ちの依頼はありません。' }));
+    return;
+  }
+  var wrap = el('div', { style: 'overflow-x:auto' });
+  var table = el('table');
+  var thead = el('thead');
+  var htr = el('tr');
+  ['依頼者', '依頼日時', '明細（依頼時点）', '勘定科目', '税区分', 'インボイス区分', '証憑', '操作']
+    .forEach(function (h) { htr.appendChild(el('th', { text: h })); });
+  thead.appendChild(htr);
+  table.appendChild(thead);
+  var tbody = el('tbody');
+
+  pending.forEach(function (r) {
+    var p = r.payload || {};
+    var tr = el('tr');
+    tr.appendChild(el('td', { text: r.requested_by || '-' }));
+    tr.appendChild(el('td', { text: txwFormatDateTime(r.created_at) }));
+    tr.appendChild(el('td', { text: txwApprovalSnapshotText(r.snapshot) }));
+    tr.appendChild(el('td', { text: txwIdToLabel(txwAccountLookup, p.account_id) || String(p.account_id || '-') }));
+    tr.appendChild(el('td', { text: p.tax_id ? (txwIdToLabel(txwTaxLookup, p.tax_id) || String(p.tax_id)) : '（未指定）' }));
+    tr.appendChild(el('td', { text: txwInvoiceKindLabel(p.invoice_kind) }));
+    tr.appendChild(el('td', { text: (p.evidence_ids && p.evidence_ids.length) ? (p.evidence_ids.length + '件') : '0件' }));
+
+    var tdOp = el('td', { style: 'min-width:230px;' });
+    var diffBox = el('div', { style: 'margin-top:6px;' });
+    var approveBtn = el('button', { type: 'button', class: 'btn-mini', text: '承認して登録する', style: 'margin-left:0;' });
+    var reasonInput = el('input', { type: 'text', placeholder: '差し戻す理由（必須）', style: 'width:150px;' });
+    var rejectBtn = el('button', { type: 'button', class: 'btn-mini', text: '差し戻す' });
+    rejectBtn.disabled = true;
+    reasonInput.addEventListener('input', function () { rejectBtn.disabled = !reasonInput.value.trim(); });
+    var controls = [approveBtn, rejectBtn, reasonInput];
+    approveBtn.addEventListener('click', function () { txwApproveRequest(r, controls, diffBox); });
+    rejectBtn.addEventListener('click', function () { txwRejectRequest(r, reasonInput, controls, diffBox); });
+
+    tdOp.appendChild(approveBtn);
+    tdOp.appendChild(el('div', { style: 'margin-top:6px;display:flex;align-items:center;gap:0;' }, [reasonInput, rejectBtn]));
+    tdOp.appendChild(diffBox);
+    tr.appendChild(tdOp);
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  body.appendChild(wrap);
+}
+
+/* 承認する（危険な操作なので確認を1回はさむ。押した後はボタン類を無効化して二重送信を防ぐ）。
+ * 依頼時点の明細と今の明細が変わっていた場合はサーバーが実行せず before/after を返す
+ * （handleApproveRequestのtransaction_changed）。この場合は一覧を作り直さず、その場に差分を出す。 */
+async function txwApproveRequest(req, controls, diffBox) {
+  if (!window.confirm('この依頼を承認してMFへ登録します。よろしいですか？この操作は取り消せません。')) return;
+  controls.forEach(function (c) { c.disabled = true; });
+  clearEl(diffBox);
+
+  var result;
+  try {
+    result = await txwApiCall('request_approve', { request_id: req.id });
+  } catch (e) {
+    diffBox.appendChild(el('div', { class: 'note danger', text: '通信に失敗しました。もう一度お試しください。' }));
+    controls.forEach(function (c) { c.disabled = false; });
+    return;
+  }
+  if (result.status === 401) { txwShowGate('ログインの有効期限が切れました。もう一度ログインしてください。'); return; }
+
+  var data = result.data || {};
+  if (data.ok) {
+    var msg = '承認して登録しました（仕訳ID ' + (data.journal_id != null ? data.journal_id : '不明') + '）。';
+    if (Array.isArray(data.attached) && data.attached.length) msg += '証憑' + data.attached.length + '件を添付しました。';
+    txwShowInfoBanner(msg);
+    txwLoadApprovalTab();
+    return;
+  }
+  if (data.error === 'transaction_changed') {
+    diffBox.appendChild(el('div', { class: 'note danger' }, [
+      el('div', { text: '依頼されたときと明細の内容が変わっています。登録していません。' }),
+      el('div', { style: 'margin-top:4px;', text: '依頼されたとき: ' + txwApprovalSnapshotText(data.before) }),
+      el('div', { text: '今の内容　　: ' + txwApprovalSnapshotText(data.after) }),
+    ]));
+    controls.forEach(function (c) { c.disabled = false; });
+    return;
+  }
+  diffBox.appendChild(el('div', { class: 'note danger', text: txwApprovalErrorMessage(data) }));
+  controls.forEach(function (c) { c.disabled = false; });
+}
+
+/* 差し戻す。理由は必須（空なら押せない。reasonInputのinputイベントでボタンの有効/無効を制御済み）。 */
+async function txwRejectRequest(req, reasonInput, controls, diffBox) {
+  var reason = (reasonInput.value || '').trim();
+  if (!reason) return;
+  if (!window.confirm('この依頼を差し戻します。よろしいですか？')) return;
+  controls.forEach(function (c) { c.disabled = true; });
+  clearEl(diffBox);
+
+  var result;
+  try {
+    result = await txwApiCall('request_reject', { request_id: req.id, reason: reason });
+  } catch (e) {
+    diffBox.appendChild(el('div', { class: 'note danger', text: '通信に失敗しました。もう一度お試しください。' }));
+    controls.forEach(function (c) { c.disabled = false; });
+    return;
+  }
+  if (result.status === 401) { txwShowGate('ログインの有効期限が切れました。もう一度ログインしてください。'); return; }
+
+  var data = result.data || {};
+  if (data.ok) {
+    txwShowInfoBanner('差し戻しました。');
+    txwLoadApprovalTab();
+    return;
+  }
+  diffBox.appendChild(el('div', { class: 'note danger', text: txwApprovalErrorMessage(data) }));
+  controls.forEach(function (c) { c.disabled = false; });
+}
+
+function txwApprovalStatusChip(r) {
+  if (r.status === 'approved') return { label: '承認されました', cls: 'chip-green' };
+  if (r.status === 'rejected') return { label: '差し戻されました', cls: 'chip-red' };
+  return { label: '承認待ち', cls: 'chip-yellow' };
+}
+
+function txwRenderApprovalStaff(rows) {
+  var body = document.getElementById('txwApprovalBody');
+  clearEl(body);
+  var list = rows || [];
+  if (!list.length) {
+    body.appendChild(el('div', { class: 'evidence-empty', text: 'あなたの依頼はまだありません。' }));
+    return;
+  }
+  var wrap = el('div', { style: 'overflow-x:auto' });
+  var table = el('table');
+  var thead = el('thead');
+  var htr = el('tr');
+  ['依頼日時', '明細（依頼時点）', '勘定科目', '状態', '結果']
+    .forEach(function (h) { htr.appendChild(el('th', { text: h })); });
+  thead.appendChild(htr);
+  table.appendChild(thead);
+  var tbody = el('tbody');
+
+  list.forEach(function (r) {
+    var p = r.payload || {};
+    var tr = el('tr');
+    tr.appendChild(el('td', { text: txwFormatDateTime(r.created_at) }));
+    tr.appendChild(el('td', { text: txwApprovalSnapshotText(r.snapshot) }));
+    tr.appendChild(el('td', { text: txwIdToLabel(txwAccountLookup, p.account_id) || String(p.account_id || '-') }));
+    var st = txwApprovalStatusChip(r);
+    var tdSt = el('td');
+    tdSt.appendChild(el('span', { class: 'chip ' + st.cls, text: st.label }));
+    tr.appendChild(tdSt);
+
+    var tdMsg = el('td');
+    if (r.status === 'approved') {
+      tdMsg.appendChild(el('div', {
+        class: 'note ok', style: 'margin:0;',
+        text: 'あなたの依頼が承認され、MFへ登録されました（仕訳ID ' + (r.journal_id || '不明') + '）。承認者: ' + (r.decided_by || '-')
+      }));
+    } else if (r.status === 'rejected') {
+      tdMsg.appendChild(el('div', {
+        class: 'note danger', style: 'margin:0;',
+        text: 'あなたの依頼は差し戻されました。理由: ' + (r.decided_reason || '(理由なし)') + '　差し戻した人: ' + (r.decided_by || '-')
+      }));
+    } else {
+      tdMsg.appendChild(el('span', { text: '管理者の承認をお待ちください。' }));
+    }
+    tr.appendChild(tdMsg);
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  body.appendChild(wrap);
+}
+
 /* ---------------- タブ切替 ---------------- */
 function txwGoTab(t) {
   document.querySelectorAll('.tabpage').forEach(function (elx) { elx.classList.toggle('active', elx.id === 't-' + t); });
@@ -2360,11 +2751,14 @@ function txwGoTab(t) {
     txwAdminLoaded = true;
     txwLoadInvites();
     txwLoadAdvisors();
+    txwLoadApprovalPolicyBlock();
   }
   // 操作履歴は開くたびに読み直す（自分や他の人の登録が随時増えるため）
   if (t === 'history') txwLoadActionLog();
   // ⑨月次チェックも開くたびに読み直す（推移表・未仕訳件数とも随時変わるため）
   if (t === 'monthly') txwLoadMonthlyCheck();
+  // ⑩承認待ちも開くたびに読み直す（承認待ちの件数・状況が随時変わるため）
+  if (t === 'approval') txwLoadApprovalTab();
 }
 
 /* ---------------- ④ 操作履歴 ----------------
@@ -2451,6 +2845,45 @@ async function txwLoadActionLog() {
   table.appendChild(tbody);
   wrap.appendChild(table);
   body.appendChild(wrap);
+}
+
+/* 操作履歴のCSVダウンロード（設計書§2.4）。
+ * ⚠ この記録はRIBRE側（service roleの鍵を持つ側）には技術的に書き換え可能。
+ *   事務所が自分でダウンロードして手元（RIBREが触れない場所）に保管することだけが担保になる。
+ *   ボタンの近くにその旨の注意書きを常時表示している（tax-workspace.html側）。 */
+function txwCsvFilename(scope, month) {
+  return scope === 'month'
+    ? ('税理士ワークスペース_操作履歴_' + month + '.csv')
+    : '税理士ワークスペース_操作履歴_全期間.csv';
+}
+async function txwDownloadActionLogCsv(scope) {
+  var btn = document.getElementById(scope === 'month' ? 'txwCsvMonthBtn' : 'txwCsvAllBtn');
+  var monthInput = document.getElementById('txwMonth');
+  var month = monthInput ? monthInput.value : '';
+  if (scope === 'month' && !month) { alert('対象月が選ばれていません。'); return; }
+  if (btn) btn.disabled = true;
+  try {
+    var result = await txwApiCall('action_log_csv', scope === 'month' ? { month: month } : {});
+    if (result.status === 401) { txwShowGate('ログインの有効期限が切れました。もう一度ログインしてください。'); return; }
+    var data = result.data || {};
+    if (!data.ok || typeof data.csv !== 'string') {
+      alert('CSVの取得に失敗しました。時間をおいてもう一度お試しください。');
+      return;
+    }
+    var blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = txwCsvFilename(scope, month);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  } catch (e) {
+    alert('CSVのダウンロードに失敗しました。時間をおいてもう一度お試しください。');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 /* ---------------- ⑨ 月次チェック ----------------
@@ -2847,6 +3280,8 @@ function txwInit() {
   document.getElementById('txwMonthlyRecheckBtn').addEventListener('click', txwLoadMonthlyCheck);
   document.getElementById('txwMonthlyConfirmCheck').addEventListener('change', txwMonthlyConfirmToggle);
   document.getElementById('txwMonthlyConfirmBtn').addEventListener('click', txwMonthlyConfirmRecord);
+  document.getElementById('txwCsvMonthBtn').addEventListener('click', function () { txwDownloadActionLogCsv('month'); });
+  document.getElementById('txwCsvAllBtn').addEventListener('click', function () { txwDownloadActionLogCsv('all'); });
 
   // ①未仕訳の明細: カード表示／一覧表示の切り替え（既定は一覧表示。端末に記憶する）
   document.getElementById('txwViewBtnCard').addEventListener('click', function () { txwViewSwitch('card'); });

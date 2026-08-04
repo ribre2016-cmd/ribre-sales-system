@@ -74,7 +74,7 @@ function isMemberEmail(userEmail) {
 async function findAdvisor(userEmail) {
   const e = String(userEmail || '').trim().toLowerCase();
   if (!e) return null;
-  const url = `${SUPABASE_URL}/rest/v1/tax_advisors?select=email,name,enabled&enabled=is.true&limit=200`;
+  const url = `${SUPABASE_URL}/rest/v1/tax_advisors?select=email,name,enabled,role&enabled=is.true&limit=200`;
   const res = await fetch(url, { headers: supabaseHeaders() });
   if (!res.ok) return null;
   const rows = await res.json().catch(() => []);
@@ -304,7 +304,7 @@ async function redeemInvite(token, userEmail) {
 }
 
 async function listAdvisors() {
-  const url = `${SUPABASE_URL}/rest/v1/tax_advisors?select=id,email,name,enabled,note,created_at&order=created_at.desc&limit=100`;
+  const url = `${SUPABASE_URL}/rest/v1/tax_advisors?select=id,email,name,enabled,role,note,created_at&order=created_at.desc&limit=100`;
   const res = await fetch(url, { headers: supabaseHeaders() });
   if (!res.ok) return [];
   const rows = await res.json().catch(() => []);
@@ -429,6 +429,129 @@ function isInProgressingTerm(terms, dateStr) {
   const progressing = list.find((t) => inTerm(t, today));
   if (!progressing) return null;
   return { ok: inTerm(progressing, dateStr), term: list.find((t) => inTerm(t, dateStr)) || null };
+}
+
+/* 承認して実行する。admin のみ。
+ * ⚠ 依頼時点の明細（金額・日付・摘要）と今の明細を突き合わせ、
+ *   変わっていたら**実行しない**（設計書§10.2-1・所長レビューの条件）。 */
+async function handleApproveRequest(res, advisor, accessToken, body) {
+  const id = Number(body && body.request_id);
+  if (!id) { res.status(400).json({ ok: false, error: 'invalid_request' }); return; }
+
+  const listRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/tax_journal_requests?id=eq.${id}&status=eq.pending&select=*&limit=1`,
+    { headers: supabaseHeaders() }
+  );
+  const rows = listRes.ok ? await listRes.json().catch(() => []) : [];
+  const reqRow = Array.isArray(rows) ? rows[0] : null;
+  if (!reqRow) { res.status(200).json({ ok: false, error: 'request_not_found' }); return; }
+
+  // 依頼してから明細が変わっていないか
+  let tx = null;
+  try {
+    tx = await findTransaction(accessToken, reqRow.transaction_id, (reqRow.payload && reqRow.payload.date) || '');
+  } catch (e) {
+    res.status(200).json({ ok: false, error: 'transaction_check_failed', message: e && e.message });
+    return;
+  }
+  if (!tx) { res.status(200).json({ ok: false, error: 'transaction_not_found' }); return; }
+  if (tx.journalizing_status !== 'none') {
+    res.status(200).json({ ok: false, error: 'already_journalized', status: tx.journalizing_status });
+    return;
+  }
+  const now = txSnapshot(tx);
+  if (reqRow.snapshot && !sameSnapshot(reqRow.snapshot, now)) {
+    await recordAction({
+      actor_email: advisor.email, action: 'approve_journalize', transaction_id: reqRow.transaction_id,
+      result: 'failed', error_message: 'transaction_changed',
+      payload: { request_id: id, requested_by: reqRow.requested_by, before: reqRow.snapshot, after: now },
+    });
+    res.status(200).json({ ok: false, error: 'transaction_changed', before: reqRow.snapshot, after: now });
+    return;
+  }
+
+  // 先に「承認した」ことを記録する（実行の途中で落ちても承認の事実は残す）
+  const claimed = await updateJournalRequest(id, {
+    status: 'approved', decided_by: advisor.email, decided_at: new Date().toISOString(),
+  });
+  if (!claimed.ok) { res.status(200).json({ ok: false, error: 'already_decided' }); return; }
+
+  await recordAction({
+    actor_email: advisor.email, action: 'approve_journalize', transaction_id: reqRow.transaction_id,
+    result: 'ok',
+    payload: { request_id: id, requested_by: reqRow.requested_by, snapshot: now },
+  });
+
+  // 依頼された内容そのままで、通常の登録処理を実行する（承認は飛ばす）
+  const p = reqRow.payload || {};
+  await handleJournalize(res, advisor, accessToken, {
+    transaction_id: reqRow.transaction_id, date: p.date, account_id: p.account_id,
+    tax_id: p.tax_id, sub_account_id: p.sub_account_id, invoice_kind: p.invoice_kind,
+    memo: p.memo, evidence_ids: p.evidence_ids,
+    // 誰の判断だったかを残す。承認者ではなく依頼者の入力が元になっている
+    input_source: p.input_source,
+  }, { isAdmin: true, skipApproval: true });
+}
+
+// 差し戻す。理由は必須（設計書§2.3-5）
+async function handleRejectRequest(res, advisor, body) {
+  const id = Number(body && body.request_id);
+  const reason = String((body && body.reason) || '').trim();
+  if (!id) { res.status(400).json({ ok: false, error: 'invalid_request' }); return; }
+  if (!reason) { res.status(200).json({ ok: false, error: 'reason_required' }); return; }
+  const r = await updateJournalRequest(id, {
+    status: 'rejected', decided_by: advisor.email,
+    decided_reason: reason.slice(0, 500), decided_at: new Date().toISOString(),
+  });
+  if (!r.ok) { res.status(200).json({ ok: false, error: 'already_decided' }); return; }
+  await recordAction({
+    actor_email: advisor.email, action: 'reject_journalize',
+    transaction_id: r.row && r.row.transaction_id, result: 'ok',
+    payload: { request_id: id, requested_by: r.row && r.row.requested_by, reason: reason.slice(0, 500) },
+  });
+  res.status(200).json({ ok: true });
+}
+
+/* 操作履歴をCSVで返す（設計書§2.4）。
+ * ⚠ この記録はRIBRE側（service roleの鍵を持つ側）には技術的に書き換えられる。
+ *   事務所が自分でダウンロードして手元に置くことだけが担保になる。ガイドにもそう書く。 */
+// CSVの組み立てで使う文字。正規表現やエスケープに頼らず、文字コードで持つ
+const chr34 = String.fromCharCode(34);   // "
+const chr13 = String.fromCharCode(13);   // CR
+const chr10 = String.fromCharCode(10);   // LF
+
+function csvEscape(v) {
+  const s = v === null || v === undefined ? '' : String(v);
+  // カンマ・引用符・改行を含む値は引用符で囲み、中の引用符は2つに増やす（CSVの決まり）
+  const needsQuote = s.indexOf(',') >= 0 || s.indexOf(chr34) >= 0
+    || s.indexOf(chr13) >= 0 || s.indexOf(chr10) >= 0;
+  return needsQuote ? chr34 + s.split(chr34).join(chr34 + chr34) + chr34 : s;
+}
+
+async function handleActionLogCsv(res, advisor, isAdmin, body) {
+  const month = String((body && body.month) || '');
+  let url = `${SUPABASE_URL}/rest/v1/tax_advisor_actions?select=*&order=created_at.desc&limit=5000`;
+  if (!isAdmin) url += `&actor_email=eq.${encodeURIComponent(advisor.email)}`;
+  const r = monthRange(month);
+  if (r) url += `&created_at=gte.${r.start}T00:00:00Z&created_at=lte.${r.end}T23:59:59Z`;
+  const resp = await fetch(url, { headers: supabaseHeaders() });
+  if (!resp.ok) { res.status(200).json({ ok: false, error: 'action_log_failed' }); return; }
+  const rows = await resp.json().catch(() => []);
+  const header = ['日時', '操作した人', '操作', '結果', '明細ID', '仕訳ID', '勘定科目ID', '税区分ID',
+    '証憑の件数', '入力', 'エラー', '内容'];
+  const lines = [header.join(',')];
+  (Array.isArray(rows) ? rows : []).forEach((a) => {
+    lines.push([
+      a.created_at, a.actor_email, a.action, a.result, a.transaction_id, a.journal_id,
+      a.account_id, a.tax_id,
+      (a.evidence_ids && a.evidence_ids.length) || 0,
+      (a.payload && a.payload.input_source) || '',
+      a.error_message || '',
+      a.payload ? JSON.stringify(a.payload) : '',
+    ].map(csvEscape).join(','));
+  });
+  // Excelで開いたときに文字化けしないよう BOM を付ける
+  res.status(200).json({ ok: true, csv: String.fromCharCode(65279) + lines.join(chr13 + chr10), rows: lines.length - 1 });
 }
 
 /* ---------------- Phase 7: ⑨月次チェック（読み取り専用） ----------------
@@ -786,7 +909,108 @@ async function attachEvidence(accessToken, evidenceId, journalId) {
   }
 }
 
-async function handleJournalize(res, advisor, accessToken, body) {
+/* ---------------- Phase 6: 事務所の管理（役割・承認ワークフロー） ----------------
+ * 設計書: docs/TAX_WORKSPACE_PHASE6_PLAN.md §2 / §10.2
+ * SQL: supabase_tax_approval.sql
+ *
+ * ⚠ 役割の判定は必ずここで行う。画面のガードは迂回できる。
+ *   社内メンバー(MEMBER_EMAILS)は常に admin 扱い。 */
+
+function isAdvisorAdmin(advisor, isMember) {
+  if (isMember) return true;
+  return String(advisor && advisor.role) === 'admin';
+}
+
+const APPROVAL_POLICIES = ['none', 'required'];
+
+async function fetchApprovalPolicy() {
+  try {
+    const url = `${SUPABASE_URL}/rest/v1/tax_workspace_settings?skey=eq.approval_policy&select=value&limit=1`;
+    const res = await fetch(url, { headers: supabaseHeaders() });
+    if (!res.ok) return 'none';
+    const rows = await res.json().catch(() => []);
+    const v = Array.isArray(rows) && rows[0] ? rows[0].value : null;
+    return APPROVAL_POLICIES.indexOf(v) >= 0 ? v : 'none';
+  } catch (e) {
+    // 設定が読めないときは「承認しない」に倒す。読めないことを理由に登録を止めない
+    return 'none';
+  }
+}
+
+async function saveApprovalPolicy(policy, byEmail) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/tax_workspace_settings`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify([{ skey: 'approval_policy', value: policy, updated_by: byEmail, updated_at: new Date().toISOString() }]),
+  });
+  return res.ok;
+}
+
+async function setAdvisorRole(email, role) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e || ['admin', 'staff'].indexOf(role) < 0) return false;
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/tax_advisors?email=ilike.${encodeURIComponent(e)}`,
+    { method: 'PATCH', headers: { ...supabaseHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify({ role }) }
+  );
+  return res.ok;
+}
+
+// 承認待ちの一覧。admin は全件、staff は自分の依頼だけ
+async function listJournalRequests(advisor, isAdmin) {
+  let url = `${SUPABASE_URL}/rest/v1/tax_journal_requests?select=*&order=created_at.desc&limit=200`;
+  if (!isAdmin) url += `&requested_by=eq.${encodeURIComponent(advisor.email)}`;
+  const res = await fetch(url, { headers: supabaseHeaders() });
+  if (!res.ok) return { ok: false, rows: [], reason: 'HTTP ' + res.status };
+  const rows = await res.json().catch(() => null);
+  if (!Array.isArray(rows)) return { ok: false, rows: [], reason: '応答の形式が想定と違います' };
+  return { ok: true, rows, reason: '' };
+}
+
+async function createJournalRequest(row) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/tax_journal_requests`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'return=representation' },
+    body: JSON.stringify([row]),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    // 同じ明細の承認待ちが既にある（unique index）
+    if (res.status === 409 || /duplicate|unique/i.test(text)) {
+      return { ok: false, error: 'already_requested' };
+    }
+    return { ok: false, error: 'request_create_failed' };
+  }
+  const rows = await res.json().catch(() => []);
+  return { ok: true, row: Array.isArray(rows) ? rows[0] : null };
+}
+
+async function updateJournalRequest(id, patch) {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/tax_journal_requests?id=eq.${encodeURIComponent(id)}&status=eq.pending`,
+    { method: 'PATCH', headers: { ...supabaseHeaders(), Prefer: 'return=representation' }, body: JSON.stringify(patch) }
+  );
+  if (!res.ok) return { ok: false };
+  const rows = await res.json().catch(() => []);
+  // 0件なら他の人が先に処理済み（二重承認を防ぐ）
+  return { ok: Array.isArray(rows) && rows.length > 0, row: rows[0] || null };
+}
+
+// 明細の「金額・日付・摘要」だけを取り出す。承認時に依頼時点と突き合わせる
+function txSnapshot(tx) {
+  if (!tx) return null;
+  return { date: tx.date || '', value: Number(tx.value) || 0, content: String(tx.content || '') };
+}
+
+function sameSnapshot(a, b) {
+  if (!a || !b) return false;
+  return a.date === b.date && a.value === b.value && a.content === b.content;
+}
+
+async function handleJournalize(res, advisor, accessToken, body, opts) {
+  const isAdmin = !!(opts && opts.isAdmin);
+  // 承認の実行から呼ばれたときは、もう一度承認待ちに積まない
+  const skipApproval = !!(opts && opts.skipApproval);
   const transactionId = String((body && body.transaction_id) || '');
   const accountId = String((body && body.account_id) || '');
   const dateHint = String((body && body.date) || '');
@@ -795,6 +1019,13 @@ async function handleJournalize(res, advisor, accessToken, body) {
     return;
   }
   const evidenceIds = Array.isArray(body.evidence_ids) ? body.evidence_ids.slice(0, 5) : [];
+
+  /* ⚠ インボイス区分は承認待ちに積む前にも必ず確認する。
+   *   ここを通さないと、必須項目が欠けたまま依頼だけが溜まる。 */
+  if (VALID_INVOICE_KINDS.indexOf(body.invoice_kind) < 0) {
+    res.status(200).json({ ok: false, error: 'invoice_kind_required' });
+    return;
+  }
 
   // 1. その明細がまだ未仕訳か
   let tx;
@@ -815,6 +1046,39 @@ async function handleJournalize(res, advisor, accessToken, body) {
   if (tx.journalizing_status !== 'none') {
     res.status(200).json({ ok: false, error: 'already_journalized', status: tx.journalizing_status });
     return;
+  }
+
+  /* 1-1. 承認が要るなら、MFへは送らずに承認待ちへ積む（設計書§2.3）。
+   * ⚠ admin 自身の登録は直接実行する（自分が承認者のため）。
+   *   そのぶん admin は所長本人か最小人数に限ること（ガイドに明記）。 */
+  if (!skipApproval && !isAdmin) {
+    const policy = await fetchApprovalPolicy();
+    if (policy === 'required') {
+      const r = await createJournalRequest({
+        requested_by: advisor.email,
+        transaction_id: transactionId,
+        payload: {
+          transaction_id: transactionId, date: dateHint, account_id: accountId,
+          tax_id: body.tax_id || null, sub_account_id: body.sub_account_id || null,
+          invoice_kind: body.invoice_kind, memo: body.memo || null,
+          evidence_ids: evidenceIds, input_source: body.input_source || null,
+        },
+        // 承認の実行時にこれと突き合わせ、変わっていたら実行しない（設計書§10.2-1）
+        snapshot: txSnapshot(tx),
+      });
+      await recordAction({
+        actor_email: advisor.email, action: 'request_journalize', transaction_id: transactionId,
+        account_id: accountId, tax_id: body.tax_id || null,
+        result: r.ok ? 'ok' : 'failed', error_message: r.ok ? null : r.error,
+        payload: { date: dateHint, invoice_kind: body.invoice_kind, input_source: body.input_source || null },
+      });
+      if (!r.ok) {
+        res.status(200).json({ ok: false, error: r.error });
+        return;
+      }
+      res.status(200).json({ ok: true, requested: true, request_id: r.row && r.row.id });
+      return;
+    }
   }
 
   // 1-2. 決算済みの期への登録を拒否する設定なら、ここで止める。
@@ -971,7 +1235,7 @@ module.exports = async (req, res) => {
   }
   // 社内メンバーは tax_advisors に載っていなくてもこの画面を使える
   if (!advisor && isMember) {
-    advisor = { email: user.email, name: '社内メンバー' };
+    advisor = { email: user.email, name: '社内メンバー', role: 'admin' };
   }
   if (!advisor) {
     // 許可リストに無い＝この画面の利用者ではない。何のデータも返さない。
@@ -1048,7 +1312,10 @@ module.exports = async (req, res) => {
 
   // ⚠ ここに足し忘れると、下の分岐まで届かず invalid_action になる。
   //    新しい action を作ったら**必ずこの配列にも足すこと**。
-  if (['bootstrap', 'list', 'journalize', 'suggest', 'monthly_check', 'monthly_check_confirm'].indexOf(action) < 0) {
+  if ([
+    'bootstrap', 'list', 'journalize', 'suggest', 'monthly_check', 'monthly_check_confirm',
+    'request_list', 'request_approve', 'request_reject', 'action_log_csv',
+  ].indexOf(action) < 0) {
     res.status(400).json({ ok: false, error: 'invalid_action' });
     return;
   }
@@ -1066,6 +1333,46 @@ module.exports = async (req, res) => {
   }
 
   // Phase 7: ⑨月次チェック（読み取りのみ）
+  const isAdmin = isAdvisorAdmin(advisor, isMember);
+
+  // 承認待ちの一覧（adminは全件・staffは自分の依頼だけ）
+  if (action === 'request_list') {
+    const r = await listJournalRequests(advisor, isAdmin);
+    res.status(200).json({
+      ok: r.ok, requests: r.rows, is_admin: isAdmin,
+      approval_policy: await fetchApprovalPolicy(),
+      error: r.ok ? undefined : 'request_list_failed', message: r.reason,
+    });
+    return;
+  }
+
+  // 承認して実行する（adminのみ）
+  if (action === 'request_approve') {
+    if (!isAdmin) { res.status(403).json({ ok: false, error: 'admin_only' }); return; }
+    try {
+      await handleApproveRequest(res, advisor, accessToken, body);
+    } catch (e) {
+      console.error('request_approve failed', e);
+      if (!res.headersSent) {
+        res.status(200).json({ ok: false, error: 'approve_failed', message: (e && e.message) || String(e) });
+      }
+    }
+    return;
+  }
+
+  // 差し戻す（adminのみ・理由は必須）
+  if (action === 'request_reject') {
+    if (!isAdmin) { res.status(403).json({ ok: false, error: 'admin_only' }); return; }
+    await handleRejectRequest(res, advisor, body);
+    return;
+  }
+
+  // 操作履歴をCSVで返す（事務所が自分で保管するため）
+  if (action === 'action_log_csv') {
+    await handleActionLogCsv(res, advisor, isAdmin, body);
+    return;
+  }
+
   if (action === 'monthly_check') {
     // 想定外の例外で500(HTML)を返すと、画面には理由の分からないエラーしか出ない。
     // 必ずJSONで理由を返す（読み取りだけの機能なので、失敗しても副作用は無い）。
@@ -1108,7 +1415,7 @@ module.exports = async (req, res) => {
 
   // Phase 3: 仕訳登録＋証憑添付。トークンを取ったあとに実行する
   if (action === 'journalize') {
-    await handleJournalize(res, advisor, accessToken, body);
+    await handleJournalize(res, advisor, accessToken, body, { isAdmin });
     return;
   }
 

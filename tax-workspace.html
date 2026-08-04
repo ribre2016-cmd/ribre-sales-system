@@ -329,6 +329,7 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
     <button class="tab-btn" data-t="history" type="button">④ 操作履歴</button>
     <button class="tab-btn" data-t="admin" type="button" id="txwAdminTabBtn" style="display:none">⑤ 税理士の管理</button>
     <button class="tab-btn" data-t="monthly" type="button" id="txwMonthlyTabBtn">⑨ 月次チェック</button>
+    <button class="tab-btn" data-t="approval" type="button" id="txwApprovalTabBtn">⑩ 承認待ち</button>
   </div>
 
   <!-- ① 未仕訳の明細 -->
@@ -459,6 +460,13 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
         </div>
       </div>
       <div class="panel-body">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+          <button id="txwCsvMonthBtn" class="btn-mini" type="button" style="margin-left:0;">CSVでダウンロード（この月）</button>
+          <button id="txwCsvAllBtn" class="btn-mini" type="button">CSVでダウンロード（全期間）</button>
+        </div>
+        <div class="note danger" style="margin-bottom:12px;">
+          この記録はRIBRE側では技術的に書き換えられます。事務所ご自身でダウンロードし、RIBREが触れない場所に保管してください。月次での保存をおすすめします。
+        </div>
         <div id="txwHistoryBody"><div class="txw-loading">タブを開くと読み込みます。</div></div>
       </div>
     </div>
@@ -491,7 +499,13 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
         </div>
         <div class="admin-block">
           <h3>税理士の一覧<button id="txwAdvisorListReloadBtn" class="btn-mini" type="button">更新</button></h3>
+          <div class="desc">役割の変更はこの画面からはできません。行の「役割を変えるSQLを見る」から、Supabaseで実行するSQLを確認できます。</div>
           <div id="txwAdvisorListBody"><div class="txw-loading">読み込み中…</div></div>
+        </div>
+        <div class="admin-block">
+          <h3>承認の設定</h3>
+          <div class="desc">担当者の登録に管理者の承認を必須にするかどうかの設定です。⑩承認待ちタブに反映されます。この画面からの変更はできません（下のSQLをSupabaseで実行してください）。</div>
+          <div id="txwApprovalPolicyBox"><div class="txw-loading">読み込み中…</div></div>
         </div>
       </div>
     </div>
@@ -568,6 +582,24 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
           <div class="note">試算表はこの画面では作っていません。MFクラウド会計の試算表画面でご覧ください。</div>
           <div style="margin-top:8px;"><a href="https://biz.moneyforward.com/" target="_blank" rel="noopener noreferrer">MFクラウド会計を開く</a></div>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑩ 承認待ち（常に表示。承認ワークフロー・設計書 TAX_WORKSPACE_PHASE6_PLAN.md §2/§10.2） -->
+  <section class="tabpage" id="t-approval">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>⑩ 承認待ち</h2>
+          <div class="desc" id="txwApprovalPolicyDesc">現在の設定を確認しています…</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="note info">
+          承認が必要な設定のとき、担当者の登録はここに積まれます。<b>MFにはまだ何も送られていません。</b>
+        </div>
+        <div id="txwApprovalBody" style="margin-top:10px;"><div class="txw-loading">タブを開くと読み込みます。</div></div>
       </div>
     </div>
   </section>
