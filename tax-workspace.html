@@ -219,11 +219,21 @@ tr:nth-child(even) td { background: var(--hm-canvas); }
 .list-table input[type=checkbox] { transform: scale(1.15); accent-color: var(--hm-green); }
 .list-table input[type=checkbox]:disabled { opacity: .4; }
 .list-hint { font-size: 11px; color: var(--hm-muted); font-weight: 800; margin-top: 3px; white-space: normal; min-width: 130px; }
+/* 行の高さを抑える。根拠は情報量が多いので少し小さめ・行間も詰める */
+.list-table td { line-height: 1.45; }
+.list-table .txw-lt-reason { font-size: 12.5px; }
+.list-table .txw-lt-taxbox { gap: 3px; }
+.list-table select, .list-table input[type=text] { padding: 4px 6px; }
 .evi-auto { font-size: 11.5px; margin-top: 4px; }
 .counter-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
-/* 一致率が6〜8割の行（要確認）。色だけに頼らず「要確認」の札も必ず出している */
-tr.txw-lt-lowmatch td { background: var(--hm-amber-soft); }
-tr.txw-lt-row-done td { background: var(--hm-green-soft); color: var(--hm-ink-soft); }
+/* 要確認・登録済みの色。
+ * ⚠ 縞模様(.list-table tr:nth-child(even) td = 詳細度0,2,2)より弱いと、
+ *   偶数行だけ色が消える。実際に「要確認」の黄色が約半数の行で出ていなかった
+ *   （新人レビューが実機で発見・2026-08-04）。必ず縞模様より強い書き方にすること。 */
+.list-table tr.txw-lt-lowmatch td,
+.list-table tr.txw-lt-lowmatch:nth-child(even) td { background: var(--hm-amber-soft); }
+.list-table tr.txw-lt-row-done td,
+.list-table tr.txw-lt-row-done:nth-child(even) td { background: var(--hm-green-soft); color: var(--hm-ink-soft); }
 
 .exec-toprow { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .exec-panel {

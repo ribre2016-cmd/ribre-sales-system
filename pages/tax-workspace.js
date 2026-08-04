@@ -97,6 +97,10 @@ var txwUnmatchedView = 'list'; // 既定は一覧表示
  * txwUnmatchedFilter: ⑨の各行「この科目の未仕訳明細をさがす」から①タブへ渡す絞り込み条件。
  * txwUnmatchedAllItems/txwUnmatchedWritableCache: 直近のtxwLoad()で取得した①タブの全件を
  * 保持しておき、絞り込みのON/OFFだけで再取得なしに再描画できるようにする。 */
+// 提案の根拠がこの件数未満なら「要確認」にする（過去1〜2件は根拠として弱い）
+var TXW_THIN_EVIDENCE = 3;
+// 証憑の一覧を取れなかったときの理由（空なら成功）
+var txwEvidenceLoadFailed = '';
 var txwUnmatchedFilter = { active: false, account: '', ids: [] };
 // 口座・カードでの絞り込み（''なら全部）。⑨からの科目の絞り込みとは別物で、併用できる
 var txwAcctFilter = '';
@@ -603,8 +607,10 @@ async function txwLoad() {
   txwRenderPolicyBox();
   txwUpdateTermWarning(month);
   txwRenderUnmatched(Array.isArray(data.items) ? data.items : [], txwWritable);
+  // 「見つからない」と「取れなかった」を必ず分ける（提案で同じ見落としをしたため）
+  txwEvidenceLoadFailed = data.evidence_load_failed || '';
   txwRenderAwaiting(Number(data.open_evidence_count) || 0);
-  txwRenderFiles(Array.isArray(data.shared_files) ? data.shared_files : []);
+  txwRenderFiles(Array.isArray(data.shared_files) ? data.shared_files : [], data.shared_files_load_failed || '');
   txwSetAdminVisible(!!data.is_member);
 }
 
@@ -710,6 +716,33 @@ function txwRenderAcctFilterBar() {
   bar.appendChild(row);
 }
 
+/* 口座が10前後あると、初回は開閉のクリックが最大10回必要になる（中堅レビューの指摘）。
+ * まとめて開く・閉じるを用意する。既定は閉じているので「全部開く」の方をよく使う想定。 */
+function txwRenderAcctBulkToggle(items) {
+  var bar = document.getElementById('txwAcctFilterBar');
+  if (!bar) return;
+  clearEl(bar);
+  var groups = txwGroupByAccount(txwUnmatchedFilteredItems(items || []));
+  if (groups.length <= 1) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+  var row = el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;' });
+  row.appendChild(el('span', {
+    class: 'note', style: 'margin:0;',
+    text: '口座・カード ' + groups.length + '件にまとめています。'
+  }));
+  function bulk(label, open) {
+    var b = el('button', { type: 'button', class: 'btn-mini', text: label });
+    b.addEventListener('click', function () {
+      txwSaveOpenAccts(open ? groups.map(function (g) { return g.key; }) : []);
+      txwRenderUnmatched(txwUnmatchedAllItems, txwUnmatchedWritableCache);
+    });
+    row.appendChild(b);
+  }
+  bulk('全部開く', true);
+  bulk('全部閉じる', false);
+  bar.appendChild(row);
+}
+
 function txwRenderUnmatchedFilterBar() {
   var bar = document.getElementById('txwUnmatchedFilterBar');
   if (!bar) return;
@@ -794,6 +827,7 @@ function txwRenderUnmatched(items, writable) {
   var container = document.getElementById('txwUnmatchedList');
   clearEl(container);
   txwRenderUnmatchedFilterBar();
+  txwRenderAcctBulkToggle(items);
   var displayItems = txwUnmatchedFilteredItems(items);
   // 絞り込み中は「全体で何件あるか」も必ず添える。絞った件数だけを出すと
   // 未仕訳が減ったように見えてしまう。
@@ -905,7 +939,11 @@ function txwRenderUnmatched(items, writable) {
     evBox.appendChild(el('h4', { text: '関連しそうな証憑' + (cands.length ? '（' + cands.length + '件）' : '') }));
     var evidenceCheckboxes = [];
     if (!cands.length) {
-      evBox.appendChild(el('div', { class: 'evidence-empty', text: '候補となる証憑は見つかりませんでした。' }));
+      evBox.appendChild(txwEvidenceLoadFailed
+        ? el('div', { class: 'note danger', style: 'margin:0;',
+            text: '証憑の一覧を取得できませんでした（' + txwEvidenceLoadFailed + '）。'
+              + '候補が無いのではなく、確認できていません。時間をおいて画面を読み込み直してください。' })
+        : el('div', { class: 'evidence-empty', text: '候補となる証憑は見つかりませんでした。' }));
     } else {
       cands.forEach(function (ev) {
         var item = el('div', { class: 'evidence-item' });
@@ -1338,6 +1376,18 @@ function txwBuildListRow(tx, writable) {
 
 /* ---- 提案(suggest)の反映。ratioが6〜8割のときは要確認バッジ＋行を黄色に(§10.1-4) ---- */
 // 入力欄は幅の都合で切れることがある。マウスを乗せれば全文が読めるようにしておく
+/* 登録した内容が「提案そのまま」か「人が直した」か「提案なしで手入力」かを返す。
+ * MF側には操作者すら残らないため、後から機械の判断と人の判断を切り分けられるのは
+ * この記録だけになる（所長レビューの指摘・2026-08-04）。 */
+function txwInputSource(refs) {
+  var snap = refs && refs.suggestedSnapshot;
+  if (!snap) return 'manual';   // 提案が出なかった＝全部人が入れた
+  var same = snap.account === refs.accountInput.value
+    && snap.tax === refs.taxInput.value
+    && snap.invoice === refs.invoiceSelect.value;
+  return same ? 'suggested' : 'edited';
+}
+
 function txwSyncInputTitle(input) {
   if (!input) return;
   input.title = input.value || '';
@@ -1349,6 +1399,12 @@ function txwApplySuggestionToRow(refs, sugg) {
   var taxLabel = txwIdToLabel(txwTaxLookup, sugg.tax_id);
   if (accLabel) refs.accountInput.value = accLabel;
   if (taxLabel) refs.taxInput.value = taxLabel;
+  // 「提案どおり」か「人が直した」かを後で判定するため、提案した時点の値を覚える
+  refs.suggestedSnapshot = {
+    account: refs.accountInput.value,
+    tax: refs.taxInput.value,
+    invoice: sugg.invoice_kind || '',
+  };
   txwSyncInputTitle(refs.accountInput);
   txwSyncInputTitle(refs.taxInput);
   var validInvoiceKinds = ['INVOICE_KIND_NOT_TARGET', 'INVOICE_KIND_QUALIFIED', 'INVOICE_KIND_UNQUALIFIED_80'];
@@ -1366,6 +1422,7 @@ function txwApplySuggestionToRow(refs, sugg) {
     ? (kindText + '過去' + total + '件中' + count + '件（' + pct + '%・残り' + (total - count) + '件は別内容）')
     : (kindText + '過去' + count + '件（一致していない仕訳はありません）');
   refs.reasonText.textContent = baseText + '・最終 ' + lastDateText;
+  refs.reasonText.className = 'txw-lt-reason';
 
   // ⚠ 一覧には補助科目の欄が無い（カード表示にはある）。提案に補助科目が含まれていても
   //    一覧から登録すると付かないため、**黙って落とさずその場で伝える**（§12の考え方）。
@@ -1383,12 +1440,31 @@ function txwApplySuggestionToRow(refs, sugg) {
   }
 
   if (refs.badgeEl) { refs.badgeEl.remove(); refs.badgeEl = null; }
-  var lowMatch = total > 0 && ratio >= 0.6 && ratio < 0.8;
+  /* 要確認にする条件は2つ。
+   * (a) 候補が割れている（6〜8割）
+   * (b) 根拠がごく少ない（過去1〜2件）
+   *   ⚠ (b)を入れていなかったため、「過去1件だけ」の提案が「過去44件」と
+   *     まったく同じ見た目で並んでいた。割合は1/1でも100%になるので
+   *     (a)の条件には引っかからない。新人・所長の両方から指摘（2026-08-04）。
+   *     とくに『税金→預り金』のように、摘要が同じでも中身が毎回変わる科目が危ない。 */
+  var splitMatch = total > 0 && ratio >= 0.6 && ratio < 0.8;
+  var thinEvidence = count > 0 && count < TXW_THIN_EVIDENCE;
+  var lowMatch = splitMatch || thinEvidence;
   refs.tr.classList.toggle('txw-lt-lowmatch', lowMatch);
   if (lowMatch) {
     var badge = el('span', { class: 'chip chip-yellow', text: '要確認', style: 'margin-left:6px;' });
     refs.tdReason.insertBefore(badge, refs.clearBtn);
     refs.badgeEl = badge;
+  }
+  if (refs.thinEl) { refs.thinEl.remove(); refs.thinEl = null; }
+  if (thinEvidence) {
+    var thin = el('div', {
+      style: 'margin-top:2px;color:var(--hm-amber);font-weight:800;',
+      text: '根拠は過去' + count + '件だけです。同じ摘要でも中身が毎回変わる取引（税金・預り金・仮払金など）は、'
+        + '金額と内容をご自身で確かめてから登録してください。'
+    });
+    refs.tdReason.appendChild(thin);
+    refs.thinEl = thin;
   }
   refs.updateRowEnabled();
 }
@@ -1504,7 +1580,10 @@ async function txwListJournalizeRow(tx, refs) {
   var accountId = txwResolveId(txwAccountLookup, refs.accountInput.value);
   if (!accountId) return { ok: false, kind: 'rejected', message: '勘定科目を候補から選んでください。' };
 
-  var payload = { action: 'journalize', transaction_id: tx.transaction_id, date: tx.date, account_id: accountId };
+  var payload = {
+    action: 'journalize', transaction_id: tx.transaction_id, date: tx.date, account_id: accountId,
+    input_source: txwInputSource(refs),
+  };
   var taxId = txwResolveId(txwTaxLookup, refs.taxInput.value);
   if (taxId) payload.tax_id = taxId;
   if (refs.invoiceSelect.value) payload.invoice_kind = refs.invoiceSelect.value;
@@ -1790,6 +1869,11 @@ function txwApplySuggestion(refs, sugg) {
   if (accLabel) refs.accountInput.value = accLabel;
   if (subLabel) refs.subInput.value = subLabel;
   if (taxLabel) refs.taxInput.value = taxLabel;
+  refs.suggestedSnapshot = {
+    account: refs.accountInput.value,
+    tax: refs.taxInput.value,
+    invoice: sugg.invoice_kind || '',
+  };
   var validInvoiceKinds = ['INVOICE_KIND_NOT_TARGET', 'INVOICE_KIND_QUALIFIED', 'INVOICE_KIND_UNQUALIFIED_80'];
   if (sugg.invoice_kind && validInvoiceKinds.indexOf(sugg.invoice_kind) >= 0) {
     refs.invoiceSelect.value = sugg.invoice_kind;
@@ -1806,7 +1890,9 @@ function txwApplySuggestion(refs, sugg) {
     ? '摘要がまったく同じ過去の仕訳'
     : '摘要の一部が似ている過去の仕訳';
   refs.suggestText.textContent =
-    kindText + 'から入れています。確認してください。（過去' + countText + '・最終 ' + lastDateText + '）';
+    kindText + 'から入れています。確認してください。（過去' + countText + '・最終 ' + lastDateText + '）'
+    + (count > 0 && count < TXW_THIN_EVIDENCE
+      ? '　⚠ 根拠は過去' + count + '件だけです。金額と内容をご自身で確かめてください。' : '');
   refs.suggestNote.style.display = 'flex';
 }
 
@@ -1926,7 +2012,10 @@ async function txwSubmitJournal(tx, refs) {
   clearEl(refs.statusArea);
   refs.statusArea.style.display = 'none';
 
-  var payload = { action: 'journalize', transaction_id: tx.transaction_id, date: tx.date, account_id: accountId };
+  var payload = {
+    action: 'journalize', transaction_id: tx.transaction_id, date: tx.date, account_id: accountId,
+    input_source: txwInputSource(refs),
+  };
   var taxId = txwResolveId(txwTaxLookup, refs.taxInput.value);
   if (taxId) payload.tax_id = taxId;
   var subId = txwResolveId(txwSubAccountLookup, refs.subInput.value);
@@ -1984,11 +2073,15 @@ function txwFormatSize(n) {
   return v + 'B';
 }
 
-function txwRenderFiles(files) {
+function txwRenderFiles(files, loadFailed) {
   var body = document.getElementById('txwFilesBody');
   clearEl(body);
   if (!files.length) {
-    body.appendChild(el('div', { class: 'evidence-empty', text: '共有ファイルはありません。' }));
+    body.appendChild(loadFailed
+      ? el('div', { class: 'note danger', style: 'margin:0;',
+          text: '共有ファイルの一覧を取得できませんでした（' + loadFailed + '）。'
+            + 'ファイルが無いのではなく、確認できていません。時間をおいて画面を読み込み直してください。' })
+      : el('div', { class: 'evidence-empty', text: '共有ファイルはありません。' }));
     return;
   }
 
@@ -2283,6 +2376,15 @@ function txwActionLabel(a) {
   if (a === 'set_closed_term_policy') return '設定の変更';
   return a || '-';
 }
+/* 提案をそのまま使ったのか、人が直したのかの表示。
+ * 「提案どおり」が多い月は、職員が根拠を見ずに押している可能性がある、という
+ * 所長の見方ができるようにするための列（所長レビューの指摘・2026-08-04）。 */
+function txwInputSourceLabel(v) {
+  if (v === 'suggested') return '提案どおり';
+  if (v === 'edited') return '提案を直した';
+  if (v === 'manual') return '手入力';
+  return '-';   // この列を付ける前の記録
+}
 function txwResultLabel(r) {
   if (r === 'ok') return '成功';
   if (r === 'journal_ok_voucher_failed') return '仕訳のみ成功（証憑の添付は失敗）';
@@ -2325,7 +2427,7 @@ async function txwLoadActionLog() {
   var thead = el('thead');
   var htr = el('tr');
   // 税務調査で画面だけで答えられるように、勘定科目・税区分・証憑まで出す
-  ['日時', '操作した人', '操作', '結果', '仕訳ID', '勘定科目', '税区分', '証憑', '備考']
+  ['日時', '操作した人', '操作', '結果', '仕訳ID', '勘定科目', '税区分', '入力', '証憑', '備考']
     .forEach(function (h) { htr.appendChild(el('th', { text: h })); });
   thead.appendChild(htr);
   table.appendChild(thead);
@@ -2340,6 +2442,8 @@ async function txwLoadActionLog() {
     // IDのままでは読めないので、マスタから名前へ逆引きする。見つからなければIDをそのまま出す
     tr.appendChild(el('td', { text: txwIdToLabel(txwAccountLookup, a.account_id) || a.account_id || '-' }));
     tr.appendChild(el('td', { text: txwIdToLabel(txwTaxLookup, a.tax_id) || a.tax_id || '-' }));
+    // 機械の判断（提案どおり）か人の判断（直した・手入力）かを区別して残す
+    tr.appendChild(el('td', { text: txwInputSourceLabel(a.payload && a.payload.input_source) }));
     tr.appendChild(el('td', { text: (a.evidence_ids && a.evidence_ids.length) ? (a.evidence_ids.length + '件') : '-' }));
     tr.appendChild(el('td', { text: a.error_message || '' }));
     tbody.appendChild(tr);

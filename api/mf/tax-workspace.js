@@ -141,16 +141,26 @@ function accountLabelFor(labels, tx) {
 }
 
 // 仕訳にまだ添付されていない証憑（＝添付候補になりうるもの）
+/* ⚠ 取得に失敗したときに空配列を返すと、画面には
+ *   「候補となる証憑は見つかりませんでした」としか出ず、不具合が「無い」に化ける。
+ *   提案（handleSuggest）でまったく同じ見落としをして原因を3回取り違えた。
+ *   失敗は必ず失敗として上へ伝えること（所長レビューの指摘・2026-08-04）。 */
 async function fetchOpenEvidence() {
   const url =
     `${SUPABASE_URL}/rest/v1/mf_evidence` +
     `?select=id,ocr_date,ocr_amount,ocr_currency,ocr_vendor,file_name,status,storage_path` +
     `&status=in.(pending,awaiting_match,box_saved)&storage_path=not.is.null` +
     `&order=ocr_date.desc&limit=300`;
-  const res = await fetch(url, { headers: supabaseHeaders() });
-  if (!res.ok) return [];
-  const rows = await res.json().catch(() => []);
-  return Array.isArray(rows) ? rows : [];
+  let res;
+  try {
+    res = await fetch(url, { headers: supabaseHeaders() });
+  } catch (e) {
+    return { ok: false, rows: [], reason: '通信に失敗しました' };
+  }
+  if (!res.ok) return { ok: false, rows: [], reason: 'HTTP ' + res.status };
+  const rows = await res.json().catch(() => null);
+  if (!Array.isArray(rows)) return { ok: false, rows: [], reason: '応答の形式が想定と違います' };
+  return { ok: true, rows, reason: '' };
 }
 
 // 明細と証憑の突き合わせ。api/mf/awaiting-reason.js と同じ規則。
@@ -169,8 +179,14 @@ function evidenceMatchesTransaction(ev, tx) {
 // 税理士へ共有しているファイル一覧（署名URL付き）。オーナーの行から読む。
 async function fetchSharedFiles() {
   const url = `${SUPABASE_URL}/rest/v1/app_settings?skey=eq.tax_docs_index&user_email=in.(${MEMBER_EMAILS.map(encodeURIComponent).join(',')})&select=user_email,value&limit=50`;
-  const res = await fetch(url, { headers: supabaseHeaders() });
-  if (!res.ok) return [];
+  // 証憑と同じ理由で、失敗を「ファイルが無い」に化けさせない
+  let res;
+  try {
+    res = await fetch(url, { headers: supabaseHeaders() });
+  } catch (e) {
+    return { ok: false, files: [], reason: '通信に失敗しました' };
+  }
+  if (!res.ok) return { ok: false, files: [], reason: 'HTTP ' + res.status };
   const rows = await res.json().catch(() => []);
   const out = [];
   for (const row of (Array.isArray(rows) ? rows : [])) {
@@ -204,7 +220,7 @@ async function fetchSharedFiles() {
     }
   }
   out.sort((a, b) => (a.month !== b.month ? (a.month < b.month ? 1 : -1) : (b.ts || 0) - (a.ts || 0)));
-  return out;
+  return { ok: true, files: out, reason: '' };
 }
 
 /* ---------------- 招待リンク ---------------- */
@@ -829,6 +845,13 @@ async function handleJournalize(res, advisor, accessToken, body) {
     }
   }
 
+  /* どこまでが機械の判断で、どこからが人間の判断かを記録に残す（所長レビューの指摘・2026-08-04）。
+   * MF側には操作者すら残らないので、後から「提案をそのまま入れたのか、
+   * 人が確かめて直したのか」を追えるのはこの記録だけになる。
+   * 値は画面が送ってくる自己申告なので、そのまま鵜呑みにせず「申告値」として残す。 */
+  const VALID_INPUT_SOURCES = ['suggested', 'edited', 'manual'];
+  const inputSource = VALID_INPUT_SOURCES.indexOf(body.input_source) >= 0 ? body.input_source : 'unknown';
+
   // 2. 仕訳を作る。invoice_kind は必ず明示送信する（未確認事項C・既定値に依存しない）
   const payload = { transaction_id: transactionId, account_id: accountId };
   if (body.tax_id) payload.tax_id = String(body.tax_id);
@@ -854,7 +877,7 @@ async function handleJournalize(res, advisor, accessToken, body) {
       actor_email: advisor.email, action: 'journalize', transaction_id: transactionId,
       account_id: accountId, tax_id: body.tax_id || null, result: 'failed',
       error_message: (e && e.message ? String(e.message) : 'unknown').slice(0, 500),
-      payload,
+      payload: Object.assign({}, payload, { input_source: inputSource }),
     });
     // MFが決算済みの期などを拒否した場合、そのエラーをそのまま画面に出す（決め打ちしない）
     res.status(200).json({ ok: false, error: 'journalize_failed', message: e && e.message, detail: e && e.body });
@@ -871,7 +894,7 @@ async function handleJournalize(res, advisor, accessToken, body) {
   await recordAction({
     actor_email: advisor.email, action: 'journalize', transaction_id: transactionId,
     journal_id: journalId, account_id: accountId, tax_id: body.tax_id || null,
-    result: 'ok', payload,
+    result: 'ok', payload: Object.assign({}, payload, { input_source: inputSource }),
   });
 
   // 3. 証憑を添付する。⚠ ここが失敗しても仕訳は取り消さない（§3.2）
@@ -893,7 +916,7 @@ async function handleJournalize(res, advisor, accessToken, body) {
     evidence_ids: attached.length ? attached : null,
     result,
     error_message: attachFailed.length ? JSON.stringify(attachFailed).slice(0, 500) : null,
-    payload,
+    payload: Object.assign({}, payload, { input_source: inputSource }),
   });
 
   res.status(200).json({
@@ -1141,8 +1164,10 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const evidences = await fetchOpenEvidence();
-  const sharedFiles = await fetchSharedFiles();
+  const evidenceRes = await fetchOpenEvidence();
+  const evidences = evidenceRes.rows;
+  const sharedRes = await fetchSharedFiles();
+  const sharedFiles = sharedRes.files;
 
   // どの銀行・カードの明細かを出すための対応表（利用者の指摘 2026-08-04）
   const accountLabels = await fetchAccountLabels(accessToken);
@@ -1182,5 +1207,8 @@ module.exports = async (req, res) => {
     items,
     shared_files: sharedFiles,
     open_evidence_count: evidences.length,
+    // 失敗を「無い」に化けさせない。画面はこれを見て「見つからない」と「取れなかった」を分ける
+    evidence_load_failed: evidenceRes.ok ? null : evidenceRes.reason,
+    shared_files_load_failed: sharedRes.ok ? null : sharedRes.reason,
   });
 };
