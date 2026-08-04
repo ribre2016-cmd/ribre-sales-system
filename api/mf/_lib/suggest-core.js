@@ -9,6 +9,10 @@ const { vendorTokens, journalVendorText } = require('./mf-match-core');
 
 const SUGGEST_LOOKBACK_DAYS = 365;   // 何日前までの仕訳を参考にするか
 const SUGGEST_MIN_RATIO = 0.6;       // 最多の組み合わせがこの割合未満なら提案しない
+// 語による近似（摘要が完全には一致しない）で提案してよい最小件数。
+// 実データで「振込 カ)リ-ブル」に、たった2件の近似から『未収入金』が提案されていた。
+// 摘要が同じなら1件でも根拠になるが、語が似ているだけの2件は当てにならない。
+const SUGGEST_SIMILAR_MIN_COUNT = 3;
 const SUGGEST_MAX_ITEMS = 200;       // 1回に処理する明細の上限
 
 // 提案に使ってはいけない勘定科目。
@@ -186,7 +190,10 @@ function suggestForContent(index, content, txSide) {
       }
     });
   });
-  return pickTop(merged, 'similar');
+  const sim = pickTop(merged, 'similar');
+  // 語による近似は件数が少ないと当てにならないので、そこは提案しない
+  if (sim && sim.count < SUGGEST_SIMILAR_MIN_COUNT) return null;
+  return sim;
 }
 
 /* MFの仕訳APIは「指定した日付が含まれる会計期間の仕訳だけ」を返す仕様で、
@@ -237,6 +244,7 @@ async function fetchJournalsForSuggest({ accessToken, endDate, terms, fetchJourn
 }
 
 module.exports = {
+  SUGGEST_SIMILAR_MIN_COUNT,
   addDaysStr,
   fetchJournalsForSuggest,
   SUGGEST_LOOKBACK_DAYS,

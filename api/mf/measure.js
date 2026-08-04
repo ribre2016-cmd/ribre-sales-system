@@ -206,7 +206,7 @@ module.exports = async (req, res) => {
       if (c.debit || c.credit) usable++; else multi++;
     });
 
-    const sample = txs.slice(0, 12).map((t) => {
+    const sample = txs.map((t) => {
       const rk = remarkKey(t.content);
       const side = comboSideForTransaction(t.side);
       const slot = index.byRemark.get(rk);
@@ -214,17 +214,24 @@ module.exports = async (req, res) => {
       const s = suggestForContent(index, t.content, t.side);
       return {
         摘要: t.content,
-        収支: t.side,
-        見る側: side === 'credit' ? '貸方' : '借方',
-        同じ摘要の仕訳が索引にあるか: slot ? 'ある' : 'ない',
-        その側の候補数: m ? m.size : 0,
-        提案: s ? (s.account_name + '／' + (s.tax_name || '-') + '／' + (s.invoice_kind || '-')
-          + '（' + s.match_kind + '・' + s.count + '/' + s.total + '）') : '提案なし',
+        側: side === 'credit' ? '貸' : '借',
+        同摘要: slot ? (m && m.size ? 'あり(' + m.size + ')' : 'あるが該当側は0') : 'なし',
+        提案: s ? (s.account_name + '/' + (s.tax_name || '-')
+          + '(' + s.match_kind + ' ' + s.count + '/' + s.total + ')') : '—',
       };
     });
+    // 同じ摘要は1行にまとめる（109件の羅列を読みやすくする）
+    const byContent = {};
+    sample.forEach((x) => {
+      const k = x['摘要'] + '|' + x['側'];
+      if (!byContent[k]) byContent[k] = Object.assign({ 件数: 0 }, x);
+      byContent[k]['件数'] += 1;
+    });
+    const grouped = Object.keys(byContent).map((k) => byContent[k])
+      .sort((a, b) => b['件数'] - a['件数']);
 
     out.results.suggest_diag = {
-      判定: sample.some((x) => x['提案'] !== '提案なし') ? '○ 提案が出ている' : '× どれも提案が出ていない',
+      判定: sample.some((x) => x['提案'] !== '—') ? '○ 提案が出ている' : '× どれも提案が出ていない',
       材料の終わり: endDate,
       会計期間: terms.map((t) => t.start_date + '〜' + t.end_date),
       材料の仕訳件数: journals.length,
@@ -233,7 +240,8 @@ module.exports = async (req, res) => {
       索引に入った摘要の種類: remarkKeys.length,
       索引の摘要の例: remarkKeys.slice(0, 15),
       未仕訳の明細: txs.length,
-      明細ごとの結果: sample,
+      提案が出た明細: sample.filter((x) => x['提案'] !== '—').length + '/' + sample.length,
+      摘要ごとの結果: grouped,
     };
   } catch (e) {
     out.results.suggest_diag = { 判定: '× 例外', message: String(e && e.message || e), stack: String(e && e.stack || '').slice(0, 400) };
