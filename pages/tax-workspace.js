@@ -1512,7 +1512,10 @@ function txwMonthlyMapError(data) {
     case 'not_connected':
       return 'MFと連携されていません。管理者にご連絡ください。';
     default:
-      return data && data.message ? String(data.message) : 'エラーが発生しました。しばらくしてからもう一度お試しください。';
+      // ⚠ 原因の分からないエラーで「しばらくしてからお試しください」とだけ出すと、
+      //   こちらも利用者も何が起きたか分からない。**必ず手がかりを添える。**
+      return (data && data.message ? String(data.message) : 'エラーが発生しました。')
+        + '（種別: ' + ((data && data.error) || '不明') + '）';
   }
 }
 
@@ -1739,7 +1742,9 @@ async function txwLoadMonthlyCheck() {
   }
   var data = result.data || {};
   if (!data.ok) {
-    txwShowMonthlyError(txwMonthlyMapError(data));
+    // サーバーが理由を返せずに落ちた場合はHTTPの状態しか手がかりが無い。それも出す。
+    var extra = (!data.error && result.status !== 200) ? '（HTTP ' + result.status + '）' : '';
+    txwShowMonthlyError(txwMonthlyMapError(data) + extra);
     return;
   }
   txwMonthlyLastData = data;

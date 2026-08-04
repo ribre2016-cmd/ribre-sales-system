@@ -541,26 +541,39 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
   }
 
   const targetMonthNum = Number(range.start.slice(5, 7));
+  // 会計年度の開始月も明示して渡す（省略時の既定に頼らない）。term_settings から取るので
+  // 3月始まりという前提をコードに書かずに済む。
+  const startMonthNum = Number(String(term.start_date || '').slice(5, 7)) || 1;
 
   // 会計年度の頭から対象月までを取る。列は会計年度内の月の並びで返る。
   let report;
   try {
     report = await fetchMaster(
       accessToken,
-      `reports/transition_pl?type=monthly&fiscal_year=${encodeURIComponent(term.fiscal_year)}&end_month=${targetMonthNum}`
+      `reports/transition_pl?type=monthly&fiscal_year=${encodeURIComponent(term.fiscal_year)}`
+      + `&start_month=${startMonthNum}&end_month=${targetMonthNum}`
     );
   } catch (e) {
     if (e && (e.status === 403 || e.status === 401)) {
       // 再連携がまだ、という一番ありがちな失敗を名指しで返す
       res.status(200).json({ ok: false, error: 'report_scope_missing' }); return;
     }
-    res.status(200).json({ ok: false, error: 'report_failed', message: e && e.message }); return;
+    res.status(200).json({
+      ok: false, error: 'report_failed',
+      message: (e && e.message) || '推移表の取得に失敗しました',
+      status: e && e.status,
+    });
+    return;
   }
 
   const columns = (report.columns || []).map(String);
   const idx = columns.indexOf(String(targetMonthNum));
   if (idx < 0) {
-    res.status(200).json({ ok: false, error: 'month_not_in_report', columns });
+    res.status(200).json({
+      ok: false, error: 'month_not_in_report',
+      message: `推移表に${targetMonthNum}月の列がありません（返ってきた列: ${columns.join(',') || 'なし'}）`,
+      columns,
+    });
     return;
   }
 
@@ -1055,7 +1068,19 @@ module.exports = async (req, res) => {
 
   // Phase 4: 過去の仕訳から初期値を提案する（読み取りのみ）
   if (action === 'monthly_check') {
-    await handleMonthlyCheck(res, advisor, accessToken, body);
+    // 想定外の例外で500(HTML)を返すと、画面には理由の分からないエラーしか出ない。
+    // 必ずJSONで理由を返す（読み取りだけの機能なので、失敗しても副作用は無い）。
+    try {
+      await handleMonthlyCheck(res, advisor, accessToken, body);
+    } catch (e) {
+      console.error('monthly_check failed', e);
+      if (!res.headersSent) {
+        res.status(200).json({
+          ok: false, error: 'monthly_check_failed',
+          message: (e && e.message) || String(e),
+        });
+      }
+    }
     return;
   }
 
