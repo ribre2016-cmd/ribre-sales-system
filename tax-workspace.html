@@ -16,7 +16,9 @@ body {
   /* 税理士事務所の方が長時間見る画面なので、既定より大きめの本文サイズにする */
   font-size: 15px; line-height: 1.7;
 }
-.page { max-width: 1320px; margin: 0 auto; padding: 18px 22px 60px; }
+/* 一覧に列が多いので画面の広さを使い切る。1320pxだと税区分の名前が入りきらず、
+   広いモニタでは左右が大きく余っていた（利用者の指摘 2026-08-04）。 */
+.page { max-width: 1800px; margin: 0 auto; padding: 18px 22px 60px; }
 .topbar {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 16px 18px; background: var(--hm-green-dark); color: #fff;
@@ -241,8 +243,10 @@ tr.txw-lt-row-done td { background: var(--hm-green-soft); color: var(--hm-ink-so
 /* ---- 口座・カードごとのまとまり（MFの画面と同じ並べ方） ---- */
 /* 列が切れないように下限を持たせる。MFと同じく税区分とインボイスは1列に2段 */
 .list-table td:nth-child(2) { white-space: nowrap; }          /* 日付 */
-.list-table th:nth-child(5), .list-table td:nth-child(5) { min-width: 150px; }  /* 勘定科目 */
-.list-table th:nth-child(6), .list-table td:nth-child(6) { min-width: 160px; }  /* 税区分・インボイス */
+.list-table th:nth-child(5), .list-table td:nth-child(5) { min-width: 190px; }  /* 勘定科目 */
+/* 税区分の名前は「課税仕入 10% [課仕] 10%」のように長い。切れると何を選んだか分からない */
+.list-table th:nth-child(6), .list-table td:nth-child(6) { min-width: 260px; }  /* 税区分・インボイス */
+.list-table th:nth-child(3), .list-table td:nth-child(3) { min-width: 150px; }  /* 摘要 */
 .txw-lt-taxbox { display: flex; flex-direction: column; gap: 4px; }
 .txw-lt-acct { font-size: 13px; color: var(--hm-ink-soft); }
 .txw-acct-head {

@@ -1245,6 +1245,7 @@ function txwBuildListRow(tx, writable) {
   // 4: 勘定科目（カード表示と同じdatalist方式）
   var tdAccount = document.createElement('td');
   var accountInput = txwBuildSearchInput('txwAccountsDatalist', '必須：候補から選択');
+  accountInput.addEventListener('input', function () { txwSyncInputTitle(accountInput); });
   tdAccount.appendChild(accountInput);
   tr.appendChild(tdAccount);
   refs.accountInput = accountInput;
@@ -1253,6 +1254,7 @@ function txwBuildListRow(tx, writable) {
   var tdTax = document.createElement('td');
   var taxBox = el('div', { class: 'txw-lt-taxbox' });
   var taxInput = txwBuildSearchInput('txwTaxesDatalist', '税区分（任意）');
+  taxInput.addEventListener('input', function () { txwSyncInputTitle(taxInput); });
   taxBox.appendChild(taxInput);
   refs.taxInput = taxInput;
 
@@ -1335,12 +1337,20 @@ function txwBuildListRow(tx, writable) {
 }
 
 /* ---- 提案(suggest)の反映。ratioが6〜8割のときは要確認バッジ＋行を黄色に(§10.1-4) ---- */
+// 入力欄は幅の都合で切れることがある。マウスを乗せれば全文が読めるようにしておく
+function txwSyncInputTitle(input) {
+  if (!input) return;
+  input.title = input.value || '';
+}
+
 function txwApplySuggestionToRow(refs, sugg) {
   if (!sugg) { refs.reasonText.textContent = '該当する提案はありません'; return; }
   var accLabel = txwIdToLabel(txwAccountLookup, sugg.account_id);
   var taxLabel = txwIdToLabel(txwTaxLookup, sugg.tax_id);
   if (accLabel) refs.accountInput.value = accLabel;
   if (taxLabel) refs.taxInput.value = taxLabel;
+  txwSyncInputTitle(refs.accountInput);
+  txwSyncInputTitle(refs.taxInput);
   var validInvoiceKinds = ['INVOICE_KIND_NOT_TARGET', 'INVOICE_KIND_QUALIFIED', 'INVOICE_KIND_UNQUALIFIED_80'];
   if (sugg.invoice_kind && validInvoiceKinds.indexOf(sugg.invoice_kind) >= 0) {
     refs.invoiceSelect.value = sugg.invoice_kind;
