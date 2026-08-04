@@ -532,7 +532,8 @@ function txwListSetSingleMessage(text, cls) {
   if (!tbody) return;
   clearEl(tbody);
   var tr = document.createElement('tr');
-  tr.appendChild(el('td', { colspan: '9', class: cls, text: text }));
+  // 列数は表の見出しと合わせること（今は8列）
+  tr.appendChild(el('td', { colspan: '8', class: cls, text: text }));
   tbody.appendChild(tr);
 }
 
@@ -826,7 +827,7 @@ function txwRenderUnmatched(items, writable) {
     if (listTbody) {
       var trEmpty = document.createElement('tr');
       // 列数は表の見出しと合わせる（口座・カードの列を足したので10）
-      trEmpty.appendChild(el('td', { colspan: '10', class: 'evidence-empty', text: emptyMsg }));
+      trEmpty.appendChild(el('td', { colspan: '8', class: 'evidence-empty', text: emptyMsg }));
       listTbody.appendChild(trEmpty);
     }
     txwListUpdateCounter();
@@ -860,7 +861,7 @@ function txwRenderUnmatched(items, writable) {
     if (listTbody) {
       var ghTr = document.createElement('tr');
       ghTr.className = 'txw-lt-group';
-      ghTd = el('td', { colspan: '10' });
+      ghTd = el('td', { colspan: '8' });
       ghTd.appendChild(el('span', { class: 'txw-acct-name', text: g.label }));
       ghTd.appendChild(el('span', { class: 'chip chip-yellow', text: '未仕訳 ' + g.items.length + '件', style: 'margin-left:8px;' }));
       ghTrToggle = el('span', { class: 'txw-acct-toggle', text: closed ? '開く ▸' : '閉じる ▾' });
@@ -1164,11 +1165,10 @@ function txwBuildListRow(tx, writable) {
   if (!writable) {
     tr.appendChild(el('td', {}));
     tr.appendChild(el('td', { text: tx.date || '(日付不明)' }));
-    tr.appendChild(el('td', { class: 'txw-lt-acct', text: txwAccountText(tx) || '(不明)' }));
     tr.appendChild(el('td', { text: tx.content || '(内容なし)' }));
     tr.appendChild(el('td', { class: 'num', text: yen(Math.abs(Number(tx.value) || 0)) }));
     tr.appendChild(el('td', {
-      colspan: '5', class: 'evidence-empty',
+      colspan: '4', class: 'evidence-empty',
       text: 'この明細は閲覧のみです。仕訳の登録はMFクラウド会計の画面で行ってください。'
     }));
     return tr;
@@ -1191,12 +1191,8 @@ function txwBuildListRow(tx, writable) {
   // 1: 日付
   tr.appendChild(el('td', { text: tx.date || '(日付不明)' }));
 
-  // 2: 口座・カード（MFの画面と同じく、どの銀行・カードの明細かを必ず出す）
-  tr.appendChild(el('td', {
-    class: 'txw-lt-acct',
-    text: txwAccountText(tx) || '(不明)',
-    title: txwAccountText(tx) || '連携サービスの名前が取得できませんでした'
-  }));
+  // ⚠ 口座・カードは列に出さない。口座ごとにまとめて表示しているので
+  //    行ごとに繰り返すと幅を食うだけになる（見出しに出ている）。
 
   // 2: 摘要 + 証憑（§1.3: 日付・金額の完全一致候補が1件だけのときのみ、初期チェックONで一覧から添付可）
   var tdContent = document.createElement('td');
@@ -1240,7 +1236,7 @@ function txwBuildListRow(tx, writable) {
 
   if (!txwMaster.loaded) {
     tr.appendChild(el('td', {
-      colspan: '5', class: 'note danger', style: 'margin:0;',
+      colspan: '4', class: 'note danger', style: 'margin:0;',
       text: '選択肢（勘定科目・税区分）を読み込めなかったため、この明細は登録できません。画面を再読み込みしてください。'
     }));
     return tr;
@@ -1253,15 +1249,13 @@ function txwBuildListRow(tx, writable) {
   tr.appendChild(tdAccount);
   refs.accountInput = accountInput;
 
-  // 5: 税区分
+  // 5: 税区分とインボイス区分（MFの画面と同じく1列に2段）
   var tdTax = document.createElement('td');
-  var taxInput = txwBuildSearchInput('txwTaxesDatalist', '任意');
-  tdTax.appendChild(taxInput);
-  tr.appendChild(tdTax);
+  var taxBox = el('div', { class: 'txw-lt-taxbox' });
+  var taxInput = txwBuildSearchInput('txwTaxesDatalist', '税区分（任意）');
+  taxBox.appendChild(taxInput);
   refs.taxInput = taxInput;
 
-  // 6: インボイス区分（カードと同じ選択肢）
-  var tdInvoice = document.createElement('td');
   var invoiceSelect = document.createElement('select');
   [
     ['', '(未選択)'],
@@ -1274,8 +1268,9 @@ function txwBuildListRow(tx, writable) {
     opt.textContent = pair[1];
     invoiceSelect.appendChild(opt);
   });
-  tdInvoice.appendChild(invoiceSelect);
-  tr.appendChild(tdInvoice);
+  taxBox.appendChild(invoiceSelect);
+  tdTax.appendChild(taxBox);
+  tr.appendChild(tdTax);
   refs.invoiceSelect = invoiceSelect;
 
   // 7: 提案の根拠 + クリア（§10.1-3・§10.1-4）

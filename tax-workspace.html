@@ -239,7 +239,12 @@ tr.txw-lt-row-done td { background: var(--hm-green-soft); color: var(--hm-ink-so
 .exec-info { color: #b3bdb6; font-weight: 900; }
 
 /* ---- 口座・カードごとのまとまり（MFの画面と同じ並べ方） ---- */
-.txw-lt-acct { max-width: 190px; font-size: 13px; color: var(--hm-ink-soft); }
+/* 列が切れないように下限を持たせる。MFと同じく税区分とインボイスは1列に2段 */
+.list-table td:nth-child(2) { white-space: nowrap; }          /* 日付 */
+.list-table th:nth-child(5), .list-table td:nth-child(5) { min-width: 150px; }  /* 勘定科目 */
+.list-table th:nth-child(6), .list-table td:nth-child(6) { min-width: 160px; }  /* 税区分・インボイス */
+.txw-lt-taxbox { display: flex; flex-direction: column; gap: 4px; }
+.txw-lt-acct { font-size: 13px; color: var(--hm-ink-soft); }
 .txw-acct-head {
   display: flex; align-items: center; gap: 10px; cursor: pointer;
   margin: 16px 0 8px; padding: 9px 13px; border-radius: 8px;
@@ -355,8 +360,8 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
             <table class="list-table" id="txwListTable">
               <thead>
                 <tr>
-                  <th></th><th>日付</th><th>口座・カード</th><th>摘要</th><th class="num">金額</th>
-                  <th>勘定科目</th><th>税区分</th><th>インボイス区分</th><th>提案の根拠</th><th>登録</th>
+                  <th></th><th>日付</th><th>摘要</th><th class="num">金額</th>
+                  <th>勘定科目</th><th>税区分<br>インボイス区分</th><th>提案の根拠</th><th>登録</th>
                 </tr>
               </thead>
               <tbody id="txwListTbody">
