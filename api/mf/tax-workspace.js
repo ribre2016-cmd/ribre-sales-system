@@ -1049,7 +1049,9 @@ module.exports = async (req, res) => {
     return;
   }
 
-  if (['bootstrap', 'list', 'journalize', 'suggest'].indexOf(action) < 0) {
+  // ⚠ ここに足し忘れると、下の分岐まで届かず invalid_action になる。
+  //    新しい action を作ったら**必ずこの配列にも足すこと**。
+  if (['bootstrap', 'list', 'journalize', 'suggest', 'monthly_check', 'monthly_check_confirm'].indexOf(action) < 0) {
     res.status(400).json({ ok: false, error: 'invalid_action' });
     return;
   }
@@ -1066,7 +1068,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // Phase 4: 過去の仕訳から初期値を提案する（読み取りのみ）
+  // Phase 7: ⑨月次チェック（読み取りのみ）
   if (action === 'monthly_check') {
     // 想定外の例外で500(HTML)を返すと、画面には理由の分からないエラーしか出ない。
     // 必ずJSONで理由を返す（読み取りだけの機能なので、失敗しても副作用は無い）。
@@ -1089,6 +1091,7 @@ module.exports = async (req, res) => {
     return;
   }
 
+  // Phase 4: 過去の仕訳から初期値を提案する（読み取りのみ）
   if (action === 'suggest') {
     await handleSuggest(res, accessToken, body);
     return;
