@@ -93,6 +93,12 @@
 17. **OCRが想定外の形（配列・複数候補など）を返したときに「それらしい値」を自動計算で補完しない**。特に金額は、精算書・請求書のように複数ページ・複数箇所に合計/小計/明細が入れ子で存在することがあり、それらを単純合算すると二重計上で架空の金額になりうる（実例: 実際の合計37,572円のところ、合計・小計・明細7件の全9値を合算し103,092円という誤った値を出してしまい、ユーザー指摘で発覚・撤回。詳細はCLAUDE_LOG.md「2026-07-13 (続き2)」）。想定外の形式で返ってきた場合は`extractJson`/`extractOcrJson`とも黙って失敗（`null`/`{}`、console.errorに生の応答を記録）させ、手入力に委ねるのが正しい。発生自体を減らす対策はプロンプト強化（単一オブジェクト限定・最終合計のみを返す指示）で行う
 18. **MFの `GET /journals` は会計年度をまたぐ期間を受け付けない（HTTP 400）**。仕様上「指定された日付が含まれる会計期間の仕訳のみが返却されます」とあり、実際に `2025-08-04〜2026-08-04`（2025年度と2026年度をまたぐ）で400になった（2026-08-04実測）。**「直近365日」のような素朴な期間指定は期首以降ほぼ必ずまたぐ**ため、`GET /term_settings` で会計期間を取り、**期ごとに分けて取得して結合する**こと（`api/mf/_lib/suggest-core.js` の `fetchJournalsForSuggest`）。この不具合により、勘定科目の提案（Phase 4）が**本番で常に0件**になっていた。しかも `handleSuggest` は失敗を握りつぶして `{suggestions:{}}` を返す作りだったため、画面には「該当する提案はありません」としか出ず、原因が見えなかった。**握りつぶす前に理由をログと応答に残すこと**
 
+19. **新しいテーブル・列のSQLを書く前に、既存のスキーマを必ず確認すること**。`tax_workspace_settings` は `supabase_tax_advisor.sql` で「`id=1` の1行だけを持つ設定テーブル」として既に作られていたのに、それを見ずに key/value 型（`skey`列）の別テーブルとして書いたため、利用者のSQL実行が `column "skey" does not exist` で失敗した（2026-08-04）。`create table if not exists` は既存テーブルがあると**黙って何もしない**ので、後続のINSERTで初めて落ちる。確認は `select column_name from information_schema.columns where table_name = '...';`
+
+20. **「見つからない」と「取得できなかった」を同じ文言で出さないこと**。`handleSuggest` は仕訳の取得に失敗しても `{suggestions:{}}` を返し、画面は「該当する提案はありません」としか出さなかったため、**500エラーが『提案なし』に化けて原因を3回取り違えた**（2026-08-04）。同じ形が `fetchOpenEvidence` / `fetchSharedFiles`（失敗時に空配列）にも残っていた。**失敗は失敗として上へ伝え、画面では色と文言を分ける**こと。件数を伴う出力（CSV等）は**必ず件数を表示し、打ち切ったならそう言う**（`handleActionLogCsv` は当初 limit=5000 で無警告に打ち切っていた）
+
+21. **一覧表の行に色を付けるCSSは、縞模様より詳細度を高くすること**。`.list-table tr:nth-child(even) td`（詳細度0,2,2）が `tr.txw-lt-lowmatch td`（0,1,2）に勝つため、**要確認の黄色が偶数行だけ消えていた**（2026-08-04・レビューで実機発見）。`.list-table tr.txw-lt-lowmatch td` と `.list-table tr.txw-lt-lowmatch:nth-child(even) td` の両方を書いて上書きする。列を増減したときは **`colspan` を全箇所そろえる**（10→8にしたとき4箇所が9のまま残っていた）
+
 ## 環境変数（Vercel）
 
 `MF_CLIENT_ID` `MF_CLIENT_SECRET` `MF_REDIRECT_URI` `SUPABASE_URL` `SUPABASE_SERVICE_ROLE_KEY` `OPENAI_API_KEY` `SLACK_WEBHOOK_URL` `CRON_SECRET` `CHATWORK_API_TOKEN` `CHATWORK_ROOM_ID`（現在テスト用マイチャット宛） `MAIL_INGEST_SECRET`
