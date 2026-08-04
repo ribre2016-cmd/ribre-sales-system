@@ -175,7 +175,7 @@ module.exports = async (req, res) => {
   try {
     const {
       buildSuggestIndex, suggestForContent, comboSideForTransaction,
-      remarkKey, journalCombos, SUGGEST_LOOKBACK_DAYS,
+      remarkKey, journalCombos, fetchJournalsForSuggest,
     } = require('./_lib/suggest-core');
     const { fetchJournals } = require('./_lib/mf-match-core');
     const { fetchUnjournalizedTransactions } = require('./_lib/mf-client');
@@ -190,10 +190,11 @@ module.exports = async (req, res) => {
     });
     const dates = txs.map((t) => String(t.date || '')).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
     const endDate = dates.length ? dates[dates.length - 1] : today;
-    const startDate = new Date(new Date(endDate).getTime() - SUGGEST_LOOKBACK_DAYS * 24 * 3600 * 1000)
-      .toISOString().slice(0, 10);
 
-    const journals = await fetchJournals({ accessToken, startDate, endDate });
+    // 本体と同じ経路で取る（会計期間をまたぐと400になるため期ごとに分割）
+    const termsRes = await mfGet('/term_settings', accessToken);
+    const terms = (termsRes.json && termsRes.json.term_settings) || [];
+    const journals = await fetchJournalsForSuggest({ accessToken, endDate, terms, fetchJournals });
     const index = buildSuggestIndex(journals);
 
     // 索引に入った摘要の中身を少しだけ見る（何が材料になっているか）
@@ -224,7 +225,8 @@ module.exports = async (req, res) => {
 
     out.results.suggest_diag = {
       判定: sample.some((x) => x['提案'] !== '提案なし') ? '○ 提案が出ている' : '× どれも提案が出ていない',
-      材料の期間: startDate + ' 〜 ' + endDate,
+      材料の終わり: endDate,
+      会計期間: terms.map((t) => t.start_date + '〜' + t.end_date),
       材料の仕訳件数: journals.length,
       うち材料にできた仕訳: usable,
       うち複合仕訳などで使えなかった仕訳: multi,

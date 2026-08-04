@@ -320,6 +320,7 @@ async function setAdvisorEnabled(email, enabled) {
 const {
   SUGGEST_LOOKBACK_DAYS, SUGGEST_MAX_ITEMS,
   buildSuggestIndex, suggestForContent, comboSideForTransaction,
+  fetchJournalsForSuggest,
 } = require('./_lib/suggest-core');
 
 async function handleSuggest(res, accessToken, body) {
@@ -334,11 +335,17 @@ async function handleSuggest(res, accessToken, body) {
     return;
   }
   const endDate = dates[dates.length - 1];
-  const startDate = addDays(endDate, -SUGGEST_LOOKBACK_DAYS);
+
+  // ⚠ MFの仕訳APIは会計年度をまたぐ期間を受け付けない（400になる）。
+  //   会計期間ごとに分けて取る（2026-08-04にこれが原因で提案が0件だった）。
+  let terms = [];
+  try {
+    terms = (await fetchMaster(accessToken, 'term_settings')).term_settings || [];
+  } catch (e) { terms = []; }
 
   let journals = [];
   try {
-    journals = await fetchJournals({ accessToken, startDate, endDate });
+    journals = await fetchJournalsForSuggest({ accessToken, endDate, terms, fetchJournals });
   } catch (e) {
     if (e && (e.status === 403 || e.status === 401)) {
       res.status(200).json({ ok: false, error: 'scope_missing' });
@@ -574,9 +581,8 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
       const dates = unjournalized.map((t) => String(t.date || '')).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
       if (dates.length) {
         const endDate = dates[dates.length - 1];
-        const journals = await fetchJournals({
-          accessToken, startDate: addDays(endDate, -SUGGEST_LOOKBACK_DAYS), endDate,
-        });
+        // ①と同じ理由で会計期間ごとに分けて取る（terms はこの関数の先頭で取得済み）
+        const journals = await fetchJournalsForSuggest({ accessToken, endDate, terms, fetchJournals });
         const index = buildSuggestIndex(journals);
         unjournalized.forEach((tx) => {
           const s = suggestForContent(index, tx.content, tx.side);

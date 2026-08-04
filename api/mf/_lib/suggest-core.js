@@ -189,7 +189,56 @@ function suggestForContent(index, content, txSide) {
   return pickTop(merged, 'similar');
 }
 
+/* MFの仕訳APIは「指定した日付が含まれる会計期間の仕訳だけ」を返す仕様で、
+ * **会計年度をまたぐ期間を指定すると HTTP 400 になる**（2026-08-04に実測）。
+ * 提案は直近365日を材料にするため、期首(3/1)以降はほぼ必ずまたいでいた。
+ * その結果 fetchJournals が毎回400で落ち、提案が1件も出ていなかった。
+ *
+ * そこで会計期間ごとに分けて取る。terms は GET /term_settings の中身。
+ * terms が取れなかった場合は「endDateの属する期だけ」に絞って安全側に倒す。 */
+function addDaysStr(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+async function fetchJournalsForSuggest({ accessToken, endDate, terms, fetchJournals, lookbackDays }) {
+  const back = Number(lookbackDays) > 0 ? Number(lookbackDays) : SUGGEST_LOOKBACK_DAYS;
+  const desiredStart = addDaysStr(endDate, -back);
+  const list = Array.isArray(terms) ? terms.filter((t) => t && t.start_date && t.end_date) : [];
+
+  // 会計期間が分からないときは、またがないよう endDate の月初までに縮める
+  if (!list.length) {
+    return fetchJournals({ accessToken, startDate: endDate.slice(0, 8) + '01', endDate });
+  }
+
+  // 欲しい期間と重なる会計期間ごとに、その重なりの分だけ取る
+  const ranges = [];
+  list.forEach((t) => {
+    const s = t.start_date > desiredStart ? t.start_date : desiredStart;
+    const e = t.end_date < endDate ? t.end_date : endDate;
+    if (s <= e) ranges.push({ startDate: s, endDate: e });
+  });
+  if (!ranges.length) {
+    return fetchJournals({ accessToken, startDate: endDate.slice(0, 8) + '01', endDate });
+  }
+
+  const all = [];
+  for (const r of ranges) {
+    // 1つの期で失敗しても、取れた分だけで提案を作る（全部落とさない）
+    try {
+      const got = await fetchJournals({ accessToken, startDate: r.startDate, endDate: r.endDate });
+      all.push(...got);
+    } catch (e) {
+      console.error('仕訳の取得に失敗（この期はとばす）', r.startDate, r.endDate, e && e.message);
+    }
+  }
+  return all;
+}
+
 module.exports = {
+  addDaysStr,
+  fetchJournalsForSuggest,
   SUGGEST_LOOKBACK_DAYS,
   SUGGEST_MIN_RATIO,
   SUGGEST_MAX_ITEMS,
