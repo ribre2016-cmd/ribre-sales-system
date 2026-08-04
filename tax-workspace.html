@@ -260,6 +260,8 @@ tr.txw-lt-row-done td { background: #f8fafc; color: #64748b; }
       1件ずつ内容を確認して登録してください。一括登録はありません。
     </div>
     <div class="note info" id="txwUnmatchedFilterBar" style="display:none;margin-bottom:14px;"></div>
+    <!-- 口座・カードごとの絞り込み（MFの画面が連携サービスごとに未仕訳を並べるのに合わせる） -->
+    <div id="txwAcctFilterBar" style="display:none;margin-bottom:14px;"></div>
     <div class="panel">
       <div class="panel-head">
         <div>
@@ -295,7 +297,7 @@ tr.txw-lt-row-done td { background: #f8fafc; color: #64748b; }
             <table class="list-table" id="txwListTable">
               <thead>
                 <tr>
-                  <th></th><th>日付</th><th>摘要</th><th class="num">金額</th>
+                  <th></th><th>日付</th><th>口座・カード</th><th>摘要</th><th class="num">金額</th>
                   <th>勘定科目</th><th>税区分</th><th>インボイス区分</th><th>提案の根拠</th><th>登録</th>
                 </tr>
               </thead>

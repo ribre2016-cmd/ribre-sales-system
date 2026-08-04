@@ -104,6 +104,42 @@ async function fetchMaster(accessToken, path) {
   return data;
 }
 
+/* 連携サービス（銀行・カード）の名前を引けるようにする。
+ * 明細は connected_account_id / connected_sub_account_id を持っているが名前は持たないので、
+ * ここで対応表を作る。MFの画面は口座ごとに未仕訳を出すので、この画面でも
+ * 「どの銀行・カードの明細か」が分かるようにするために要る（利用者の指摘 2026-08-04）。
+ * 要スコープ: mfc/accounting/connected_account.read（2026-08-04の再連携で取得済み）。
+ * 取れなくても画面は動かす（口座名が空欄になるだけ）。 */
+async function fetchAccountLabels(accessToken) {
+  const byId = {};
+  try {
+    const data = await fetchMaster(accessToken, 'connected_accounts');
+    (data.connected_accounts || []).forEach((ca) => {
+      if (!ca || !ca.id) return;
+      byId['svc:' + ca.id] = ca.name || '';
+      (ca.connected_sub_accounts || []).forEach((sub) => {
+        if (!sub || !sub.id) return;
+        // 口座IDのほうが細かい（例: 「青木信用金庫」の中の「指扇支店 普通 5056307」）
+        byId['acc:' + sub.id] = { service: ca.name || '', account: sub.name || '' };
+      });
+    });
+  } catch (e) {
+    // スコープ不足・障害。名前が出ないだけで登録作業は続けられる
+    console.error('connected_accounts の取得に失敗（口座名は空欄になります）', e && e.message);
+  }
+  return byId;
+}
+
+// 明細1件の「どの銀行・カードか」を組み立てる
+function accountLabelFor(labels, tx) {
+  const sub = tx && tx.connected_sub_account_id ? labels['acc:' + tx.connected_sub_account_id] : null;
+  if (sub && typeof sub === 'object') {
+    return { service: sub.service, account: sub.account };
+  }
+  const svc = tx && tx.connected_account_id ? labels['svc:' + tx.connected_account_id] : '';
+  return { service: typeof svc === 'string' ? svc : '', account: '' };
+}
+
 // 仕訳にまだ添付されていない証憑（＝添付候補になりうるもの）
 async function fetchOpenEvidence() {
   const url =
@@ -1087,12 +1123,18 @@ module.exports = async (req, res) => {
   const evidences = await fetchOpenEvidence();
   const sharedFiles = await fetchSharedFiles();
 
+  // どの銀行・カードの明細かを出すための対応表（利用者の指摘 2026-08-04）
+  const accountLabels = await fetchAccountLabels(accessToken);
+
   const items = transactions.map((tx) => ({
     transaction_id: tx.id,
     date: tx.date,
     content: tx.content,
     value: tx.value,
     side: tx.side,
+    // どの銀行・カードから来た明細か。MFの画面は口座ごとに未仕訳を出すため、
+    // これが無いと「何の仕訳か分からない」状態になる
+    account_label: accountLabelFor(accountLabels, tx),
     // 証憑の候補。自動では選ばない（設計書§3.2）。
     evidence_candidates: evidences
       .filter((ev) => evidenceMatchesTransaction(ev, tx))

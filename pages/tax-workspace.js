@@ -98,6 +98,8 @@ var txwUnmatchedView = 'list'; // 既定は一覧表示
  * txwUnmatchedAllItems/txwUnmatchedWritableCache: 直近のtxwLoad()で取得した①タブの全件を
  * 保持しておき、絞り込みのON/OFFだけで再取得なしに再描画できるようにする。 */
 var txwUnmatchedFilter = { active: false, account: '', ids: [] };
+// 口座・カードでの絞り込み（''なら全部）。⑨からの科目の絞り込みとは別物で、併用できる
+var txwAcctFilter = '';
 var txwUnmatchedAllItems = [];
 var txwUnmatchedWritableCache = false;
 // ⑨タブの直近の応答。確認記録(monthly_check_confirm)を送るときに件数を添えるため保持する。
@@ -648,16 +650,63 @@ function txwUpdateUnmatchedNote(writable) {
 // 提案されている勘定科目を明細ごとに持っていない(suggestは非同期・writableのカードのみ)ため、
 // 明細の内容(content)にその科目名が含まれるものを残す。バーには「何で絞ったか」を明記する(§3)。
 function txwUnmatchedFilteredItems(items) {
-  if (!txwUnmatchedFilter.active) return items || [];
+  var list = items || [];
+  // 口座・カードの絞り込みは科目の絞り込みとは独立して効く
+  if (txwAcctFilter) {
+    list = list.filter(function (tx) { return txwAccountKey(tx) === txwAcctFilter; });
+  }
+  if (!txwUnmatchedFilter.active) return list;
   var ids = txwUnmatchedFilter.ids;
   // ⑨が過去の仕訳から割り出した明細IDで絞る。
   // ⚠ 銀行明細の摘要に勘定科目名は入っていない（「フリコミ ○○フドウサン」など）ので、
   //   科目名の文字列一致で絞ると常に0件になる。IDで絞るのが唯一まともに当たる方法。
   if (ids && ids.length) {
-    return (items || []).filter(function (tx) { return ids.indexOf(tx && tx.transaction_id) >= 0; });
+    return list.filter(function (tx) { return ids.indexOf(tx && tx.transaction_id) >= 0; });
   }
   // 候補が1件も割り出せなかった科目。**空振りを黙って隠さず、そのまま0件として見せる**
   return [];
+}
+
+/* 口座・カードごとの絞り込み。件数つきで並べる（MFの画面と同じ考え方）。
+ * ここで数えるのは「口座の絞り込みを外した状態」の件数にする。
+ * 自分で自分を絞った件数を出すと、他の口座が常に0件に見えてしまう。 */
+function txwRenderAcctFilterBar() {
+  var bar = document.getElementById('txwAcctFilterBar');
+  if (!bar) return;
+  clearEl(bar);
+  var all = txwUnmatchedAllItems || [];
+  // ⑨からの科目の絞り込みが効いているときは、その範囲の中で数える
+  var base = all;
+  if (txwUnmatchedFilter.active) {
+    var ids = txwUnmatchedFilter.ids || [];
+    base = ids.length ? all.filter(function (tx) { return ids.indexOf(tx.transaction_id) >= 0; }) : [];
+  }
+  var counts = {};
+  base.forEach(function (tx) {
+    var k = txwAccountKey(tx);
+    counts[k] = (counts[k] || 0) + 1;
+  });
+  var keys = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; });
+  if (keys.length <= 1 && !txwAcctFilter) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+
+  var row = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;align-items:center;' });
+  row.appendChild(el('span', { text: '口座・カードで絞る:', style: 'font-weight:800;margin-right:4px;' }));
+  function chip(label, key, count) {
+    var b = el('button', {
+      type: 'button',
+      class: 'btn-mini' + (txwAcctFilter === key ? ' btn-mini-on' : ''),
+      text: label + '（' + count + '）'
+    });
+    b.addEventListener('click', function () {
+      txwAcctFilter = (txwAcctFilter === key) ? '' : key;
+      txwRenderUnmatched(txwUnmatchedAllItems, txwUnmatchedWritableCache);
+    });
+    row.appendChild(b);
+  }
+  chip('すべて', '', base.length);
+  keys.forEach(function (k) { chip(k, k, counts[k]); });
+  bar.appendChild(row);
 }
 
 function txwRenderUnmatchedFilterBar() {
@@ -707,6 +756,7 @@ function txwRenderUnmatched(items, writable) {
   var container = document.getElementById('txwUnmatchedList');
   clearEl(container);
   txwRenderUnmatchedFilterBar();
+  txwRenderAcctFilterBar();
   var displayItems = txwUnmatchedFilteredItems(items);
   document.getElementById('txwUnmatchedCount').textContent = '未仕訳 ' + displayItems.length + '件'
     + (txwUnmatchedFilter.active ? '（絞り込み中）' : '');
@@ -748,7 +798,12 @@ function txwRenderUnmatched(items, writable) {
     var head = el('div', { class: 'jcard-head' });
     var titleWrap = el('div');
     titleWrap.appendChild(el('span', { class: 'title', text: (tx.date || '(日付不明)') + '　' + (tx.content || '(内容なし)') }));
-    var sub = el('div', { class: 'sub', text: txwSideLabel(tx) + ' ' + yen(Math.abs(Number(tx.value) || 0)) });
+    var acctText = txwAccountText(tx);
+    var sub = el('div', {
+      class: 'sub',
+      text: txwSideLabel(tx) + ' ' + yen(Math.abs(Number(tx.value) || 0))
+        + (acctText ? '　/　' + acctText : '')
+    });
     titleWrap.appendChild(sub);
     head.appendChild(titleWrap);
     head.appendChild(el('span', { class: 'chip chip-gray', text: '未仕訳' }));
@@ -991,6 +1046,21 @@ function txwViewSwitch(v) {
 }
 
 /* ---- 行の組み立て ---- */
+/* どの銀行・カードの明細かを1行で表す。
+ * MFの画面は連携サービスごとに未仕訳を並べるので、この画面でも必ず出す
+ * （出さないと「何の仕訳か分からない」。利用者の指摘 2026-08-04）。 */
+function txwAccountText(tx) {
+  var a = tx && tx.account_label;
+  if (!a) return '';
+  if (a.account && a.service) return a.service + ' / ' + a.account;
+  return a.service || a.account || '';
+}
+// 絞り込みの単位はサービス名（銀行・カード）にする。口座まで分けると細かすぎる
+function txwAccountKey(tx) {
+  var a = tx && tx.account_label;
+  return (a && (a.service || a.account)) || '(不明)';
+}
+
 function txwBuildListRow(tx, writable) {
   var tr = document.createElement('tr');
   tr.className = 'txw-lt-row';
@@ -999,6 +1069,7 @@ function txwBuildListRow(tx, writable) {
   if (!writable) {
     tr.appendChild(el('td', {}));
     tr.appendChild(el('td', { text: tx.date || '(日付不明)' }));
+    tr.appendChild(el('td', { class: 'txw-lt-acct', text: txwAccountText(tx) || '(不明)' }));
     tr.appendChild(el('td', { text: tx.content || '(内容なし)' }));
     tr.appendChild(el('td', { class: 'num', text: yen(Math.abs(Number(tx.value) || 0)) }));
     tr.appendChild(el('td', {
@@ -1024,6 +1095,13 @@ function txwBuildListRow(tx, writable) {
 
   // 1: 日付
   tr.appendChild(el('td', { text: tx.date || '(日付不明)' }));
+
+  // 2: 口座・カード（MFの画面と同じく、どの銀行・カードの明細かを必ず出す）
+  tr.appendChild(el('td', {
+    class: 'txw-lt-acct',
+    text: txwAccountText(tx) || '(不明)',
+    title: txwAccountText(tx) || '連携サービスの名前が取得できませんでした'
+  }));
 
   // 2: 摘要 + 証憑（§1.3: 日付・金額の完全一致候補が1件だけのときのみ、初期チェックONで一覧から添付可）
   var tdContent = document.createElement('td');
