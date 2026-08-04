@@ -5,8 +5,9 @@
 // 実行: node tools/test-suggest.js
 'use strict';
 
+const SEP = String.fromCharCode(10);
 const {
-  buildSuggestIndex, suggestForContent, SUGGEST_MIN_RATIO,
+  buildSuggestIndex, suggestForContent, suggestDiagnosis, SUGGEST_MIN_RATIO,
 } = require('../api/mf/_lib/suggest-core');
 const { vendorTokens, journalVendorText } = require('../api/mf/_lib/mf-match-core');
 
@@ -163,6 +164,31 @@ console.log('  1件登録した後: ' + (after ? after.account_name + '（' + af
 const learned = !before && after && after.account_name === '通信費';
 if (!learned) ng++;
 console.log('  ' + (learned ? '○ 1件登録しただけで次回から提案に出る' : '× 学習されていない'));
+
+/* 提案が出なかったときに「理由」を返せるか（資産税の税理士の指摘）。 */
+console.log(SEP + '===== 提案が出ないときの理由 =====');
+[
+  ['振込 カ)リ-ブル', 'EXPENSE', 'no_usable_side', '過去が全部「複合」で借方が定まらない'],
+  ['振込 テスト ワレル', 'EXPENSE', 'split', '科目が半々に割れている'],
+  ['振込 ハジメテノトリヒキサキ', 'EXPENSE', 'no_history', '過去に同じ摘要も似た摘要も無い'],
+].forEach(function (c) {
+  const d = suggestDiagnosis(index, c[0], c[1]);
+  const ok = d && d.kind === c[2];
+  if (!ok) ng++;
+  console.log((ok ? '  ○ ' : '  × ') + c[0] + ' → ' + (d ? d.kind : 'なし')
+    + '（期待: ' + c[2] + '）  ' + c[3]);
+  if (d && d.kind === 'split' && d.detail && d.detail.breakdown) {
+    console.log('      内訳: ' + d.detail.breakdown.map(function (x) {
+      return x.account_name + ' ' + x.count + '件';
+    }).join(' / '));
+  }
+});
+(function () {
+  const d = suggestDiagnosis(index, '振替 セコム', 'EXPENSE');
+  const ok = d && d.kind === 'ok';
+  if (!ok) ng++;
+  console.log((ok ? '  ○ ' : '  × ') + '提案が出る明細には理由を出さない → ' + (d ? d.kind : 'なし'));
+})();
 
 console.log('\n===== 結果 =====');
 console.log(ng === 0 ? '全件 期待どおり ○' : (ng + '件 期待とちがう ×'));

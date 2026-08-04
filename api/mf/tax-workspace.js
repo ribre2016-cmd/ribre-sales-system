@@ -336,7 +336,7 @@ async function setAdvisorEnabled(email, enabled) {
 const {
   SUGGEST_LOOKBACK_DAYS, SUGGEST_MAX_ITEMS,
   buildSuggestIndex, suggestForContent, comboSideForTransaction,
-  fetchJournalsForSuggest,
+  fetchJournalsForSuggest, suggestDiagnosis,
 } = require('./_lib/suggest-core');
 
 async function handleSuggest(res, accessToken, body) {
@@ -374,14 +374,18 @@ async function handleSuggest(res, accessToken, body) {
 
   const index = buildSuggestIndex(journals);
   const suggestions = {};
+  // 提案が出なかった明細には「なぜ出ないか」を返す（画面で理由を出すため）
+  const reasons = {};
   items.forEach((it) => {
     const id = it && it.transaction_id;
     if (!id) return;
     const s = suggestForContent(index, it && it.content, it && it.side);
-    if (s) suggestions[id] = s;
+    if (s) { suggestions[id] = s; return; }
+    const d = suggestDiagnosis(index, it && it.content, it && it.side);
+    if (d && d.kind !== 'ok') reasons[id] = d;
   });
   res.status(200).json({
-    ok: true, suggestions,
+    ok: true, suggestions, reasons,
     based_on: { end_date: endDate, journals: journals.length, terms: terms.length },
   });
 }
@@ -583,19 +587,84 @@ async function handleActionLogCsv(res, advisor, isAdmin, body) {
 
 // 推移表の入れ子（financial_statement_item の下に account）を平らにする。
 // 各科目に、属する大分類（売上高合計・販売費及び一般管理費合計 など）を持たせる。
-function flattenReportRows(rows, sectionName, out) {
+function flattenReportRows(rows, sectionName, out, parentName) {
   const list = Array.isArray(rows) ? rows : [];
   const acc = out || [];
   list.forEach((r) => {
     if (!r) return;
     if (r.type === 'account') {
-      acc.push({ name: r.name, section: sectionName || '', values: Array.isArray(r.values) ? r.values : [] });
+      acc.push({
+        name: r.name,
+        section: sectionName || '',        // 最上位の大分類（PLで使う）
+        parent: parentName || sectionName || '',  // すぐ上の小計（BSで使う。例「棚卸資産合計」）
+        values: Array.isArray(r.values) ? r.values : [],
+      });
     } else {
-      // 大分類の名前は最上位のものを引き継ぐ（「販売費及び一般管理費合計」など）
-      flattenReportRows(r.rows, sectionName || r.name, acc);
+      // 大分類の名前は最上位のものを引き継ぐ（「販売費及び一般管理費合計」など）。
+      // BSは入れ子が深いので、すぐ上の小計名も別に持たせる。
+      flattenReportRows(r.rows, sectionName || r.name, acc, r.name);
     }
   });
   return acc;
+}
+
+/* ---- 貸借対照表（BS）側の月次チェック ----
+ * 設計書 PHASE7_PLAN §2 は損益(PL)だけだった。10人の税理士のうち5人が
+ * 「BSを見ていないのが最大の空白」と指摘（2026-08-04）。
+ * 実データでも、商品(在庫)2,061,000が期首から動いていない・純資産がマイナスへ
+ * 転落しているといった、**BSでしか気づけない**ものがあった。 */
+
+// 動いていなくて当たり前の科目は「止まっている」判定から外す
+const BS_STATIC_PARENTS = new Set([
+  '資本金合計', '資本剰余金合計', '自己株式合計', '自己株式申込証拠金合計',
+  '新株式申込証拠金合計', '新株予約権合計', '投資その他の資産合計',
+]);
+// 名前からして常にマイナス／常に一定の評価勘定
+const BS_CONTRA_RE = /引当金|累計額|自己株式/;
+
+function analyzeBalanceSheet(flat, idx, lookback) {
+  const frozen = [];
+  const negative = [];
+  const changed = [];
+  const equity = [];
+
+  flat.forEach((row) => {
+    const cur = Number(row.values[idx] || 0);
+    const from = idx - lookback;
+    const past = from >= 0 ? row.values.slice(from, idx).map((v) => Number(v || 0)) : null;
+    const isContra = BS_CONTRA_RE.test(row.name);
+
+    // (a) 何ヶ月も1円も動いていない（在庫の置きっぱなしなど）
+    if (past && past.length === lookback && !isContra && !BS_STATIC_PARENTS.has(row.parent)) {
+      const all = past.concat([cur]);
+      if (cur !== 0 && all.every((v) => v === all[0])) {
+        frozen.push({ account: row.name, parent: row.parent, value: cur, months: all.length });
+      }
+    }
+
+    // (d) 純資産・繰越利益剰余金がマイナス（債務超過の状態）
+    if (row.section === '純資産の部合計' && cur < 0 && !isContra) {
+      equity.push({ account: row.name, parent: row.parent, value: cur, past: past || [] });
+      return;   // 下のマイナス判定と二重に出さない
+    }
+
+    // (b) 残高がマイナス（評価勘定を除く）
+    if (cur < 0 && !isContra) {
+      negative.push({ account: row.name, parent: row.parent, value: cur, past: past || [] });
+    }
+
+    // (c) 前月から大きく動いた
+    if (past && past.length) {
+      const prev = past[past.length - 1];
+      if (prev !== 0 && cur !== 0) {
+        const ratio = Math.abs(cur) / Math.abs(prev);
+        if ((ratio >= 3 || ratio <= 1 / 3) && Math.abs(Math.abs(cur) - Math.abs(prev)) >= 10000) {
+          changed.push({ account: row.name, parent: row.parent, prev, value: cur });
+        }
+      }
+    }
+  });
+  return { frozen, negative, changed, equity };
 }
 
 function median(nums) {
@@ -618,6 +687,62 @@ function isMonthInProgress(monthEnd) {
 }
 
 const MC_DEFAULTS = { lookback: 4, ratio: 3, minDiff: 10000 };
+
+/* ---- 簡易課税の事業区分（一種／二種…）別の課税売上高 ----
+ * 10人の税理士のうち、消費税の専門家と元国税の2人が**独立に1位**へ挙げた。
+ * この顧問先は term_settings が business_types=[WHOLESALE, RETAIL] で、
+ * 実データでも「課売 10% 二種」と「課売 10% 一種」の両方が使われている。
+ * 区分を分けずに申告すると、法定上もっとも不利なみなし仕入率が適用される。
+ *
+ * ⚠ **どちらが正しいかはAPIでは判定できない**（データが無い）。
+ *   ここでやるのは「いくらずつ計上されているか」と「先月から構成が変わったか」まで。
+ *   正誤の判断は税理士が行う。画面にもそう書く。 */
+const SALES_TAX_RE = /^課売/;   // 「課売 10% 二種」「課売 10% 一種」など
+
+function summarizeSalesByTax(journals, months) {
+  // months: ['2026-03', ...] の並び。月ごと・税区分ごとに税込で合計する
+  const byMonth = {};
+  months.forEach((m) => { byMonth[m] = {}; });
+
+  (journals || []).forEach((j) => {
+    const month = String(j.transaction_date || '').slice(0, 7);
+    if (!byMonth[month]) return;
+    (Array.isArray(j.branches) ? j.branches : []).forEach((b) => {
+      const c = b && b.creditor;      // 売上は貸方に立つ
+      if (!c || !SALES_TAX_RE.test(String(c.tax_name || ''))) return;
+      const v = (Number(c.value) || 0) + (Number(c.tax_value) || 0);   // 税込にそろえる
+      const key = c.tax_name;
+      byMonth[month][key] = (byMonth[month][key] || 0) + v;
+    });
+  });
+
+  // 出てきた税区分をすべて集める
+  const kinds = {};
+  months.forEach((m) => { Object.keys(byMonth[m]).forEach((k) => { kinds[k] = true; }); });
+  const kindList = Object.keys(kinds).sort();
+
+  const rows = kindList.map((k) => ({
+    tax_name: k,
+    values: months.map((m) => byMonth[m][k] || 0),
+  }));
+  const totals = months.map((m) => kindList.reduce((sum, k) => sum + (byMonth[m][k] || 0), 0));
+
+  // 当月と前月で構成比が大きく変わっていないか（区分の付け間違いに気づく手がかり）
+  let shift = null;
+  if (months.length >= 2 && kindList.length >= 2) {
+    const last = totals[totals.length - 1];
+    const prev = totals[totals.length - 2];
+    if (last > 0 && prev > 0) {
+      const changed = rows.map((r) => {
+        const a = r.values[r.values.length - 2] / prev;
+        const b = r.values[r.values.length - 1] / last;
+        return { tax_name: r.tax_name, prev_ratio: a, ratio: b, diff: b - a };
+      }).filter((x) => Math.abs(x.diff) >= 0.2);   // 構成比が20ポイント以上動いた
+      if (changed.length) shift = changed;
+    }
+  }
+  return { months, rows, totals, shift };
+}
 
 async function handleMonthlyCheck(res, advisor, accessToken, body) {
   const range = monthRange(body.month);
@@ -668,6 +793,18 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
       status: e && e.status,
     });
     return;
+  }
+
+  // BS（貸借対照表）の推移も取る。取れなくてもPL側の結果は出す
+  let reportBs = null;
+  try {
+    reportBs = await fetchMaster(
+      accessToken,
+      `reports/transition_bs?type=monthly&fiscal_year=${encodeURIComponent(term.fiscal_year)}`
+      + `&start_month=${startMonthNum}&end_month=${targetMonthNum}`
+    );
+  } catch (e) {
+    console.error('transition_bs の取得に失敗（BSの確認は出せません）', e && e.message);
   }
 
   const columns = (report.columns || []).map(String);
@@ -740,6 +877,7 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
   //   科目名で文字列検索しても当たらない。Phase 4 の提案（過去の仕訳から推定）を使う。
   //   これが無いと「この科目の未仕訳明細をさがす」が常に0件になり、機能しない。
   const candidatesByAccount = {};
+  let fetchedJournals = null;
   if (unjournalized.length) {
     try {
       const dates = unjournalized.map((t) => String(t.date || '')).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
@@ -747,6 +885,7 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
         const endDate = dates[dates.length - 1];
         // ①と同じ理由で会計期間ごとに分けて取る（terms はこの関数の先頭で取得済み）
         const journals = await fetchJournalsForSuggest({ accessToken, endDate, terms, fetchJournals });
+        fetchedJournals = journals;   // 事業区分の集計でも使い回す（再取得しない）
         const index = buildSuggestIndex(journals);
         unjournalized.forEach((tx) => {
           const s = suggestForContent(index, tx.content, tx.side);
@@ -764,6 +903,27 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
   const withCandidates = (row) => Object.assign({}, row, {
     candidate_transaction_ids: candidatesByAccount[row.account] || [],
   });
+
+  /* 簡易課税の事業区分別・課税売上高。
+   * 候補の割り出しで取った仕訳をそのまま使う（追加のAPI呼び出しはしない）。 */
+  let salesByTax = null;
+  if (fetchedJournals && fetchedJournals.length) {
+    const monthsBack = [];
+    for (let k = MC_DEFAULTS.lookback; k >= 0; k--) {
+      const d = new Date(range.start + 'T00:00:00Z');
+      d.setUTCMonth(d.getUTCMonth() - k);
+      monthsBack.push(d.toISOString().slice(0, 7));
+    }
+    salesByTax = summarizeSalesByTax(fetchedJournals, monthsBack);
+    // 簡易課税は基準期間の課税売上高5,000万円を超えると翌々期に本則へ移る。
+    // 判断はしないが、年換算の数字だけ出しておく（消費税の専門家の指摘）
+    const shown = salesByTax.totals.filter((v) => v > 0);
+    salesByTax.annualized = shown.length
+      ? Math.round((shown.reduce((a, b) => a + b, 0) / shown.length) * 12) : 0;
+    salesByTax.months_used = shown.length;
+    salesByTax.simple_tax = term.tax_method === 'SIMPLE';
+    salesByTax.business_types = term.business_types || [];
+  }
 
   const inProgress = isMonthInProgress(range.end);
   // 登録が途中かどうか。未仕訳の残件数が取れなかったときは「途中かもしれない」側に倒す。
@@ -794,9 +954,30 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
     criteria: { lookback: MC_DEFAULTS.lookback, ratio, min_diff: minDiff },
     missing: (inProgress ? [] : missing).map(withCandidates),
     outliers: shownOutliers.map(withCandidates),
+    // BS側。登録が途中の月は残高が歪むので、止まっている科目以外は伏せる
+    bs: (function () {
+      if (!reportBs) return { available: false, reason: '貸借対照表の推移を取得できませんでした' };
+      const bsCols = (reportBs.columns || []).map(String);
+      const bsIdx = bsCols.indexOf(String(targetMonthNum));
+      if (bsIdx < 0) return { available: false, reason: '貸借対照表に' + targetMonthNum + '月の列がありません' };
+      const bsFlat = flattenReportRows(reportBs.rows, '', [], '');
+      const a = analyzeBalanceSheet(bsFlat, bsIdx, MC_DEFAULTS.lookback);
+      return {
+        available: true,
+        // 「何ヶ月も動いていない」は登録が途中でも意味がある（過去の月が動いていないため）
+        frozen: a.frozen,
+        // 残高のマイナス・急な増減は、登録が途中だと当然おかしくなるので伏せる
+        negative: partial ? [] : a.negative,
+        changed: partial ? [] : a.changed,
+        equity: partial ? [] : a.equity,
+        suppressed: partial ? (a.negative.length + a.changed.length + a.equity.length) : 0,
+      };
+    })(),
     // 伏せた件数は必ず伝える。黙って減らすと「出ていない＝問題なし」を招く（§12）
     suppressed_low_outliers: suppressedLow,
     sign_issues: signIssues.map(withCandidates),
+    // 簡易課税の事業区分別・課税売上高（正誤の判定はしない。金額と構成の変化まで）
+    sales_by_tax: salesByTax,
     checked_by: advisor.email,
   });
 }

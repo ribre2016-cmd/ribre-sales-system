@@ -251,7 +251,83 @@ async function fetchJournalsForSuggest({ accessToken, endDate, terms, fetchJourn
   return all;
 }
 
+/* 提案が出なかった「理由」を返す。
+ * これまでは null を返すだけで、画面には「該当する提案はありません」としか出なかった。
+ * 資産税の税理士から「割れているなら、何件がどの科目かを見せるべき。
+ * 黙って提案なしにすると、なぜ出ないのか分からない」と指摘された（2026-08-04）。
+ * 返り値: { kind, detail } — kind は 'ok'|'split'|'no_usable_side'|'no_history'|'thin' */
+function suggestDiagnosis(index, content, txSide) {
+  const useSide = comboSideForTransaction(txSide);
+  const rk = remarkKey(content);
+  const slot = rk && index.byRemark ? index.byRemark.get(rk) : null;
+
+  if (slot) {
+    const m = slot[useSide];
+    if (!m || !m.size) {
+      // 摘要は過去にあるが、その側が1本に定まる仕訳が無い（複合仕訳など）
+      return {
+        kind: 'no_usable_side',
+        detail: { side: useSide === 'credit' ? '貸方' : '借方' },
+      };
+    }
+    const all = Array.from(m.values());
+    const total = all.reduce((sum, v) => sum + v.count, 0);
+    all.sort((a, b) => b.count - a.count);
+    if (total > 0 && all[0].count / total < SUGGEST_MIN_RATIO) {
+      // 割れている。何がどれだけあるかをそのまま返す
+      return {
+        kind: 'split',
+        detail: {
+          total,
+          breakdown: all.slice(0, 5).map((v) => ({
+            account_name: v.combo.account_name || '(科目名なし)',
+            tax_name: v.combo.tax_name || '',
+            count: v.count,
+          })),
+        },
+      };
+    }
+    return { kind: 'ok', detail: {} };
+  }
+
+  // 摘要がまったく無い。語による近似も見てみる
+  const tokens = suggestTokens(content);
+  if (!tokens.length) return { kind: 'no_history', detail: { reason: 'ありふれた語しかありません' } };
+  const merged = new Map();
+  tokens.forEach((t) => {
+    const sl = index.byToken.get(t);
+    if (!sl || !sl[useSide]) return;
+    sl[useSide].forEach((v, key) => {
+      const cur = merged.get(key);
+      if (cur) cur.count += v.count;
+      else merged.set(key, { combo: v.combo, count: v.count });
+    });
+  });
+  if (!merged.size) return { kind: 'no_history', detail: {} };
+  const all = Array.from(merged.values());
+  const total = all.reduce((sum, v) => sum + v.count, 0);
+  all.sort((a, b) => b.count - a.count);
+  if (all[0].count / total < SUGGEST_MIN_RATIO) {
+    return {
+      kind: 'split',
+      detail: {
+        total, similar: true,
+        breakdown: all.slice(0, 5).map((v) => ({
+          account_name: v.combo.account_name || '(科目名なし)',
+          tax_name: v.combo.tax_name || '',
+          count: v.count,
+        })),
+      },
+    };
+  }
+  if (all[0].count < SUGGEST_SIMILAR_MIN_COUNT) {
+    return { kind: 'thin', detail: { count: all[0].count, need: SUGGEST_SIMILAR_MIN_COUNT } };
+  }
+  return { kind: 'ok', detail: {} };
+}
+
 module.exports = {
+  suggestDiagnosis,
   SUGGEST_ENOUGH_JOURNALS,
   SUGGEST_SIMILAR_MIN_COUNT,
   addDaysStr,

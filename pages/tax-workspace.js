@@ -1892,15 +1892,42 @@ async function txwLoadSuggestions(items, gen) {
     var rowRefs = txwListRowRefsByTx[txId];
     if (rowRefs) txwApplySuggestionToRow(rowRefs, suggestions[txId]);
   });
-  txwFillNoSuggestionText(payloadItems, suggestions, failNote);
+  txwFillNoSuggestionText(payloadItems, suggestions, failNote, data.reasons || {});
+}
+
+/* 提案が出なかった理由を日本語にする。
+ * 「該当する提案はありません」だけだと、なぜ出ないのかが分からず
+ * 税理士が自分で過去を調べ直すことになる（資産税の税理士の指摘・2026-08-04）。 */
+function txwSuggestReasonText(d) {
+  if (!d) return '該当する提案はありません';
+  if (d.kind === 'split') {
+    var b = (d.detail && d.detail.breakdown) || [];
+    var head = (d.detail && d.detail.similar) ? '似た摘要の過去の仕訳が' : '同じ摘要の過去の仕訳が';
+    var list = b.map(function (x) {
+      return x.account_name + (x.tax_name ? '／' + x.tax_name : '') + ' ' + x.count + '件';
+    }).join('・');
+    return head + '科目で割れているため、自動では入れていません（' + list + '）。'
+      + 'どちらかはご自身でご判断ください。';
+  }
+  if (d.kind === 'no_usable_side') {
+    return '同じ摘要の過去の仕訳はありますが、' + ((d.detail && d.detail.side) || '')
+      + 'が1本に定まらない仕訳（複合仕訳など）ばかりのため、参考にできませんでした。';
+  }
+  if (d.kind === 'thin') {
+    return '似た摘要が' + ((d.detail && d.detail.count) || 0) + '件しかなく、根拠として弱いので入れていません。';
+  }
+  if (d.kind === 'no_history') {
+    return '同じ摘要・似た摘要の過去の仕訳が見つかりませんでした（初めての取引先かもしれません）。';
+  }
+  return '該当する提案はありません';
 }
 
 // 一覧表示の「提案の根拠」欄: 提案が無い(=suggestionsにキーが無い)行を
 // 「提案を確認中…」のまま止めず、「該当する提案はありません」で確定させる。
-function txwFillNoSuggestionText(payloadItems, suggestions, failNote) {
-  var text = failNote || '該当する提案はありません';
+function txwFillNoSuggestionText(payloadItems, suggestions, failNote, reasons) {
   (payloadItems || []).forEach(function (it) {
     if (suggestions[it.transaction_id]) return;
+    var text = failNote || txwSuggestReasonText(reasons && reasons[it.transaction_id]);
     var rowRefs = txwListRowRefsByTx[it.transaction_id];
     if (rowRefs && rowRefs.reasonText.textContent === '提案を確認中…') {
       rowRefs.reasonText.textContent = text;
@@ -3131,6 +3158,152 @@ function txwRenderMonthlySignIssues(data) {
   });
 }
 
+// ④ 貸借対照表の確認(bs)。行データはaccount/parent/valueなど固定の形（候補検索ボタンは無い＝
+// APIがcandidate_transaction_idsを返さないため作らない）。
+function txwRenderMonthlyBsItemList(containerId, rows, textFn, cls) {
+  var list = document.getElementById(containerId);
+  clearEl(list);
+  var arr = Array.isArray(rows) ? rows : [];
+  if (!arr.length) {
+    list.appendChild(el('div', { class: 'evidence-empty', text: '該当する科目はありません。' }));
+    return;
+  }
+  arr.forEach(function (row) {
+    var item = el('div', { class: 'txw-monthly-item ' + cls });
+    item.appendChild(el('div', { class: 'txw-mi-title', text: textFn(row) }));
+    list.appendChild(item);
+  });
+}
+
+function txwRenderMonthlyBs(data) {
+  var bs = data.bs || null;
+  var unavailBox = document.getElementById('txwMonthlyBsUnavailable');
+  var suppressedBox = document.getElementById('txwMonthlyBsSuppressedNote');
+  var body = document.getElementById('txwMonthlyBsBody');
+
+  // available:false のときは「異常なし」と誤解させないよう、必ず理由を出す。
+  if (!bs || bs.available === false) {
+    unavailBox.style.display = 'block';
+    unavailBox.textContent = '貸借対照表の確認は表示できません。'
+      + ((bs && bs.reason) ? String(bs.reason) : '理由不明のため取得できませんでした。');
+    suppressedBox.style.display = 'none';
+    suppressedBox.textContent = '';
+    body.style.display = 'none';
+    return;
+  }
+  unavailBox.style.display = 'none';
+  unavailBox.textContent = '';
+  body.style.display = 'block';
+
+  // 登録が途中のとき、サーバーはnegative/changed/equityを空で返しsuppressedに件数を入れる(§bs仕様)。
+  // 黙って0件に見せず、必ず件数を伝える。
+  var suppressed = Number(bs.suppressed) || 0;
+  if (suppressed > 0) {
+    suppressedBox.style.display = 'block';
+    suppressedBox.textContent = '※ 登録が途中のため、残高のマイナス・急な増減・純資産の確認 '
+      + suppressed + '件は表示していません。登録が終わってからもう一度ご覧ください。';
+  } else {
+    suppressedBox.style.display = 'none';
+    suppressedBox.textContent = '';
+  }
+
+  txwRenderMonthlyBsItemList('txwMonthlyBsFrozenList', bs.frozen, function (row) {
+    return row.account + '（' + row.parent + '）' + yen(row.value) + 'が' + row.months + 'ヶ月間まったく動いていません。'
+      + '棚卸を期末にまとめて行っている場合は正常です。そうでない場合は確認してください。';
+  }, 'warn');
+
+  txwRenderMonthlyBsItemList('txwMonthlyBsNegativeList', bs.negative, function (row) {
+    return row.account + ' ' + yen(row.value);
+  }, 'danger');
+
+  // 純資産のマイナス(債務超過)は不具合ではなく経営の状態。危険色ではなく注意色(amber)で、煽らない文言にする。
+  txwRenderMonthlyBsItemList('txwMonthlyBsEquityList', bs.equity, function (row) {
+    return row.account + ' ' + yen(row.value) + '。債務超過の状態です。';
+  }, 'warn');
+
+  txwRenderMonthlyBsItemList('txwMonthlyBsChangedList', bs.changed, function (row) {
+    return row.account + ' ' + yen(row.prev) + ' → ' + yen(row.value);
+  }, 'warn');
+}
+
+// ⑤ 事業区分別の課税売上高(sales_by_tax)。simple_taxがtrueのときだけ区画ごと出す。
+// 正誤の判定はしない。区画の最後に必ず「区分の正誤はこの画面では判定できない」旨を出す。
+function txwRenderMonthlySalesByTax(data) {
+  var section = document.getElementById('txwMonthlySalesByTaxSection');
+  var s = data.sales_by_tax;
+  if (!s || s.simple_tax !== true) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+
+  var wrap = document.getElementById('txwMonthlySalesByTaxTableWrap');
+  clearEl(wrap);
+  var months = Array.isArray(s.months) ? s.months : [];
+  var rows = Array.isArray(s.rows) ? s.rows : [];
+
+  var table = el('table');
+  var thead = el('thead');
+  var htr = el('tr');
+  htr.appendChild(el('th', { text: '事業区分（税区分）' }));
+  months.forEach(function (m) { htr.appendChild(el('th', { class: 'num', text: txwMonthlyFormatYearMonth(m) })); });
+  htr.appendChild(el('th', { class: 'num', text: '合計' }));
+  thead.appendChild(htr);
+  table.appendChild(thead);
+
+  var tbody = el('tbody');
+  if (!rows.length) {
+    var trEmpty = el('tr');
+    trEmpty.appendChild(el('td', { colspan: String(months.length + 2), class: 'evidence-empty', text: '該当する税区分はありません。' }));
+    tbody.appendChild(trEmpty);
+  } else {
+    rows.forEach(function (r) {
+      var tr = el('tr');
+      tr.appendChild(el('td', { text: r.tax_name }));
+      var rowTotal = 0;
+      (Array.isArray(r.values) ? r.values : []).forEach(function (v) {
+        var n = Number(v) || 0;
+        rowTotal += n;
+        tr.appendChild(el('td', { class: 'num', text: n.toLocaleString() }));
+      });
+      tr.appendChild(el('td', { class: 'num', text: rowTotal.toLocaleString() }));
+      tbody.appendChild(tr);
+    });
+
+    // 合計行はAPIが返したtotals(月ごと)をそのまま使う。行の再計算(月の合計)はしない。
+    var trTotal = el('tr');
+    trTotal.appendChild(el('td', { text: '合計', style: 'font-weight:900;' }));
+    var grand = 0;
+    (Array.isArray(s.totals) ? s.totals : []).forEach(function (v) {
+      var n = Number(v) || 0;
+      grand += n;
+      trTotal.appendChild(el('td', { class: 'num', style: 'font-weight:900;', text: n.toLocaleString() }));
+    });
+    trTotal.appendChild(el('td', { class: 'num', style: 'font-weight:900;', text: grand.toLocaleString() }));
+    tbody.appendChild(trTotal);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+
+  var shiftBox = document.getElementById('txwMonthlySalesByTaxShiftNote');
+  if (Array.isArray(s.shift) && s.shift.length) {
+    var parts = s.shift.map(function (x) {
+      return x.tax_name + ' ' + Math.round(x.prev_ratio * 100) + '% → ' + Math.round(x.ratio * 100) + '%';
+    });
+    shiftBox.style.display = 'block';
+    shiftBox.textContent = '構成比が大きく変わっています。' + parts.join('／') + '。区分の付け間違いが無いかご確認ください。';
+  } else {
+    shiftBox.style.display = 'none';
+    shiftBox.textContent = '';
+  }
+
+  // ⚠ 5,000万円を超えているかどうかの判定はしない。数字を出すだけ。
+  var annualBox = document.getElementById('txwMonthlySalesByTaxAnnualNote');
+  var monthsUsed = s.months_used != null ? s.months_used : 0;
+  annualBox.textContent = '直近' + monthsUsed + 'ヶ月の平均から年換算すると' + yen(s.annualized) + 'です'
+    + '（簡易課税は基準期間の課税売上高が5,000万円を超えると、翌々期から本則課税になります）。';
+}
+
 // 判定条件（criteriaの実際の値を使う。§5）
 function txwRenderMonthlyCriteria(data) {
   var c = data.criteria || {};
@@ -3148,6 +3321,8 @@ function txwRenderMonthlyCheck(data) {
   txwRenderMonthlyMissing(data);
   txwRenderMonthlyOutliers(data);
   txwRenderMonthlySignIssues(data);
+  txwRenderMonthlyBs(data);
+  txwRenderMonthlySalesByTax(data);
   txwRenderMonthlyCriteria(data);
 
   // しきい値入力欄を、サーバーが実際に使った値に合わせる(不正な入力は既定へ戻されるため)。
