@@ -1183,9 +1183,10 @@ function txwApplySuggestionToRow(refs, sugg) {
   var ratio = total > 0 ? count / total : 0;
   var pct = total > 0 ? Math.round(ratio * 100) : 0;
   var lastDateText = sugg.last_date ? txwFormatDateSlash(sugg.last_date) : '不明';
+  var kindText = (sugg.match_kind === 'exact') ? '摘要が同じ' : '摘要が似ている';
   var baseText = (total > count)
-    ? ('過去' + total + '件中' + count + '件（' + pct + '%・残り' + (total - count) + '件は別内容）')
-    : ('過去' + count + '件（一致していない仕訳はありません）');
+    ? (kindText + '過去' + total + '件中' + count + '件（' + pct + '%・残り' + (total - count) + '件は別内容）')
+    : (kindText + '過去' + count + '件（一致していない仕訳はありません）');
   refs.reasonText.textContent = baseText + '・最終 ' + lastDateText;
 
   // ⚠ 一覧には補助科目の欄が無い（カード表示にはある）。提案に補助科目が含まれていても
@@ -1610,8 +1611,13 @@ function txwApplySuggestion(refs, sugg) {
   var total = Number(sugg.total) || 0;
   var countText = (total > count) ? (total + '件中' + count + '件') : (count + '件');
   var lastDateText = sugg.last_date ? txwFormatDateSlash(sugg.last_date) : '不明';
+  // 摘要が完全に同じ過去の仕訳から入れたのか、語が似ているだけなのかで確からしさが違う。
+  // 同じ表現にすると、弱い根拠まで同じ強さに見えてしまう。
+  var kindText = (sugg.match_kind === 'exact')
+    ? '摘要がまったく同じ過去の仕訳'
+    : '摘要の一部が似ている過去の仕訳';
   refs.suggestText.textContent =
-    '前回の仕訳から入れています。確認してください。（過去' + countText + '・最終 ' + lastDateText + '）';
+    kindText + 'から入れています。確認してください。（過去' + countText + '・最終 ' + lastDateText + '）';
   refs.suggestNote.style.display = 'flex';
 }
 
