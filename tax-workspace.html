@@ -203,6 +203,20 @@ tr.txw-lt-row-done td { background: #f8fafc; color: #64748b; }
   /* 口座・カードの列。長い名前で表が崩れないように幅を抑える */
   .txw-lt-acct { max-width: 190px; font-size: 13px; color: #334155; }
   .btn-mini-on { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+  /* 口座・カードごとのまとまり（MFの画面と同じ並べ方） */
+  .txw-acct-head {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    margin: 18px 0 8px; padding: 8px 12px; border-radius: 8px;
+    background: #e2e8f0; border: 1px solid #cbd5e1;
+  }
+  .txw-acct-head:hover { background: #dbe3ec; }
+  .txw-acct-name { font-weight: 900; font-size: 15px; }
+  .txw-acct-toggle { margin-left: auto; font-size: 13px; color: #475569; font-weight: 800; }
+  tr.txw-lt-group > td {
+    background: #e2e8f0; font-weight: 900; cursor: pointer; padding: 8px 12px;
+  }
+  tr.txw-lt-group > td:hover { background: #dbe3ec; }
+  tr.txw-lt-group .txw-acct-toggle { float: right; }
 </style>
 </head>
 <body>

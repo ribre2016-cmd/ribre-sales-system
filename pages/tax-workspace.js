@@ -748,6 +748,40 @@ function txwClearUnmatchedFilter() {
   txwRenderUnmatched(txwUnmatchedAllItems, txwUnmatchedWritableCache);
 }
 
+/* 口座・カードごとにまとめる（MFの画面と同じ並べ方）。
+ * ひと続きの一覧だと「何の明細か分からない」という指摘を受けた対応（2026-08-04）。
+ * 件数の多い口座から並べる。開閉の状態は口座ごとに端末へ覚える。 */
+var TXW_ACCT_OPEN_KEY = 'ribre_txw_acct_closed';
+function txwLoadClosedAccts() {
+  try {
+    var raw = localStorage.getItem(TXW_ACCT_OPEN_KEY);
+    var arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+function txwSaveClosedAccts(list) {
+  try { localStorage.setItem(TXW_ACCT_OPEN_KEY, JSON.stringify(list || [])); } catch (e) {}
+}
+function txwIsAcctClosed(key) { return txwLoadClosedAccts().indexOf(key) >= 0; }
+function txwToggleAcct(key) {
+  var list = txwLoadClosedAccts();
+  var i = list.indexOf(key);
+  if (i >= 0) list.splice(i, 1); else list.push(key);
+  txwSaveClosedAccts(list);
+}
+
+// 明細を口座・カードごとに分ける。[{key, label, items}] を件数の多い順で返す
+function txwGroupByAccount(items) {
+  var map = {};
+  (items || []).forEach(function (tx) {
+    var k = txwAccountKey(tx);
+    if (!map[k]) map[k] = { key: k, label: txwAccountText(tx) || k, items: [] };
+    map[k].items.push(tx);
+  });
+  return Object.keys(map).map(function (k) { return map[k]; })
+    .sort(function (a, b) { return b.items.length - a.items.length; });
+}
+
 function txwRenderUnmatched(items, writable) {
   // 次回の絞り込み解除・再絞り込みで再取得なしに再描画できるよう、全件をここへ保持する。
   txwUnmatchedAllItems = items || [];
@@ -756,7 +790,6 @@ function txwRenderUnmatched(items, writable) {
   var container = document.getElementById('txwUnmatchedList');
   clearEl(container);
   txwRenderUnmatchedFilterBar();
-  txwRenderAcctFilterBar();
   var displayItems = txwUnmatchedFilteredItems(items);
   // 絞り込み中は「全体で何件あるか」も必ず添える。絞った件数だけを出すと
   // 未仕訳が減ったように見えてしまう。
@@ -797,7 +830,54 @@ function txwRenderUnmatched(items, writable) {
     return;
   }
 
-  displayItems.forEach(function (tx) {
+  /* 口座・カードごとにまとめて描く（MFの画面と同じ並べ方）。
+   * ⚠ 開閉は**表示の切り替えだけ**にして、行は必ず全部作る。
+   *   畳むたびに作り直すと、チェック済みの行の選択が消えてしまうため。 */
+  var groups = txwGroupByAccount(displayItems);
+  groups.forEach(function (g) {
+    var closed = txwIsAcctClosed(g.key);
+    var cardRows = [];
+    var listRows = [];
+
+    function applyOpen(open) {
+      cardRows.forEach(function (n) { n.style.display = open ? '' : 'none'; });
+      listRows.forEach(function (n) { n.style.display = open ? '' : 'none'; });
+    }
+
+    // --- カード表示の見出し ---
+    var gh = el('div', { class: 'txw-acct-head' });
+    gh.appendChild(el('span', { class: 'txw-acct-name', text: g.label }));
+    gh.appendChild(el('span', { class: 'chip chip-yellow', text: '未仕訳 ' + g.items.length + '件' }));
+    var ghToggle = el('span', { class: 'txw-acct-toggle', text: closed ? '開く ▸' : '閉じる ▾' });
+    gh.appendChild(ghToggle);
+    container.appendChild(gh);
+
+    // --- 一覧表示の見出し（表の中に1行として入れる） ---
+    var ghTd = null, ghTrToggle = null;
+    if (listTbody) {
+      var ghTr = document.createElement('tr');
+      ghTr.className = 'txw-lt-group';
+      ghTd = el('td', { colspan: '10' });
+      ghTd.appendChild(el('span', { class: 'txw-acct-name', text: g.label }));
+      ghTd.appendChild(el('span', { class: 'chip chip-yellow', text: '未仕訳 ' + g.items.length + '件', style: 'margin-left:8px;' }));
+      ghTrToggle = el('span', { class: 'txw-acct-toggle', text: closed ? '開く ▸' : '閉じる ▾' });
+      ghTd.appendChild(ghTrToggle);
+      ghTr.appendChild(ghTd);
+      listTbody.appendChild(ghTr);
+      ghTr.addEventListener('click', function () { toggle(); });
+    }
+    gh.addEventListener('click', function () { toggle(); });
+
+    function toggle() {
+      txwToggleAcct(g.key);
+      var open = !txwIsAcctClosed(g.key);
+      applyOpen(open);
+      var label = open ? '閉じる ▾' : '開く ▸';
+      ghToggle.textContent = label;
+      if (ghTrToggle) ghTrToggle.textContent = label;
+    }
+
+    g.items.forEach(function (tx) {
     var card = el('div', { class: 'jcard' });
 
     var head = el('div', { class: 'jcard-head' });
@@ -859,7 +939,14 @@ function txwRenderUnmatched(items, writable) {
     container.appendChild(card);
 
     // 一覧表示（新設）: 同じ明細のカードと行を両方作る。表示の切り替えはCSSのみ。
-    if (listTbody) listTbody.appendChild(txwBuildListRow(tx, writable));
+    if (listTbody) {
+      var ltr = txwBuildListRow(tx, writable);
+      listTbody.appendChild(ltr);
+      listRows.push(ltr);
+    }
+    cardRows.push(card);
+    });
+    applyOpen(!closed);
   });
 
   // 明細の描画はここで完了。suggestは続けて後から呼ぶが、描画をブロックしない(§A末尾)。
