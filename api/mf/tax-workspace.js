@@ -621,14 +621,46 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
 
   // §11.1-1: その月の未仕訳の残件数。これが無いと「月の途中」と「計上漏れ」を区別できない。
   let unjournalizedCount = null;
+  let unjournalized = [];
   try {
-    const txs = await fetchUnjournalizedTransactions({
+    unjournalized = await fetchUnjournalizedTransactions({
       accessToken, startDate: range.start, endDate: range.end,
     });
-    unjournalizedCount = txs.length;
+    unjournalizedCount = unjournalized.length;
   } catch (e) {
     unjournalizedCount = null; // 取れなくても月次チェック自体は出す
   }
+
+  // §11.1-3: 各科目について「その科目になりそうな未仕訳明細」を割り出す。
+  // ⚠ 銀行明細の摘要に勘定科目名は入っていない（「フリコミ ○○フドウサン」など）ので、
+  //   科目名で文字列検索しても当たらない。Phase 4 の提案（過去の仕訳から推定）を使う。
+  //   これが無いと「この科目の未仕訳明細をさがす」が常に0件になり、機能しない。
+  const candidatesByAccount = {};
+  if (unjournalized.length) {
+    try {
+      const dates = unjournalized.map((t) => String(t.date || '')).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+      if (dates.length) {
+        const endDate = dates[dates.length - 1];
+        const journals = await fetchJournals({
+          accessToken, startDate: addDays(endDate, -SUGGEST_LOOKBACK_DAYS), endDate,
+        });
+        const index = buildSuggestIndex(journals);
+        unjournalized.forEach((tx) => {
+          const s = suggestForContent(index, tx.content, tx.side);
+          const name = s && s.account_name;
+          if (!name) return;
+          if (!candidatesByAccount[name]) candidatesByAccount[name] = [];
+          candidatesByAccount[name].push(tx.id);
+        });
+      }
+    } catch (e) {
+      // 候補が出せなくても月次チェック自体は成立する（あれば便利、という位置づけ）
+      console.error('monthly_check: 候補の割り出しに失敗', e && e.message);
+    }
+  }
+  const withCandidates = (row) => Object.assign({}, row, {
+    candidate_transaction_ids: candidatesByAccount[row.account] || [],
+  });
 
   const inProgress = isMonthInProgress(range.end);
   // 登録が途中かどうか。未仕訳の残件数が取れなかったときは「途中かもしれない」側に倒す。
@@ -657,11 +689,11 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
     // 画面はこれを見て「参考表示」か「本気の警告」かを切り替える
     partial,
     criteria: { lookback: MC_DEFAULTS.lookback, ratio, min_diff: minDiff },
-    missing: inProgress ? [] : missing,
-    outliers: shownOutliers,
+    missing: (inProgress ? [] : missing).map(withCandidates),
+    outliers: shownOutliers.map(withCandidates),
     // 伏せた件数は必ず伝える。黙って減らすと「出ていない＝問題なし」を招く（§12）
     suppressed_low_outliers: suppressedLow,
-    sign_issues: signIssues,
+    sign_issues: signIssues.map(withCandidates),
     checked_by: advisor.email,
   });
 }

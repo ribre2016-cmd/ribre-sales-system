@@ -82,7 +82,7 @@ var txwRenderGen = 0;
  * txwUnmatchedFilter: ⑨の各行「この科目の未仕訳明細をさがす」から①タブへ渡す絞り込み条件。
  * txwUnmatchedAllItems/txwUnmatchedWritableCache: 直近のtxwLoad()で取得した①タブの全件を
  * 保持しておき、絞り込みのON/OFFだけで再取得なしに再描画できるようにする。 */
-var txwUnmatchedFilter = { active: false, account: '' };
+var txwUnmatchedFilter = { active: false, account: '', ids: [] };
 var txwUnmatchedAllItems = [];
 var txwUnmatchedWritableCache = false;
 // ⑨タブの直近の応答。確認記録(monthly_check_confirm)を送るときに件数を添えるため保持する。
@@ -622,8 +622,15 @@ function txwUpdateUnmatchedNote(writable) {
 // 明細の内容(content)にその科目名が含まれるものを残す。バーには「何で絞ったか」を明記する(§3)。
 function txwUnmatchedFilteredItems(items) {
   if (!txwUnmatchedFilter.active) return items || [];
-  var acc = txwUnmatchedFilter.account;
-  return (items || []).filter(function (tx) { return String((tx && tx.content) || '').indexOf(acc) >= 0; });
+  var ids = txwUnmatchedFilter.ids;
+  // ⑨が過去の仕訳から割り出した明細IDで絞る。
+  // ⚠ 銀行明細の摘要に勘定科目名は入っていない（「フリコミ ○○フドウサン」など）ので、
+  //   科目名の文字列一致で絞ると常に0件になる。IDで絞るのが唯一まともに当たる方法。
+  if (ids && ids.length) {
+    return (items || []).filter(function (tx) { return ids.indexOf(tx && tx.transaction_id) >= 0; });
+  }
+  // 候補が1件も割り出せなかった科目。**空振りを黙って隠さず、そのまま0件として見せる**
+  return [];
 }
 
 function txwRenderUnmatchedFilterBar() {
@@ -638,20 +645,30 @@ function txwRenderUnmatchedFilterBar() {
   clearBtn.addEventListener('click', txwClearUnmatchedFilter);
   row.appendChild(clearBtn);
   bar.appendChild(row);
+  var n = (txwUnmatchedFilter.ids || []).length;
   bar.appendChild(el('div', {
     style: 'margin-top:4px;',
-    text: '※ 取引内容に「' + txwUnmatchedFilter.account + '」を含むものを表示しています。'
+    text: n
+      ? ('※ 過去の仕訳から「' + txwUnmatchedFilter.account + '」になりそうだと推定した明細 '
+         + n + '件を表示しています。推定なので、違うものが混じっていることがあります。')
+      : ('※「' + txwUnmatchedFilter.account + '」になりそうな明細は見つかりませんでした。'
+         + 'この科目の取引は、過去の仕訳から推定できる摘要ではないのかもしれません。'
+         + '絞り込みを解除して全件からお探しください。')
   }));
 }
 
-// ⑨タブの各行から呼ぶ。①タブへ移動し、その科目名で実際に絞り込む。
-function txwFilterToUnmatched(account) {
-  txwUnmatchedFilter = { active: true, account: String(account || '') };
+// ⑨タブの各行から呼ぶ。①タブへ移動し、その科目の候補として割り出した明細だけを表示する。
+function txwFilterToUnmatched(account, ids) {
+  txwUnmatchedFilter = {
+    active: true,
+    account: String(account || ''),
+    ids: Array.isArray(ids) ? ids.slice() : [],
+  };
   txwGoTab('unmatched');
   txwRenderUnmatched(txwUnmatchedAllItems, txwUnmatchedWritableCache);
 }
 function txwClearUnmatchedFilter() {
-  txwUnmatchedFilter = { active: false, account: '' };
+  txwUnmatchedFilter = { active: false, account: '', ids: [] };
   txwRenderUnmatched(txwUnmatchedAllItems, txwUnmatchedWritableCache);
 }
 
@@ -1589,8 +1606,15 @@ function txwRenderMonthlyMissing(data) {
     var pastText = (Array.isArray(row.past) ? row.past : []).map(function (v) { return yen(v); }).join(' → ');
     item.appendChild(el('div', { class: 'txw-mi-title', text: row.account + ' — 過去: ' + pastText + ' → 当月 0円' }));
     var btnRow = el('div', { class: 'txw-mi-btnrow' });
-    var btn = el('button', { type: 'button', class: 'btn-mini', text: 'この科目の未仕訳明細をさがす' });
-    btn.addEventListener('click', function () { txwFilterToUnmatched(row.account); });
+    var n = (row.candidate_transaction_ids || []).length;
+    // 候補が0件のときにボタンだけ出すと、押して空振りしてから気づくことになる。
+    // 件数を先に見せて、無いなら押させない（§12「見つけられないもの」の考え方）。
+    var btn = el('button', {
+      type: 'button', class: 'btn-mini',
+      text: n ? ('この科目の未仕訳明細をさがす（候補 ' + n + '件）') : '候補になりそうな未仕訳明細はありません'
+    });
+    if (!n) btn.disabled = true;
+    btn.addEventListener('click', function () { txwFilterToUnmatched(row.account, row.candidate_transaction_ids); });
     btnRow.appendChild(btn);
     item.appendChild(btnRow);
     list.appendChild(item);
@@ -1635,8 +1659,15 @@ function txwRenderMonthlyOutliers(data) {
         + (multipleText ? '（' + multipleText + '）' : '')
     }));
     var btnRow = el('div', { class: 'txw-mi-btnrow' });
-    var btn = el('button', { type: 'button', class: 'btn-mini', text: 'この科目の未仕訳明細をさがす' });
-    btn.addEventListener('click', function () { txwFilterToUnmatched(row.account); });
+    var n = (row.candidate_transaction_ids || []).length;
+    // 候補が0件のときにボタンだけ出すと、押して空振りしてから気づくことになる。
+    // 件数を先に見せて、無いなら押させない（§12「見つけられないもの」の考え方）。
+    var btn = el('button', {
+      type: 'button', class: 'btn-mini',
+      text: n ? ('この科目の未仕訳明細をさがす（候補 ' + n + '件）') : '候補になりそうな未仕訳明細はありません'
+    });
+    if (!n) btn.disabled = true;
+    btn.addEventListener('click', function () { txwFilterToUnmatched(row.account, row.candidate_transaction_ids); });
     btnRow.appendChild(btn);
     btnRow.appendChild(el('a', {
       class: 'btn-mini', href: 'https://biz.moneyforward.com/', target: '_blank', rel: 'noopener noreferrer',
@@ -1664,8 +1695,15 @@ function txwRenderMonthlySignIssues(data) {
       text: row.account + ' — ' + monthLabel + 'が' + yen(row.value) + 'です。取消や振替が入っていないか確認してください。'
     }));
     var btnRow = el('div', { class: 'txw-mi-btnrow' });
-    var btn = el('button', { type: 'button', class: 'btn-mini', text: 'この科目の未仕訳明細をさがす' });
-    btn.addEventListener('click', function () { txwFilterToUnmatched(row.account); });
+    var n = (row.candidate_transaction_ids || []).length;
+    // 候補が0件のときにボタンだけ出すと、押して空振りしてから気づくことになる。
+    // 件数を先に見せて、無いなら押させない（§12「見つけられないもの」の考え方）。
+    var btn = el('button', {
+      type: 'button', class: 'btn-mini',
+      text: n ? ('この科目の未仕訳明細をさがす（候補 ' + n + '件）') : '候補になりそうな未仕訳明細はありません'
+    });
+    if (!n) btn.disabled = true;
+    btn.addEventListener('click', function () { txwFilterToUnmatched(row.account, row.candidate_transaction_ids); });
     btnRow.appendChild(btn);
     btnRow.appendChild(el('a', {
       class: 'btn-mini', href: 'https://biz.moneyforward.com/', target: '_blank', rel: 'noopener noreferrer',
