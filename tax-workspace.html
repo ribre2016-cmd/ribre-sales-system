@@ -156,6 +156,46 @@ tr:nth-child(even) td { background: #fafcff; }
 
 .txw-loading { text-align: center; padding: 24px; color: #64748b; font-weight: 700; font-size: 14px; }
 
+/* ---- Phase 6: ①未仕訳の明細・一覧表示（設計書§1・§10.1） ---- */
+.view-toggle { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 999px; overflow: hidden; }
+.view-toggle button { border: 0; background: #fff; padding: 7px 15px; font-size: 13px; font-weight: 900; cursor: pointer; color: #64748b; }
+.view-toggle button.active { background: #123a7a; color: #fff; }
+.view-toggle button + button { border-left: 1px solid #cbd5e1; }
+
+/* 横に長い表は表だけを横スクロールさせ、ページ本体は横に伸ばさない */
+.tblwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.list-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.list-table th { background: #eaf1fb; color: #334155; text-align: left; padding: 8px 8px; border: 1px solid #cbd5e1; white-space: nowrap; }
+.list-table td { padding: 6px 7px; border: 1px solid #e2e8f0; vertical-align: top; }
+.list-table td.num { text-align: right; white-space: nowrap; }
+.list-table tr:nth-child(even) td { background: #fafcff; }
+.list-table select, .list-table input[type=text] {
+  width: 100%; min-width: 96px; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 5px;
+  padding: 5px 6px; font: inherit; font-size: 13px; background: #fff;
+}
+.list-table select:disabled, .list-table input:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+.list-table input[type=checkbox] { transform: scale(1.15); }
+.list-table input[type=checkbox]:disabled { opacity: .4; }
+.list-hint { font-size: 11px; color: #94a3b8; font-weight: 800; margin-top: 3px; white-space: normal; min-width: 130px; }
+.evi-auto { font-size: 11.5px; margin-top: 4px; }
+.counter-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
+tr.txw-lt-lowmatch td { background: #fffbeb; }
+tr.txw-lt-row-done td { background: #f8fafc; color: #64748b; }
+
+.exec-toprow { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.exec-panel {
+  background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px 14px;
+  font-family: "Consolas", "SFMono-Regular", monospace; font-size: 13px; line-height: 2;
+  max-height: 320px; overflow-y: auto;
+}
+.exec-panel .exec-row { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid #1e293b; padding: 3px 0; }
+.exec-panel .exec-row:last-child { border-bottom: none; }
+.exec-ok { color: #4ade80; font-weight: 900; }
+.exec-fail { color: #f87171; font-weight: 900; }
+.exec-run { color: #facc15; font-weight: 900; }
+.exec-skip { color: #38bdf8; font-weight: 900; }
+.exec-info { color: #94a3b8; font-weight: 900; }
+
 @media (max-width: 900px) {
   table { font-size: 13.5px; }
   .tabs { flex-wrap: wrap; }
@@ -224,12 +264,78 @@ tr:nth-child(even) td { background: #fafcff; }
       <div class="panel-head">
         <div>
           <h2>未仕訳の明細</h2>
-          <div class="desc">口座に来た明細のうち、まだ仕訳が作られていないものです。</div>
+          <div class="desc">口座に来た明細のうち、まだ仕訳が作られていないものです。見た目は一覧でまとめて確認できますが、登録の実行はこれまでどおり1件ずつです。</div>
         </div>
-        <span class="chip chip-yellow" id="txwUnmatchedCount">-</span>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span class="chip chip-yellow" id="txwUnmatchedCount">-</span>
+          <div class="view-toggle">
+            <button type="button" id="txwViewBtnCard">カード表示</button>
+            <button type="button" id="txwViewBtnList" class="active">一覧表示</button>
+          </div>
+        </div>
       </div>
-      <div class="panel-body" id="txwUnmatchedList">
-        <div class="txw-loading">読み込み中…</div>
+      <div class="panel-body">
+        <!-- カード表示（Phase 1〜4から変更なし） -->
+        <div id="txwCardView" style="display:none;">
+          <div id="txwUnmatchedList">
+            <div class="txw-loading">読み込み中…</div>
+          </div>
+        </div>
+
+        <!-- 一覧表示（新設・設計書§1・§10.1。既定はこちら） -->
+        <div id="txwListView">
+          <div class="note info">一覧表示は「確認の単位」をまとめただけで、「実行の単位」は変わりません。チェックした行は1件ずつ順番にMFへ送られ、成功・失敗もMF仕訳登録の履歴も1件ごとに残ります。</div>
+
+          <div class="counter-row">
+            <span class="chip chip-blue" id="txwListCounter">0/20</span>
+            <span class="note" style="margin:0;">チェックした行数（上限20）。20件に達すると、残りの行のチェックボックスが自動で無効になります。</span>
+          </div>
+
+          <div class="tblwrap" style="margin-top:6px;">
+            <table class="list-table" id="txwListTable">
+              <thead>
+                <tr>
+                  <th></th><th>日付</th><th>摘要</th><th class="num">金額</th>
+                  <th>勘定科目</th><th>税区分</th><th>インボイス区分</th><th>提案の根拠</th><th>登録</th>
+                </tr>
+              </thead>
+              <tbody id="txwListTbody">
+                <tr><td colspan="9" class="txw-loading">読み込み中…</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="note warn" style="margin-top:14px;">
+            表の勘定科目・税区分・インボイス区分は<b>過去の仕訳から自動で入れた下書き</b>です。自動で選んだだけで正しいとは限りません。
+            特に根拠が黄色く「要確認」と付いている行は一致率が6〜8割にとどまるため、<b>各行の内容を確認してからチェックしてください</b>
+            （その場で修正、または［クリア］で下書きを空に戻せます）。
+          </div>
+          <div class="note danger" style="margin-top:8px;">
+            ⚠ 登録するとMFクラウド会計に仕訳が作られます。この画面から取り消すことはできません。
+            間違えた場合はMFクラウド会計の仕訳帳から編集・削除してください。
+          </div>
+
+          <div class="btn-row" style="justify-content: space-between; align-items: center; display:flex; flex-wrap:wrap; gap:10px;">
+            <div class="note" style="margin:0;">勘定科目とインボイス区分を選ぶと、その行をチェックできます。</div>
+            <button class="btn btn-primary" type="button" id="txwListRegisterBtn" disabled>チェックした0件を登録する</button>
+          </div>
+          <div class="note">
+            1回の実行は最大20行までです。実行はこれまでどおり1件ずつ順番に行われ、履歴も1件ずつ残ります。
+            <b>「全選択」ボタンはありません</b>（Shift+クリック、またはチェックした行にフォーカスしてShift+↑/↓で範囲を選べます）。
+          </div>
+
+          <div id="txwListExecWrap" style="display:none;margin-top:18px;">
+            <div class="exec-toprow">
+              <div class="note" style="margin-top:0;">チェックした行を1件ずつサーバーへ送っています。</div>
+              <button class="btn-mini" type="button" id="txwListAbortBtn" style="border-color:#fca5a5;color:#b91c1c;">中止</button>
+            </div>
+            <div class="exec-panel" id="txwListExecPanel"></div>
+            <div class="note warn" style="margin-top:8px;">
+              通信・サーバーエラーが連続3件起きると自動で止まります。「既に仕訳済みでした」はMF画面で先に処理された正常なすれ違いのため、失敗の数には数えません。
+              中止しても、すでに送信済みの行の登録は取り消されません。
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>

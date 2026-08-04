@@ -78,6 +78,21 @@ var txwSubAccountLookup = { labelToId: {}, options: [] };
 var txwCardRefsByTx = {};
 var txwRenderGen = 0;
 
+/* ---------------- Phase 6: ①一覧表示（設計書§1・§10.1） ----------------
+ * 「確認の単位」をまとめるだけで、「実行の単位」は変えない。一覧のチェック行は
+ * 1件ずつ順番に既存の action:'journalize' へ送る。サーバー（api/mf/tax-workspace.js）は
+ * 一切変更しない。カード表示（txwCardRefsByTx）とは別に、行ごとの入力欄への参照を持つ。
+ * 同じ明細のカードと行の両方が常にDOMに存在する（表示/非表示はCSSのみ）ため、
+ * どちらから登録しても両方に結果を反映し、件数（txwRefreshUnmatchedCount）を一致させる。 */
+var txwListRowRefsByTx = {};
+var txwListCheckedCount = 0;
+var txwListLastCheckedTx = null; // Shift+クリック/Shift+↑↓の起点
+var txwListRunning = false;      // 一括実行中は行の編集・チェックを触らせない
+var txwListAbort = false;
+var TXW_LIST_MAX_CHECK = 20;
+var TXW_UNMATCHED_VIEW_KEY = 'ribre_txw_unmatched_view';
+var txwUnmatchedView = 'list'; // 既定は一覧表示
+
 /* ---------------- ⑨ 月次チェック用の絞り込み(①タブと共有) ----------------
  * txwUnmatchedFilter: ⑨の各行「この科目の未仕訳明細をさがす」から①タブへ渡す絞り込み条件。
  * txwUnmatchedAllItems/txwUnmatchedWritableCache: 直近のtxwLoad()で取得した①タブの全件を
@@ -509,6 +524,16 @@ function txwMapError(data) {
   }
 }
 
+// 一覧表示のtbodyへ、表全体にまたがる1行だけのメッセージを出す（読み込み中・失敗・空）
+function txwListSetSingleMessage(text, cls) {
+  var tbody = document.getElementById('txwListTbody');
+  if (!tbody) return;
+  clearEl(tbody);
+  var tr = document.createElement('tr');
+  tr.appendChild(el('td', { colspan: '9', class: cls, text: text }));
+  tbody.appendChild(tr);
+}
+
 function txwSetLoading() {
   ['txwUnmatchedList', 'txwAwaitingBody', 'txwFilesBody'].forEach(function (id) {
     var e = document.getElementById(id);
@@ -516,6 +541,7 @@ function txwSetLoading() {
     e.appendChild(el('div', { class: 'txw-loading', text: '読み込み中…' }));
   });
   document.getElementById('txwUnmatchedCount').textContent = '-';
+  txwListSetSingleMessage('読み込み中…', 'txw-loading');
 }
 function txwSetLoadFailed() {
   ['txwUnmatchedList', 'txwAwaitingBody', 'txwFilesBody'].forEach(function (id) {
@@ -524,6 +550,7 @@ function txwSetLoadFailed() {
     e.appendChild(el('div', { class: 'evidence-empty', text: '読み込めませんでした。' }));
   });
   document.getElementById('txwUnmatchedCount').textContent = '-';
+  txwListSetSingleMessage('読み込めませんでした。', 'evidence-empty');
 }
 
 async function txwLoad() {
@@ -690,11 +717,28 @@ function txwRenderUnmatched(items, writable) {
   var myGen = txwRenderGen;
   txwCardRefsByTx = {};
 
+  // 一覧表示（Phase 6）: 実行中に月替え等で再描画されることは通常無いが、念のため状態を初期化する。
+  txwListRowRefsByTx = {};
+  txwListCheckedCount = 0;
+  txwListLastCheckedTx = null;
+  txwListRunning = false;
+  txwListAbort = false;
+  var listTbody = document.getElementById('txwListTbody');
+  var execWrap = document.getElementById('txwListExecWrap');
+  if (execWrap) execWrap.style.display = 'none';
+  var execPanel = document.getElementById('txwListExecPanel');
+  if (execPanel) clearEl(execPanel);
+  if (listTbody) clearEl(listTbody);
+
   if (!displayItems.length) {
-    container.appendChild(el('div', {
-      class: 'evidence-empty',
-      text: txwUnmatchedFilter.active ? 'この絞り込み条件に一致する明細はありません。' : '未仕訳の明細はありません。'
-    }));
+    var emptyMsg = txwUnmatchedFilter.active ? 'この絞り込み条件に一致する明細はありません。' : '未仕訳の明細はありません。';
+    container.appendChild(el('div', { class: 'evidence-empty', text: emptyMsg }));
+    if (listTbody) {
+      var trEmpty = document.createElement('tr');
+      trEmpty.appendChild(el('td', { colspan: '9', class: 'evidence-empty', text: emptyMsg }));
+      listTbody.appendChild(trEmpty);
+    }
+    txwListUpdateCounter();
     return;
   }
 
@@ -753,10 +797,14 @@ function txwRenderUnmatched(items, writable) {
 
     card.appendChild(body);
     container.appendChild(card);
+
+    // 一覧表示（新設）: 同じ明細のカードと行を両方作る。表示の切り替えはCSSのみ。
+    if (listTbody) listTbody.appendChild(txwBuildListRow(tx, writable));
   });
 
   // 明細の描画はここで完了。suggestは続けて後から呼ぶが、描画をブロックしない(§A末尾)。
   if (writable) txwLoadSuggestions(displayItems, myGen);
+  txwListUpdateCounter();
 }
 
 /* ---------------- Phase 3: 仕訳登録フォーム ---------------- */
@@ -908,11 +956,600 @@ function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
   body.appendChild(statusArea);
 }
 
+/* ================================================================
+ * Phase 6: ①一覧表示（一括確認リスト。設計書§1・§10.1）
+ * ・カード表示（上記）は変更しない。同じ明細についてカードと行の両方を毎回作り、
+ *   表示の切り替えはCSS(display)のみで行う。
+ * ・実行は既存どおり1件ずつ action:'journalize' を呼ぶだけ。サーバーは一切変更しない。
+ * ================================================================ */
+
+/* ---- カード表示／一覧表示の切り替え。既定は一覧表示・localStorageに記憶(txwSaveMonthと同じ書き方) ---- */
+function txwSaveUnmatchedView(v) {
+  try { if (v === 'card' || v === 'list') localStorage.setItem(TXW_UNMATCHED_VIEW_KEY, v); } catch (e) { /* 保存できなくても動作には影響しない */ }
+}
+function txwRestoreUnmatchedView() {
+  try {
+    var v = localStorage.getItem(TXW_UNMATCHED_VIEW_KEY);
+    if (v === 'card' || v === 'list') return v;
+  } catch (e) { /* 読めなければ既定へ */ }
+  return 'list';
+}
+function txwApplyUnmatchedView(v) {
+  txwUnmatchedView = (v === 'card') ? 'card' : 'list';
+  var cardBtn = document.getElementById('txwViewBtnCard');
+  var listBtn = document.getElementById('txwViewBtnList');
+  if (cardBtn) cardBtn.classList.toggle('active', txwUnmatchedView === 'card');
+  if (listBtn) listBtn.classList.toggle('active', txwUnmatchedView === 'list');
+  var cardView = document.getElementById('txwCardView');
+  var listView = document.getElementById('txwListView');
+  if (cardView) cardView.style.display = txwUnmatchedView === 'card' ? '' : 'none';
+  if (listView) listView.style.display = txwUnmatchedView === 'list' ? '' : 'none';
+}
+function txwViewSwitch(v) {
+  txwApplyUnmatchedView(v);
+  txwSaveUnmatchedView(v);
+}
+
+/* ---- 行の組み立て ---- */
+function txwBuildListRow(tx, writable) {
+  var tr = document.createElement('tr');
+  tr.className = 'txw-lt-row';
+  tr.dataset.tx = tx.transaction_id;
+
+  if (!writable) {
+    tr.appendChild(el('td', {}));
+    tr.appendChild(el('td', { text: tx.date || '(日付不明)' }));
+    tr.appendChild(el('td', { text: tx.content || '(内容なし)' }));
+    tr.appendChild(el('td', { class: 'num', text: yen(Math.abs(Number(tx.value) || 0)) }));
+    tr.appendChild(el('td', {
+      colspan: '5', class: 'evidence-empty',
+      text: 'この明細は閲覧のみです。仕訳の登録はMFクラウド会計の画面で行ってください。'
+    }));
+    return tr;
+  }
+
+  var refs = { txId: tx.transaction_id, tx: tx, tr: tr, rowState: { ready: false }, badgeEl: null };
+
+  // 0: チェック（必須項目が埋まるまでdisabled。§1.2）
+  var tdCheck = document.createElement('td');
+  var checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.disabled = true;
+  tdCheck.appendChild(checkbox);
+  var hint = el('div', { class: 'list-hint', text: '勘定科目とインボイス区分を選ぶと選択できます' });
+  tdCheck.appendChild(hint);
+  tr.appendChild(tdCheck);
+  refs.checkbox = checkbox;
+  refs.hint = hint;
+
+  // 1: 日付
+  tr.appendChild(el('td', { text: tx.date || '(日付不明)' }));
+
+  // 2: 摘要 + 証憑（§1.3: 日付・金額の完全一致候補が1件だけのときのみ、初期チェックONで一覧から添付可）
+  var tdContent = document.createElement('td');
+  tdContent.appendChild(el('div', { text: tx.content || '(内容なし)' }));
+  var cands = Array.isArray(tx.evidence_candidates) ? tx.evidence_candidates : [];
+  var exactMatches = cands.filter(function (ev) {
+    if (!ev || !ev.ocr_date || ev.ocr_date !== tx.date) return false;
+    if ((ev.ocr_currency || 'JPY') !== 'JPY') return false; // 外貨建ては金額照合の対象外(CLAUDE.md)
+    var amt = Number(ev.ocr_amount);
+    return Number.isFinite(amt) && amt === Math.abs(Number(tx.value) || 0);
+  });
+  if (exactMatches.length === 1) {
+    var ev0 = exactMatches[0];
+    var evLabel = document.createElement('label');
+    evLabel.className = 'evi-auto';
+    evLabel.style.display = 'flex';
+    evLabel.style.alignItems = 'center';
+    evLabel.style.gap = '5px';
+    evLabel.style.color = '#15803d';
+    evLabel.style.fontWeight = '800';
+    var evCb = document.createElement('input');
+    evCb.type = 'checkbox';
+    evCb.checked = true; // 完全一致1件だけ・初期チェックON
+    evLabel.appendChild(evCb);
+    evLabel.appendChild(document.createTextNode(
+      '証憑を添付する（日付・金額が完全一致：' + (ev0.file_name || '(ファイル名なし)') + '）'
+    ));
+    tdContent.appendChild(evLabel);
+    refs.evidenceCheckbox = evCb;
+    refs.evidenceId = ev0.evidence_id;
+  } else if (cands.length) {
+    tdContent.appendChild(el('div', {
+      class: 'evi-auto', style: 'color:#92400e;font-weight:800;',
+      text: '証憑候補があります。カード表示でご確認のうえ選んでください。'
+    }));
+  }
+  tr.appendChild(tdContent);
+
+  // 3: 金額
+  tr.appendChild(el('td', { class: 'num', text: yen(Math.abs(Number(tx.value) || 0)) }));
+
+  if (!txwMaster.loaded) {
+    tr.appendChild(el('td', {
+      colspan: '5', class: 'note danger', style: 'margin:0;',
+      text: '選択肢（勘定科目・税区分）を読み込めなかったため、この明細は登録できません。画面を再読み込みしてください。'
+    }));
+    return tr;
+  }
+
+  // 4: 勘定科目（カード表示と同じdatalist方式）
+  var tdAccount = document.createElement('td');
+  var accountInput = txwBuildSearchInput('txwAccountsDatalist', '必須：候補から選択');
+  tdAccount.appendChild(accountInput);
+  tr.appendChild(tdAccount);
+  refs.accountInput = accountInput;
+
+  // 5: 税区分
+  var tdTax = document.createElement('td');
+  var taxInput = txwBuildSearchInput('txwTaxesDatalist', '任意');
+  tdTax.appendChild(taxInput);
+  tr.appendChild(tdTax);
+  refs.taxInput = taxInput;
+
+  // 6: インボイス区分（カードと同じ選択肢）
+  var tdInvoice = document.createElement('td');
+  var invoiceSelect = document.createElement('select');
+  [
+    ['', '(未選択)'],
+    ['INVOICE_KIND_NOT_TARGET', '対象外'],
+    ['INVOICE_KIND_QUALIFIED', '適格'],
+    ['INVOICE_KIND_UNQUALIFIED_80', '8割控除'],
+  ].forEach(function (pair) {
+    var opt = document.createElement('option');
+    opt.value = pair[0];
+    opt.textContent = pair[1];
+    invoiceSelect.appendChild(opt);
+  });
+  tdInvoice.appendChild(invoiceSelect);
+  tr.appendChild(tdInvoice);
+  refs.invoiceSelect = invoiceSelect;
+
+  // 7: 提案の根拠 + クリア（§10.1-3・§10.1-4）
+  var tdReason = document.createElement('td');
+  tdReason.style.minWidth = '230px';
+  var reasonText = el('span', { text: '提案を確認中…' });
+  tdReason.appendChild(reasonText);
+  var clearBtn = el('button', { type: 'button', class: 'btn-mini', text: 'クリア' });
+  tdReason.appendChild(clearBtn);
+  tr.appendChild(tdReason);
+  refs.reasonText = reasonText;
+  refs.tdReason = tdReason;
+  refs.clearBtn = clearBtn;
+
+  // 8: 登録（この行だけ今すぐ1件登録したい場合用）
+  var tdReg = document.createElement('td');
+  var registerBtn = el('button', { type: 'button', class: 'btn btn-primary', text: '登録' });
+  registerBtn.disabled = true;
+  tdReg.appendChild(registerBtn);
+  var statusDiv = document.createElement('div');
+  tdReg.appendChild(statusDiv);
+  tr.appendChild(tdReg);
+  refs.registerBtn = registerBtn;
+  refs.statusDiv = statusDiv;
+
+  function updateRowEnabled() {
+    var okAccount = !!txwResolveId(txwAccountLookup, accountInput.value);
+    var okInvoice = !!invoiceSelect.value;
+    refs.rowState.ready = okAccount && okInvoice;
+    hint.style.display = refs.rowState.ready ? 'none' : '';
+    registerBtn.disabled = !refs.rowState.ready || txwListRunning;
+    if (!refs.rowState.ready) checkbox.checked = false;
+    txwListUpdateCounter();
+  }
+  refs.updateRowEnabled = updateRowEnabled;
+  accountInput.addEventListener('input', updateRowEnabled);
+  taxInput.addEventListener('input', updateRowEnabled);
+  invoiceSelect.addEventListener('change', updateRowEnabled);
+
+  checkbox.addEventListener('click', function (ev) {
+    if (checkbox.disabled) return;
+    txwListHandleShiftClick(refs, ev);
+  });
+  checkbox.addEventListener('change', function () { txwListUpdateCounter(); });
+  checkbox.addEventListener('keydown', function (ev) { txwListHandleShiftArrow(refs, ev); });
+
+  // クリア: 提案で入った3項目を空に戻す（§10.1-3）
+  clearBtn.addEventListener('click', function () {
+    accountInput.value = '';
+    taxInput.value = '';
+    invoiceSelect.value = '';
+    refs.reasonText.textContent = '該当する提案はありません';
+    if (refs.badgeEl) { refs.badgeEl.remove(); refs.badgeEl = null; }
+    tr.classList.remove('txw-lt-lowmatch');
+    updateRowEnabled();
+  });
+
+  registerBtn.addEventListener('click', function () { txwListRegisterOne(refs); });
+
+  txwListRowRefsByTx[tx.transaction_id] = refs;
+  return tr;
+}
+
+/* ---- 提案(suggest)の反映。ratioが6〜8割のときは要確認バッジ＋行を黄色に(§10.1-4) ---- */
+function txwApplySuggestionToRow(refs, sugg) {
+  if (!sugg) { refs.reasonText.textContent = '該当する提案はありません'; return; }
+  var accLabel = txwIdToLabel(txwAccountLookup, sugg.account_id);
+  var taxLabel = txwIdToLabel(txwTaxLookup, sugg.tax_id);
+  if (accLabel) refs.accountInput.value = accLabel;
+  if (taxLabel) refs.taxInput.value = taxLabel;
+  var validInvoiceKinds = ['INVOICE_KIND_NOT_TARGET', 'INVOICE_KIND_QUALIFIED', 'INVOICE_KIND_UNQUALIFIED_80'];
+  if (sugg.invoice_kind && validInvoiceKinds.indexOf(sugg.invoice_kind) >= 0) {
+    refs.invoiceSelect.value = sugg.invoice_kind;
+  }
+
+  var count = Number(sugg.count) || 0;
+  var total = Number(sugg.total) || 0;
+  var ratio = total > 0 ? count / total : 0;
+  var pct = total > 0 ? Math.round(ratio * 100) : 0;
+  var lastDateText = sugg.last_date ? txwFormatDateSlash(sugg.last_date) : '不明';
+  var baseText = (total > count)
+    ? ('過去' + total + '件中' + count + '件（' + pct + '%・残り' + (total - count) + '件は別内容）')
+    : ('過去' + count + '件（一致していない仕訳はありません）');
+  refs.reasonText.textContent = baseText + '・最終 ' + lastDateText;
+
+  // ⚠ 一覧には補助科目の欄が無い（カード表示にはある）。提案に補助科目が含まれていても
+  //    一覧から登録すると付かないため、**黙って落とさずその場で伝える**（§12の考え方）。
+  //    同じ明細をカードから登録した場合と結果が変わってしまうため。
+  if (refs.subHintEl) { refs.subHintEl.remove(); refs.subHintEl = null; }
+  if (sugg.sub_account_id) {
+    var subName = sugg.sub_account_name || '補助科目';
+    var hint = el('div', {
+      style: 'margin-top:2px;color:#92400e;font-weight:700;',
+      text: '※ 補助科目「' + subName + '」の提案がありますが、一覧には補助科目の欄がありません。'
+        + '付けたい場合はカード表示に切り替えて登録してください。'
+    });
+    refs.tdReason.appendChild(hint);
+    refs.subHintEl = hint;
+  }
+
+  if (refs.badgeEl) { refs.badgeEl.remove(); refs.badgeEl = null; }
+  var lowMatch = total > 0 && ratio >= 0.6 && ratio < 0.8;
+  refs.tr.classList.toggle('txw-lt-lowmatch', lowMatch);
+  if (lowMatch) {
+    var badge = el('span', { class: 'chip chip-yellow', text: '要確認', style: 'margin-left:6px;' });
+    refs.tdReason.insertBefore(badge, refs.clearBtn);
+    refs.badgeEl = badge;
+  }
+  refs.updateRowEnabled();
+}
+
+/* ---- Shift+クリック／Shift+↑↓ による範囲選択（§1.2・§10.1-5。マウス無しでも伸ばせる） ----
+ * 対象は「必須項目が埋まっている(disabledでない)行」のみ。DOM表示順で数える。 */
+function txwListEligibleRefsInOrder() {
+  var trs = Array.prototype.slice.call(document.querySelectorAll('#txwListTbody .txw-lt-row'));
+  var out = [];
+  trs.forEach(function (tr) {
+    var r = txwListRowRefsByTx[tr.dataset.tx];
+    if (r && r.rowState.ready) out.push(r);
+  });
+  return out;
+}
+function txwListCountChecked() {
+  var n = 0;
+  Object.keys(txwListRowRefsByTx).forEach(function (k) {
+    if (txwListRowRefsByTx[k].checkbox.checked) n++;
+  });
+  return n;
+}
+function txwListHandleShiftClick(refs, ev) {
+  var eligible = txwListEligibleRefsInOrder();
+  var idx = eligible.indexOf(refs);
+  if (ev.shiftKey && txwListLastCheckedTx) {
+    var lastIdx = -1;
+    eligible.forEach(function (r, i) { if (r.txId === txwListLastCheckedTx) lastIdx = i; });
+    if (lastIdx >= 0 && idx >= 0) {
+      var lo = Math.min(lastIdx, idx), hi = Math.max(lastIdx, idx);
+      var want = refs.checkbox.checked;
+      for (var i = lo; i <= hi; i++) {
+        // 上限20は「押してから弾かない」(§10.1-2)。伸ばしている途中で上限に届いたらそこで止める。
+        if (want && !eligible[i].checkbox.checked && txwListCountChecked() >= TXW_LIST_MAX_CHECK) break;
+        eligible[i].checkbox.checked = want;
+      }
+    }
+  }
+  txwListLastCheckedTx = refs.txId;
+  txwListUpdateCounter();
+}
+function txwListHandleShiftArrow(refs, ev) {
+  if (!ev.shiftKey || (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp')) return;
+  ev.preventDefault();
+  var eligible = txwListEligibleRefsInOrder();
+  var idx = eligible.indexOf(refs);
+  if (idx < 0) return;
+  var nextIdx = idx + (ev.key === 'ArrowDown' ? 1 : -1);
+  if (nextIdx < 0 || nextIdx >= eligible.length) return;
+  var target = eligible[nextIdx];
+  if (!target.checkbox.checked && txwListCountChecked() >= TXW_LIST_MAX_CHECK) return;
+  target.checkbox.checked = refs.checkbox.checked;
+  txwListLastCheckedTx = refs.txId;
+  txwListUpdateCounter();
+  try { target.checkbox.focus(); } catch (e) {}
+}
+
+/* ---- チェック数・カウンター・20行上限の反映（§10.1-2: 押してから弾かない） ---- */
+function txwListUpdateCounter() {
+  var refsList = Object.keys(txwListRowRefsByTx).map(function (k) { return txwListRowRefsByTx[k]; });
+  var n = 0;
+  refsList.forEach(function (r) {
+    // 登録済み・スキップ済みの行はDOMから作り直されており、checkboxへの参照が古い(切り離し済み)ため数えない。
+    if (r.tr.classList.contains('txw-lt-row-done')) return;
+    if (r.checkbox.checked) n++;
+  });
+  txwListCheckedCount = n;
+
+  var chip = document.getElementById('txwListCounter');
+  if (chip) chip.textContent = n + '/' + TXW_LIST_MAX_CHECK;
+
+  var btn = document.getElementById('txwListRegisterBtn');
+  if (btn) {
+    btn.textContent = 'チェックした' + n + '件を登録する';
+    btn.disabled = txwListRunning || n === 0;
+  }
+
+  if (txwListRunning) return; // 実行中のdisabled状態はtxwListSetRunningUiが管理する
+  refsList.forEach(function (r) {
+    if (r.tr.classList.contains('txw-lt-row-done')) return; // 登録済みの行は触らない
+    if (!r.rowState.ready) { r.checkbox.disabled = true; return; }
+    if (r.checkbox.checked) { r.checkbox.disabled = false; return; }
+    r.checkbox.disabled = n >= TXW_LIST_MAX_CHECK;
+  });
+}
+
+/* ---- 実行中は編集欄・チェックボックスを触れないようにする ---- */
+function txwListSetRunningUi(running) {
+  txwListRunning = running;
+  Object.keys(txwListRowRefsByTx).forEach(function (k) {
+    var r = txwListRowRefsByTx[k];
+    if (r.tr.classList.contains('txw-lt-row-done')) return;
+    r.checkbox.disabled = running || !r.rowState.ready || (!r.checkbox.checked && txwListCheckedCount >= TXW_LIST_MAX_CHECK);
+    r.accountInput.disabled = running;
+    r.taxInput.disabled = running;
+    r.invoiceSelect.disabled = running;
+    r.clearBtn.disabled = running;
+    r.registerBtn.disabled = running || !r.rowState.ready;
+    if (r.evidenceCheckbox) r.evidenceCheckbox.disabled = running;
+  });
+  var abortBtn = document.getElementById('txwListAbortBtn');
+  if (abortBtn) abortBtn.style.display = running ? '' : 'none';
+  var regBtn = document.getElementById('txwListRegisterBtn');
+  if (regBtn) regBtn.disabled = running || txwListCheckedCount === 0;
+  if (!running) txwListUpdateCounter();
+}
+
+/* ---- 1件のjournalize呼び出し（カード表示のtxwSubmitJournalと同じAPI・同じペイロード形） ----
+ * kind: 'server'（通信失敗・5xx・MF側失敗＝連続3件で自動停止の対象） /
+ *       'already'（既に仕訳済み＝正常なすれ違い。失敗数に入れない §10.1-1） /
+ *       'rejected'（入力内容の問題など。表示はするが自動停止のカウントには入れない） / 'auth'（要再ログイン） */
+async function txwListJournalizeRow(tx, refs) {
+  var accountId = txwResolveId(txwAccountLookup, refs.accountInput.value);
+  if (!accountId) return { ok: false, kind: 'rejected', message: '勘定科目を候補から選んでください。' };
+
+  var payload = { action: 'journalize', transaction_id: tx.transaction_id, date: tx.date, account_id: accountId };
+  var taxId = txwResolveId(txwTaxLookup, refs.taxInput.value);
+  if (taxId) payload.tax_id = taxId;
+  if (refs.invoiceSelect.value) payload.invoice_kind = refs.invoiceSelect.value;
+  if (refs.evidenceCheckbox && refs.evidenceCheckbox.checked && refs.evidenceId) {
+    payload.evidence_ids = [refs.evidenceId];
+  }
+
+  var result;
+  try {
+    result = await txwApiCall('journalize', payload);
+  } catch (e) {
+    return { ok: false, kind: 'server', message: '通信に失敗しました。ネットワークをご確認のうえ、もう一度お試しください。' };
+  }
+  if (result.status === 401) return { ok: false, kind: 'auth' };
+
+  var data = result.data || {};
+  if (!data.ok) {
+    if (data.error === 'already_journalized') return { ok: false, kind: 'already', data: data };
+    var isServerSide = result.status >= 500 || data.error === 'journalize_failed';
+    return { ok: false, kind: isServerSide ? 'server' : 'rejected', data: data, message: txwJournalizeErrorMessage(data) };
+  }
+  return { ok: true, data: data };
+}
+
+/* ---- 行ごとの「登録」（今すぐ1件だけ登録したい場合） ---- */
+async function txwListRegisterOne(refs) {
+  if (refs.registerBtn.disabled) return;
+  refs.registerBtn.disabled = true;
+  refs.registerBtn.textContent = '登録中…';
+  refs.checkbox.disabled = true;
+  refs.accountInput.disabled = true;
+  refs.taxInput.disabled = true;
+  refs.invoiceSelect.disabled = true;
+  refs.clearBtn.disabled = true;
+  clearEl(refs.statusDiv);
+
+  var r = await txwListJournalizeRow(refs.tx, refs);
+  if (r.kind === 'auth') { txwShowGate('ログインの有効期限が切れました。もう一度ログインしてください。'); return; }
+  if (r.ok) { txwMarkListRowDone(refs, r.data); return; }
+  if (r.kind === 'already') { txwMarkListRowSkipped(refs); return; }
+
+  // 失敗: 編集できる状態に戻し、エラーを表示する
+  refs.accountInput.disabled = false;
+  refs.taxInput.disabled = false;
+  refs.invoiceSelect.disabled = false;
+  refs.clearBtn.disabled = false;
+  refs.registerBtn.textContent = '登録';
+  refs.registerBtn.disabled = !refs.rowState.ready;
+  refs.checkbox.disabled = !refs.rowState.ready || (txwListCheckedCount >= TXW_LIST_MAX_CHECK && !refs.checkbox.checked);
+  refs.statusDiv.appendChild(el('div', {
+    class: 'note danger', style: 'margin:4px 0 0;padding:5px 7px;font-size:12px;',
+    text: r.message || '登録に失敗しました。'
+  }));
+}
+
+/* ---- 登録成功時: 行を畳んで結果を表示し、対応するカード（存在すれば）も畳んで件数を一致させる ---- */
+function txwMarkListRowDone(refs, data) {
+  refs.tr.classList.add('txw-lt-row-done');
+  refs.tr.classList.remove('txw-lt-lowmatch');
+  clearEl(refs.tr);
+  var wrap = el('div');
+  var msg = '登録しました（仕訳ID ' + (data && data.journal_id != null ? data.journal_id : '不明') + '）';
+  var attached = data && Array.isArray(data.attached) ? data.attached : [];
+  if (attached.length) msg += '　証憑' + attached.length + '件を添付しました。';
+  wrap.appendChild(el('div', { class: 'note ok', style: 'margin:0;', text: msg }));
+  var attachFailed = data && Array.isArray(data.attach_failed) ? data.attach_failed : [];
+  if (attachFailed.length) {
+    wrap.appendChild(el('div', {
+      class: 'note danger', style: 'margin:4px 0 0;',
+      text: '仕訳は登録できましたが、証憑' + attachFailed.length + '件の添付に失敗しました。'
+    }));
+  }
+  if (data && data.duplicate_warning) {
+    wrap.appendChild(el('div', {
+      class: 'note warn', style: 'margin:4px 0 0;',
+      text: '⚠ この明細から仕訳が' + data.duplicate_warning + '件見つかりました。MFの画面でご確認ください。'
+    }));
+  }
+  var td = document.createElement('td');
+  td.setAttribute('colspan', '9');
+  td.appendChild(wrap);
+  refs.tr.appendChild(td);
+
+  var cardRefs = txwCardRefsByTx[refs.txId];
+  if (cardRefs && cardRefs.card && !cardRefs.card.classList.contains('jcard-collapsed')) {
+    txwCollapseCardSuccess(cardRefs.card, data, refs.txId);
+  } else {
+    txwRefreshUnmatchedCount();
+  }
+  txwListUpdateCounter(); // 完了した行をチェック数・上限判定から外す
+}
+
+/* ---- 既に仕訳済み（他の操作との正常なすれ違い）: スキップとして畳む。失敗扱いにしない(§10.1-1) ---- */
+function txwMarkListRowSkipped(refs) {
+  refs.tr.classList.add('txw-lt-row-done');
+  refs.tr.classList.remove('txw-lt-lowmatch');
+  clearEl(refs.tr);
+  var td = document.createElement('td');
+  td.setAttribute('colspan', '9');
+  td.appendChild(el('div', {
+    class: 'note warn', style: 'margin:0;',
+    text: 'スキップ（想定内）：この明細は既に仕訳済みでした。画面を再読み込みすると一覧から消えます。'
+  }));
+  refs.tr.appendChild(td);
+
+  var cardRefs = txwCardRefsByTx[refs.txId];
+  if (cardRefs && cardRefs.card && !cardRefs.card.classList.contains('jcard-collapsed')) {
+    clearEl(cardRefs.card);
+    cardRefs.card.classList.add('jcard-collapsed');
+    cardRefs.card.appendChild(el('div', {
+      class: 'note warn', text: 'この明細は既に仕訳済みでした（他の操作で処理済みの可能性があります）。'
+    }));
+  }
+  txwRefreshUnmatchedCount();
+  txwListUpdateCounter(); // 完了した行をチェック数・上限判定から外す
+}
+
+/* ---- カード表示から登録されたとき、一覧側の同じ行も畳んでおく（逆方向の同期） ---- */
+function txwSyncListRowFromCard(txId, data) {
+  var rowRefs = txwListRowRefsByTx[txId];
+  if (!rowRefs || rowRefs.tr.classList.contains('txw-lt-row-done')) return;
+  rowRefs.tr.classList.add('txw-lt-row-done');
+  rowRefs.tr.classList.remove('txw-lt-lowmatch');
+  clearEl(rowRefs.tr);
+  var msg = '登録しました（仕訳ID ' + (data && data.journal_id != null ? data.journal_id : '不明') + '）';
+  var td = document.createElement('td');
+  td.setAttribute('colspan', '9');
+  td.appendChild(el('div', { class: 'note ok', style: 'margin:0;', text: msg }));
+  rowRefs.tr.appendChild(td);
+  txwListUpdateCounter(); // 完了した行をチェック数・上限判定から外す
+}
+
+/* ---- 実行中の見え方: 行を1本ずつ追加し、結果が出たら右側の状態だけ書き換える ---- */
+function txwListAppendExecRow(label) {
+  var panel = document.getElementById('txwListExecPanel');
+  var row = el('div', { class: 'exec-row' });
+  row.appendChild(el('span', { text: label }));
+  var right = el('span', { class: 'exec-run', text: '⏳ 実行中…' });
+  row.appendChild(right);
+  if (panel) panel.appendChild(row);
+  return right;
+}
+function txwListUpdateExecRow(rightEl, text, kind) {
+  if (!rightEl) return;
+  rightEl.textContent = text;
+  rightEl.className = 'exec-' + kind;
+}
+function txwListAppendPlainRow(text, kind) {
+  var panel = document.getElementById('txwListExecPanel');
+  if (!panel) return;
+  var row = el('div', { class: 'exec-row' });
+  row.appendChild(el('span', { text: text, class: 'exec-' + (kind || 'info') }));
+  panel.appendChild(row);
+}
+
+/* ---- 「チェックした◯件を登録する」: 1件ずつ順番に送るだけ。サーバーは変更しない(§1.2) ---- */
+async function txwListConfirm() {
+  if (txwListRunning) return;
+  var trs = Array.prototype.slice.call(document.querySelectorAll('#txwListTbody .txw-lt-row'));
+  var ordered = trs
+    .map(function (tr) { return txwListRowRefsByTx[tr.dataset.tx]; })
+    .filter(function (r) { return r && r.checkbox.checked && !r.tr.classList.contains('txw-lt-row-done'); });
+  var n = ordered.length;
+  if (!n) return;
+  if (n > TXW_LIST_MAX_CHECK) {
+    txwShowGlobalError('一度に登録できるのは' + TXW_LIST_MAX_CHECK + '行までです。');
+    return;
+  }
+  if (!window.confirm(n + '件を1件ずつ順番に登録します。よろしいですか？')) return;
+
+  txwListSetRunningUi(true);
+  txwListAbort = false;
+  var execWrap = document.getElementById('txwListExecWrap');
+  var execPanel = document.getElementById('txwListExecPanel');
+  if (execPanel) clearEl(execPanel);
+  if (execWrap) execWrap.style.display = '';
+
+  var consecutiveFail = 0;
+  for (var i = 0; i < ordered.length; i++) {
+    if (txwListAbort) {
+      txwListAppendPlainRow('中止しました。ここから先は送信していません。', 'info');
+      break;
+    }
+    var refs = ordered[i];
+    var tx = refs.tx;
+    var label = (tx.date || '') + '　' + (tx.content || '') + '　' + yen(Math.abs(Number(tx.value) || 0));
+    var rightEl = txwListAppendExecRow(label);
+
+    var r = await txwListJournalizeRow(tx, refs);
+    if (r.kind === 'auth') {
+      txwShowGate('ログインの有効期限が切れました。もう一度ログインしてください。');
+      return;
+    }
+    if (r.ok) {
+      txwListUpdateExecRow(rightEl, '✓ 登録済み（仕訳ID ' + (r.data.journal_id != null ? r.data.journal_id : '不明') + '）', 'ok');
+      txwMarkListRowDone(refs, r.data);
+      consecutiveFail = 0;
+    } else if (r.kind === 'already') {
+      txwListUpdateExecRow(rightEl, 'スキップ（想定内）: 既に仕訳済みでした', 'skip');
+      txwMarkListRowSkipped(refs);
+      consecutiveFail = 0;
+    } else {
+      txwListUpdateExecRow(rightEl, '✗ 失敗: ' + (r.message || '登録に失敗しました。'), 'fail');
+      // §10.1-1: 数えるのは通信・サーバーエラーだけ。already_journalizedや入力内容の問題は数えない。
+      consecutiveFail = (r.kind === 'server') ? (consecutiveFail + 1) : 0;
+      if (consecutiveFail >= 3) {
+        txwListAppendPlainRow('通信・サーバーエラーが3件連続したため、ここで自動的に停止しました。', 'info');
+        break;
+      }
+    }
+  }
+
+  txwListSetRunningUi(false);
+}
+function txwListAbortRun() {
+  txwListAbort = true;
+}
+
 /* ---------------- Phase 4: 過去の仕訳からの提案(suggest) ---------------- */
 // suggestは補助機能。失敗しても明細一覧の表示・登録操作には一切影響させない。
 async function txwLoadSuggestions(items, gen) {
   var payloadItems = (items || [])
-    .filter(function (tx) { return tx && txwCardRefsByTx[tx.transaction_id]; })
+    // カード表示・一覧表示のどちらかにその明細の入力欄がある(=writable)ものだけ対象にする。
+    .filter(function (tx) { return tx && (txwCardRefsByTx[tx.transaction_id] || txwListRowRefsByTx[tx.transaction_id]); })
     .slice(0, 200)
     // side（入金か出金か）は必須。サーバーはこれで借方・貸方どちらを提案に使うか決める。
     // 入金の明細で借方を見ると「普通預金」を提案してしまう（MFが自動で埋める側のため）。
@@ -923,6 +1560,8 @@ async function txwLoadSuggestions(items, gen) {
   try {
     result = await txwApiCall('suggest', { items: payloadItems });
   } catch (e) {
+    if (gen !== txwRenderGen) return;
+    txwFillNoSuggestionText(payloadItems, {});
     return; // 通信失敗。提案が入らないだけで、明細自体は普通に操作できる
   }
   if (gen !== txwRenderGen) return; // その間に月が変わる等で描画し直されていたら捨てる
@@ -932,9 +1571,23 @@ async function txwLoadSuggestions(items, gen) {
   // 空(または存在しない)ものとして扱い、画面は通常どおり操作できる状態のままにする。
   var suggestions = (data.ok && data.suggestions && typeof data.suggestions === 'object') ? data.suggestions : {};
   Object.keys(suggestions).forEach(function (txId) {
-    var refs = txwCardRefsByTx[txId];
-    if (!refs) return; // 応答にキーはあるが、writableでない/描画されていないカードは無視
-    txwApplySuggestion(refs, suggestions[txId]);
+    var cardRefs = txwCardRefsByTx[txId];
+    if (cardRefs) txwApplySuggestion(cardRefs, suggestions[txId]);
+    var rowRefs = txwListRowRefsByTx[txId];
+    if (rowRefs) txwApplySuggestionToRow(rowRefs, suggestions[txId]);
+  });
+  txwFillNoSuggestionText(payloadItems, suggestions);
+}
+
+// 一覧表示の「提案の根拠」欄: 提案が無い(=suggestionsにキーが無い)行を
+// 「提案を確認中…」のまま止めず、「該当する提案はありません」で確定させる。
+function txwFillNoSuggestionText(payloadItems, suggestions) {
+  (payloadItems || []).forEach(function (it) {
+    if (suggestions[it.transaction_id]) return;
+    var rowRefs = txwListRowRefsByTx[it.transaction_id];
+    if (rowRefs && rowRefs.reasonText.textContent === '提案を確認中…') {
+      rowRefs.reasonText.textContent = '該当する提案はありません';
+    }
   });
 }
 
@@ -1003,7 +1656,8 @@ function txwJournalizeErrorMessage(data) {
 }
 
 // 登録成功時: カードを畳んで結果を表示する(§B)。仕訳の成功と証憑添付の失敗は必ず分けて表示する。
-function txwCollapseCardSuccess(card, data) {
+// transactionId を渡すと、一覧表示の同じ行（存在すれば）も畳んで両表示の状態・件数を一致させる。
+function txwCollapseCardSuccess(card, data, transactionId) {
   clearEl(card);
   card.classList.add('jcard-collapsed');
   var attached = Array.isArray(data.attached) ? data.attached : [];
@@ -1030,6 +1684,7 @@ function txwCollapseCardSuccess(card, data) {
   // 次の未登録カードの最初の入力欄へ移す。
   // 件数をまたぐ連続作業でマウスに持ち替えずに済む。
   txwFocusNextCard(card);
+  if (transactionId) txwSyncListRowFromCard(transactionId, data);
 }
 
 // まだ登録していないカードの数を数え直して表示する
@@ -1112,7 +1767,7 @@ async function txwSubmitJournal(tx, refs) {
     return;
   }
 
-  txwCollapseCardSuccess(refs.card, data);
+  txwCollapseCardSuccess(refs.card, data, tx.transaction_id);
 }
 
 /* ---------------- ② 仕訳待ちの証憑 ---------------- */
@@ -1893,6 +2548,13 @@ function txwInit() {
   document.getElementById('txwMonthlyRecheckBtn').addEventListener('click', txwLoadMonthlyCheck);
   document.getElementById('txwMonthlyConfirmCheck').addEventListener('change', txwMonthlyConfirmToggle);
   document.getElementById('txwMonthlyConfirmBtn').addEventListener('click', txwMonthlyConfirmRecord);
+
+  // ①未仕訳の明細: カード表示／一覧表示の切り替え（既定は一覧表示。端末に記憶する）
+  document.getElementById('txwViewBtnCard').addEventListener('click', function () { txwViewSwitch('card'); });
+  document.getElementById('txwViewBtnList').addEventListener('click', function () { txwViewSwitch('list'); });
+  txwApplyUnmatchedView(txwRestoreUnmatchedView());
+  document.getElementById('txwListRegisterBtn').addEventListener('click', txwListConfirm);
+  document.getElementById('txwListAbortBtn').addEventListener('click', txwListAbortRun);
 
   var monthInput = document.getElementById('txwMonth');
   monthInput.value = txwRestoreMonth();
