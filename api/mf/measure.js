@@ -170,5 +170,72 @@ module.exports = async (req, res) => {
     })),
   };
 
+  // ---- 提案の診断: なぜ勘定科目が入らないのかを実データで見る ----
+  // 画面に「該当する提案はありません」しか出ない原因を切り分けるため。
+  try {
+    const {
+      buildSuggestIndex, suggestForContent, comboSideForTransaction,
+      remarkKey, journalCombos, SUGGEST_LOOKBACK_DAYS,
+    } = require('./_lib/suggest-core');
+    const { fetchJournals } = require('./_lib/mf-match-core');
+    const { fetchUnjournalizedTransactions } = require('./_lib/mf-client');
+
+    const today = new Date().toISOString().slice(0, 10);
+    const monthStart = today.slice(0, 8) + '01';
+    // 対象は「先月」。7月分を見たいので、当月ではなく直近90日から拾う
+    const from = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+
+    const txs = await fetchUnjournalizedTransactions({
+      accessToken, startDate: from, endDate: today,
+    });
+    const dates = txs.map((t) => String(t.date || '')).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+    const endDate = dates.length ? dates[dates.length - 1] : today;
+    const startDate = new Date(new Date(endDate).getTime() - SUGGEST_LOOKBACK_DAYS * 24 * 3600 * 1000)
+      .toISOString().slice(0, 10);
+
+    const journals = await fetchJournals({ accessToken, startDate, endDate });
+    const index = buildSuggestIndex(journals);
+
+    // 索引に入った摘要の中身を少しだけ見る（何が材料になっているか）
+    const remarkKeys = Array.from(index.byRemark.keys());
+    // 仕訳のうち、借方・貸方どちらかが1本に定まったもの（＝材料にできたもの）
+    let usable = 0, multi = 0;
+    journals.forEach((j) => {
+      const c = journalCombos(j);
+      if (c.debit || c.credit) usable++; else multi++;
+    });
+
+    const sample = txs.slice(0, 12).map((t) => {
+      const rk = remarkKey(t.content);
+      const side = comboSideForTransaction(t.side);
+      const slot = index.byRemark.get(rk);
+      const m = slot && slot[side];
+      const s = suggestForContent(index, t.content, t.side);
+      return {
+        摘要: t.content,
+        収支: t.side,
+        見る側: side === 'credit' ? '貸方' : '借方',
+        同じ摘要の仕訳が索引にあるか: slot ? 'ある' : 'ない',
+        その側の候補数: m ? m.size : 0,
+        提案: s ? (s.account_name + '／' + (s.tax_name || '-') + '／' + (s.invoice_kind || '-')
+          + '（' + s.match_kind + '・' + s.count + '/' + s.total + '）') : '提案なし',
+      };
+    });
+
+    out.results.suggest_diag = {
+      判定: sample.some((x) => x['提案'] !== '提案なし') ? '○ 提案が出ている' : '× どれも提案が出ていない',
+      材料の期間: startDate + ' 〜 ' + endDate,
+      材料の仕訳件数: journals.length,
+      うち材料にできた仕訳: usable,
+      うち複合仕訳などで使えなかった仕訳: multi,
+      索引に入った摘要の種類: remarkKeys.length,
+      索引の摘要の例: remarkKeys.slice(0, 15),
+      未仕訳の明細: txs.length,
+      明細ごとの結果: sample,
+    };
+  } catch (e) {
+    out.results.suggest_diag = { 判定: '× 例外', message: String(e && e.message || e), stack: String(e && e.stack || '').slice(0, 400) };
+  }
+
   res.status(200).json(out);
 };
