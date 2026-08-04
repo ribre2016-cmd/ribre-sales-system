@@ -160,7 +160,10 @@ async function fetchSharedFiles() {
         ts: meta.ts || 0,
         month,
         attachable: ATTACHABLE_EXT_RE.test(meta.name || key),
-        url: `${SUPABASE_URL}/storage/v1${signData.signedURL}`,
+        // ⚠ download= を付けないと、保存時のキー（日時つきの内部名）でダウンロードされる。
+        //   税理士が受け取ったときに何のファイルか分からなくなるため必ず元の名前を渡す。
+        //   api/mf/evidence-action.js は同じ理由で先に対応済み（そちらに合わせた）。
+        url: `${SUPABASE_URL}/storage/v1${signData.signedURL}&download=${encodeURIComponent(meta.name || key.split('/').pop())}`,
       });
     }
   }

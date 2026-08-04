@@ -1163,7 +1163,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
           <div class="flow-arrow">→</div>
           <div class="flow-step done"><b>④ あとは普通の登録</b><span>勘定科目を選んで登録するだけ</span></div>
         </div>
-        <div class="note info">貸方（お金の出どころ）は、明細が属する口座（現金など）にMFが自動で結び付けます。<b>この画面で借方・貸方を両方決める必要はありません</b>。「事業主借か役員借入金か」をこの画面で迷うこともありません（詳しくは「用語の説明」→役員借入金）。</div>
+        <div class="note info">貸方（お金の出どころ）は、明細が属する口座にMFが自動で結び付けます。<b>この画面で借方・貸方を両方決める必要はありません</b>。<br><span style="color:#7c2d12;">※ 以前のモックでは貸方の例として「事業主借」「役員借入金」を挙げていましたが、<b>どちらもこの会社の勘定科目マスタに存在しません</b>（199科目を実測して確認）。実在する現金系の科目は「現金」「小口現金」です。<b>設計書やモックに勘定科目名を書くときは、必ずマスタで実在を確かめてから書く</b>ことにしました。</span></div>
 
         <div class="section-title" style="margin-top:20px;">領収書</div>
         <div style="border:2px dashed #94a3b8;border-radius:10px;padding:26px 16px;text-align:center;color:#475569;font-weight:900;font-size:14.5px;cursor:pointer;background:#f8fafc;margin-bottom:14px;" onclick="mockToast()">
@@ -1588,7 +1588,7 @@ tr.lt-lowmatch td { background: #fffbeb; }
             <tr><td>証憑不要</td><td><b>この画面だけの印</b>です。振込手数料など、そもそも領収書が存在しない取引を「資料待ち」のリストから消すために使います。MFには何も送りません。取り消せます。</td></tr>
             <tr><td>証憑（しょうひょう）</td><td>領収書・請求書など、取引の証拠になる書類のことです。</td></tr>
             <tr><td>マッチ待ち</td><td>証憑の添付先になる仕訳がまだ無く、できるのを待っている状態です。失敗ではありません。</td></tr>
-            <tr><td>役員借入金</td><td>役員が個人のお金で会社の支払いを立て替えたときに使う勘定科目です。会社が役員に返す義務がある「借り入れ」として扱います（⑦現金払いの貸方に関連しますが、この画面で選ぶことはありません。MFが自動で結び付けます）。</td></tr>
+            
             <tr><td>資料待ち</td><td>まだ証憑（領収書等）が届いていない明細のことです。この状態自体は異常ではありません（⑩資料の受け取りタブで扱います）。</td></tr>
             <tr><td>質問</td><td>税理士から顧客（RIBRE）へ、取引の内容を尋ねるメッセージです。顧客側の画面に表示され、回答するとその取引の行に記録されます（質問と回答タブ）。</td></tr>
           </tbody>
