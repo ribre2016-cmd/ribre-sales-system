@@ -37,8 +37,9 @@ const CONFIRM_WORD = 'P7B-WRITE-AND-DELETE';
 // 実測に使う勘定科目。**内容の分からない入出金を一時的に置くための科目**を選ぶ。
 // 万一 DELETE が効かずに仕訳が残っても、誤った科目で記帳されたことにはならず、
 // 税理士があとで振り替えれば済む形にしておく。
-const ACCOUNT_FOR_PAYMENT = '仮払金';   // 支出（お金が出た）側の相手科目
-const ACCOUNT_FOR_RECEIPT = '仮受金';   // 収入（お金が入った）側の相手科目
+// 事業者によって用意されている科目が違うので、前から順に探す
+const ACCOUNT_FOR_PAYMENT = ['仮払金', '立替金', '前払金'];   // 支出（お金が出た）側の相手科目
+const ACCOUNT_FOR_RECEIPT = ['仮受金', '預り金', '前受金'];   // 収入（お金が入った）側の相手科目
 const TAX_NOT_TARGET = '対象外';
 
 async function mfJson(method, path, accessToken, body) {
@@ -57,27 +58,20 @@ async function mfJson(method, path, accessToken, body) {
   return { status: res.status, ok: res.ok, json, raw: text.slice(0, 300) };
 }
 
-// 名前から勘定科目IDを引く（IDをハードコードしない。事業者ごとに違うため）
-async function findAccountId(accessToken, name) {
-  for (let page = 1; page <= 10; page += 1) {
-    const r = await mfJson('GET', `/accounts?per_page=100&page=${page}`, accessToken);
-    if (!r.ok) return { error: `accounts HTTP ${r.status}`, raw: r.raw };
-    const list = (r.json && r.json.accounts) || [];
-    const hit = list.find((a) => a && a.name === name && a.available !== false);
-    if (hit) return { id: hit.id, name: hit.name, tax_id: hit.tax_id || null };
-    if (list.length < 100) break;
-  }
-  return { error: `勘定科目「${name}」が見つからない` };
+/* 勘定科目と税区分を名前から引く（IDは事業者ごとに違うのでハードコードしない）。
+ * ⚠ /accounts と /taxes は **ページ分割が無い**。受け取るのは available だけで、
+ *    per_page や page を付けると HTTP 400 になる（2026-08-05 実測）。 */
+async function fetchAll(accessToken, path, key) {
+  const r = await mfJson('GET', `${path}?available=true`, accessToken);
+  if (!r.ok) return { error: `${path} HTTP ${r.status}`, raw: r.raw, list: [] };
+  return { list: (r.json && r.json[key]) || [] };
 }
 
-async function findTaxId(accessToken, name) {
-  for (let page = 1; page <= 10; page += 1) {
-    const r = await mfJson('GET', `/taxes?per_page=100&page=${page}`, accessToken);
-    if (!r.ok) return null;
-    const list = (r.json && r.json.taxes) || [];
-    const hit = list.find((t) => t && t.name === name);
-    if (hit) return hit.id;
-    if (list.length < 100) break;
+// 候補を順に探す。事業者によって用意されている科目が違うため
+function pickAccount(list, candidates) {
+  for (const name of candidates) {
+    const hit = list.find((a) => a && a.name === name && a.available !== false);
+    if (hit) return { id: hit.id, name: hit.name };
   }
   return null;
 }
@@ -126,16 +120,25 @@ module.exports = async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
 
   // ---- 下ごしらえ: 使う勘定科目と税区分のIDを引く ----
-  const accPay = await findAccountId(accessToken, ACCOUNT_FOR_PAYMENT);
-  const accRcv = await findAccountId(accessToken, ACCOUNT_FOR_RECEIPT);
-  const taxNotTarget = await findTaxId(accessToken, TAX_NOT_TARGET);
+  const accRes = await fetchAll(accessToken, '/accounts', 'accounts');
+  const taxRes = await fetchAll(accessToken, '/taxes', 'taxes');
+  const accPay = pickAccount(accRes.list, ACCOUNT_FOR_PAYMENT);
+  const accRcv = pickAccount(accRes.list, ACCOUNT_FOR_RECEIPT);
+  const taxHit = taxRes.list.find((t) => t && t.name === TAX_NOT_TARGET);
+  const taxNotTarget = taxHit ? taxHit.id : null;
+
   out.使う勘定科目 = {
-    支出側: accPay.error ? `× ${accPay.error}` : `${accPay.name}`,
-    収入側: accRcv.error ? `× ${accRcv.error}` : `${accRcv.name}`,
+    支出側: accPay ? accPay.name : `× ${ACCOUNT_FOR_PAYMENT.join('／')} のどれも無い`,
+    収入側: accRcv ? accRcv.name : `× ${ACCOUNT_FOR_RECEIPT.join('／')} のどれも無い`,
     税区分: taxNotTarget ? TAX_NOT_TARGET : '(見つからないので指定しない)',
   };
-  if (accPay.error || accRcv.error) {
-    out.判定 = '× 実測できない（勘定科目が引けない）。帳簿には何も書いていません';
+  if (accRes.error) out.使う勘定科目.勘定科目の取得エラー = accRes.error + ' ' + accRes.raw;
+  if (taxRes.error) out.使う勘定科目.税区分の取得エラー = taxRes.error + ' ' + taxRes.raw;
+
+  if (!accPay || !accRcv) {
+    // どれが無いのか分かるように、実在する科目名を返す（次の一手を推測しないため）
+    out.この事業者にある勘定科目 = accRes.list.map((a) => a && a.name).filter(Boolean);
+    out.判定 = '× 実測できない（使う勘定科目が引けない）。帳簿には何も書いていません';
     res.status(200).json(out);
     return;
   }
