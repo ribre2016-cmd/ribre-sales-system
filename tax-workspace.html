@@ -749,8 +749,11 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
           ①MFへ送った証憑は取り消せません。②登録した仕訳はこの画面からは取り消せません
           （MFの仕訳帳から削除してください）。くわしくはガイドの「やり直せない操作」をご覧ください。
         </div>
+        <!-- ⚠ loading="lazy" は付けないこと。この枠は display:none のタブの中にあるため、
+             遅延読み込みにするとタブを開いても空のままになることがある。
+             ⚠ コメントをタグの内側に書かないこと（属性として解釈され、枠ごと壊れる）。 -->
         <iframe id="txwGuideFrame" class="txw-guide-frame" src="tax-guide.html"
-                title="税理士ワークスペース ご利用ガイド" loading="lazy"></iframe>
+                title="税理士ワークスペース ご利用ガイド"></iframe>
         <div class="note">
           うまく表示されないときは、上の<a href="tax-guide.html" target="_blank" rel="noopener noreferrer">「別の画面で開く」</a>からご覧ください。
         </div>
