@@ -99,6 +99,17 @@
 
 21. **一覧表の行に色を付けるCSSは、縞模様より詳細度を高くすること**。`.list-table tr:nth-child(even) td`（詳細度0,2,2）が `tr.txw-lt-lowmatch td`（0,1,2）に勝つため、**要確認の黄色が偶数行だけ消えていた**（2026-08-04・レビューで実機発見）。`.list-table tr.txw-lt-lowmatch td` と `.list-table tr.txw-lt-lowmatch:nth-child(even) td` の両方を書いて上書きする。列を増減したときは **`colspan` を全箇所そろえる**（10→8にしたとき4箇所が9のまま残っていた）
 
+22. **仕訳を削除しても、元の明細は未仕訳に戻らない。「対象外」になる**（P7-Bとして本番で実測・2026-08-05）。
+    `POST /transactions/journalize` で作った仕訳を `DELETE /journals/{id}` で消すと、
+    仕訳は確実に消える（204、取り直しも400）が、明細の仕訳化ステータスは
+    `none`（未仕訳）ではなく **`excluded`（対象外）** になる。
+    対象外の明細は**未仕訳一覧にも仕訳帳にも出ない**ので、帳簿から黙って1件抜ける。
+    しかも `transactions` には更新のAPIが無いため、**APIでは戻せない**（MFの画面で戻す）。
+    このため **★E（登録の取り消し）は作らない**（設計書 §5.2 の分岐のとおり）。
+    → 派生する注意: ⑨月次チェックは「未仕訳が0件なら登録完了」と見ているが、
+    **対象外になった明細があると「完了」に見えてしまう**。対象外は
+    `journalizing_statuses=excluded` で読める（読み取りのみ）ので、件数を出すことを検討すること
+
 ## 環境変数（Vercel）
 
 `MF_CLIENT_ID` `MF_CLIENT_SECRET` `MF_REDIRECT_URI` `SUPABASE_URL` `SUPABASE_SERVICE_ROLE_KEY` `OPENAI_API_KEY` `SLACK_WEBHOOK_URL` `CRON_SECRET` `CHATWORK_API_TOKEN` `CHATWORK_ROOM_ID`（現在テスト用マイチャット宛） `MAIL_INGEST_SECRET`
