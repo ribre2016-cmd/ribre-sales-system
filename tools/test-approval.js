@@ -74,7 +74,16 @@ has('CSVはBOM付き（Excelで文字化けしない）', /String\.fromCharCode\
 has('CSVはadminなら全件・staffは自分の分だけ', /if \(!isAdmin\) base \+= `&actor_email=eq\./);
 /* 招待リンクからの登録は管理者になる（利用者の判断・2026-08-05）。
  * ここが壊れると、先生が登録しても担当者のままになる。 */
-has('招待からの登録は role=admin で入れる', /email: e, enabled: true, role: 'admin',/);
+has('招待からの登録は role=admin で入れる', /upsertAdvisorByEmail\(e, \{\s*enabled: true, role: 'admin',/);
+/* ☠ `?on_conflict=email` は**必ず失敗する**。一意索引が lower(email) の
+ *   関数インデックスなので ON CONFLICT (email) に合致しない（42P10）。
+ *   これを復活させると税理士が招待リンクから登録できなくなる。 */
+has('tax_advisors へ on_conflict=email を使っていない', /^(?![\s\S]*tax_advisors\?on_conflict=email)[\s\S]*$/);
+has('探す→更新 or 追加 になっている', /async function upsertAdvisorByEmail\(/);
+has('大文字小文字を無視して探す（索引の定義と揃える）', /tax_advisors\?email=ilike\./);
+/* 担当者が選んだ共有ファイルが、承認の往復で黙って消えないこと */
+has('依頼に shared_file_keys を保存する', /shared_file_keys: Array\.isArray\(body\.shared_file_keys\)/);
+has('承認実行時に shared_file_keys を引き継ぐ', /shared_file_keys: p\.shared_file_keys,/);
 has('CSVは最後まで取り切る（ページを回す）', /for \(let offset = 0; offset < CSV_HARD_LIMIT/);
 has('CSVが打ち切られたら必ず伝える', /truncated, hard_limit: CSV_HARD_LIMIT/);
 

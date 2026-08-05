@@ -125,6 +125,22 @@
     tax-docs と mf-evidence は**別のバケット**なので中身をコピーする。
     検証: `tools/test-shared-attach.js`（上の3つをすべて固定している）
 
+24. **PostgREST の `?on_conflict=<列>` は、その列そのものに一意索引が無いと必ず失敗する**（2026-08-05のレビューで発見）。
+    `tax_advisors` の一意索引は `on tax_advisors (lower(email))` という**関数インデックス**で、
+    `ON CONFLICT (email)` はこれに合致しない（42P10）。合致する索引が無いと
+    **衝突の有無に関係なく**プラン作成時点で落ちる。
+    このため招待リンクからの登録（`redeem_invite`）は**一度も成功し得ない**状態だった。
+    まだ誰も招待から登録していなかったため発覚していなかった。
+    → `upsertAdvisorByEmail`（探す→更新 or 追加）に置き換え済み。
+    **一意制約に依存した upsert を書くときは、先に索引の定義を見ること**（制約19と同じ話）。
+    `tax_workspace_settings?on_conflict=id` は主キーなので問題ない。
+
+25. **MFの明細（transactions）の取得は必ず `metadata.total_pages` を見て回すこと**（2026-08-05）。
+    `fetchUnjournalizedTransactions` は page=1 の1回取得で、501件目以降を**黙って捨てていた**。
+    ①の一覧からも⑨の未仕訳件数からも消えるので、「登録が終わった」の判定まで狂う。
+    仕訳の取得（`fetchJournals`）は最初からページを回していたのに、明細だけ見ていなかった。
+    → `fetchTransactionsByJournalizingStatus`（上限 TX_MAX_PAGES）に集約済み。
+
 ## 環境変数（Vercel）
 
 `MF_CLIENT_ID` `MF_CLIENT_SECRET` `MF_REDIRECT_URI` `SUPABASE_URL` `SUPABASE_SERVICE_ROLE_KEY` `OPENAI_API_KEY` `SLACK_WEBHOOK_URL` `CRON_SECRET` `CHATWORK_API_TOKEN` `CHATWORK_ROOM_ID`（現在テスト用マイチャット宛） `MAIL_INGEST_SECRET`

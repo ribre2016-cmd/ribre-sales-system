@@ -236,27 +236,49 @@ function mfFetch(url, options, maxRetries = 3) {
 // 注意: 明細に証憑を添付するAPIは存在しない（PostVouchersRequestはjournal_idのみで
 //   transaction_idを受け付けず、Transaction.voucher_file_idsは取得専用）。
 //   そのため本関数は「待ち理由の表示」にしか使えない。
-async function fetchUnjournalizedTransactions({ accessToken, startDate, endDate, perPage = 500 }) {
-  const params = new URLSearchParams({
-    start_date: startDate,
-    end_date: endDate,
-    per_page: String(perPage),
-    page: '1',
-  });
-  // journalizing_statuses は配列パラメータ。openapi.yaml で explode: true（style既定=form）
-  // と指定されているため、ブラケット無しで同名キーを繰り返す形式が正しい。
-  params.append('journalizing_statuses', 'none');
-  const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3/transactions?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const message = (data && (data.error || data.message)) || `HTTP ${res.status}`;
-    const err = new Error(message);
-    err.status = res.status;
-    throw err;
+/* ⚠ 以前は page=1 の1回取得で、501件目以降を**黙って捨てて**いた
+ *   （2026-08-05のレビューで発見）。①の一覧からも⑨の未仕訳件数からも
+ *   消えるため、「登録が終わった」の判定まで狂う。仕訳の取得（fetchJournals）は
+ *   最初から total_pages を見ていたのに、明細だけ見ていなかった。
+ *   metadata.total_pages が尽きるまで取り切る。 */
+const TX_MAX_PAGES = 20;   // 500×20=10,000件。これを超えるのは異常なので歯止めを置く
+async function fetchTransactionsByJournalizingStatus({
+  accessToken, startDate, endDate, status, perPage = 500,
+}) {
+  const out = [];
+  let totalPages = 1;
+  for (let page = 1; page <= Math.min(totalPages, TX_MAX_PAGES); page += 1) {
+    const params = new URLSearchParams({
+      start_date: startDate,
+      end_date: endDate,
+      per_page: String(perPage),
+      page: String(page),
+    });
+    // journalizing_statuses は配列パラメータ。openapi.yaml で explode: true（style既定=form）
+    // と指定されているため、ブラケット無しで同名キーを繰り返す形式が正しい。
+    params.append('journalizing_statuses', status);
+    const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3/transactions?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = (data && (data.error || data.message)) || `HTTP ${res.status}`;
+      const err = new Error(message);
+      err.status = res.status;
+      throw err;
+    }
+    const list = Array.isArray(data.transactions) ? data.transactions : [];
+    out.push(...list);
+    totalPages = (data.metadata && Number(data.metadata.total_pages)) || 1;
+    if (!list.length) break;
   }
-  return Array.isArray(data.transactions) ? data.transactions : [];
+  return out;
+}
+
+async function fetchUnjournalizedTransactions({ accessToken, startDate, endDate, perPage = 500 }) {
+  return fetchTransactionsByJournalizingStatus({
+    accessToken, startDate, endDate, status: 'none', perPage,
+  });
 }
 
 module.exports = {
@@ -272,5 +294,6 @@ module.exports = {
   getAccessToken,
   postVoucher,
   fetchUnjournalizedTransactions,
+  fetchTransactionsByJournalizingStatus,
   mfFetch,
 };

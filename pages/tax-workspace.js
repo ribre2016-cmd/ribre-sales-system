@@ -1738,7 +1738,7 @@ function txwMarkListRowDone(refs, data) {
   if (attachFailed.length) {
     wrap.appendChild(el('div', {
       class: 'note danger', style: 'margin:4px 0 0;',
-      text: '仕訳は登録できましたが、証憑' + attachFailed.length + '件の添付に失敗しました。'
+      text: txwAttachFailText(attachFailed)
     }));
   }
   if (data && data.duplicate_warning) {
@@ -2082,7 +2082,7 @@ function txwCollapseCardSuccess(card, data, transactionId) {
   if (attachFailed.length) {
     card.appendChild(el('div', {
       class: 'note danger',
-      text: '仕訳は登録できましたが、証憑' + attachFailed.length + '件の添付に失敗しました。'
+      text: txwAttachFailText(attachFailed)
     }));
   }
   if (data.duplicate_warning) {
@@ -2199,6 +2199,19 @@ function txwRenderAwaiting(count) {
     class: 'note',
     text: '仕訳が無いために送信を保留している証憑の件数です。①未仕訳の明細で該当する明細の仕訳を作れば解消します。'
   }));
+}
+
+/* 添付に失敗した理由を日本語にする。
+ * ⚠「N件失敗しました」だけだと、重複なのかMFが落ちたのか分からず手の打ちようがない
+ *   （制約20と同じ穴。2026-08-05のレビューで発見）。必ず理由まで出す。 */
+function txwAttachFailText(list) {
+  var reasons = (list || []).map(function (f) {
+    var name = f.shared_key ? String(f.shared_key).split('/').pop() : '';
+    var why = TXW_ATTACH_ERRORS[f.error] || (f.error || '理由不明');
+    return name ? (name + '：' + why) : why;
+  });
+  return '仕訳は登録できましたが、証憑' + (list || []).length + '件の添付に失敗しました。'
+    + (reasons.length ? '（' + reasons.join(' ／ ') + '）' : '');
 }
 
 /* ---------------- ③ 共有ファイル ---------------- */

@@ -29,7 +29,15 @@ has('excluded を応答に入れる', api, /\n    excluded,/);
 has('取得できなかったときは available:false と理由を返す（0件と混同しない）',
   api, /available: false, count: 0, rows: \[\],[\s\S]{0,120}reason:/);
 has('並べる件数に上限があり、超えたら truncated で伝える', api, /MC_EXCLUDED_MAX[\s\S]{0,200}truncated:/);
-has('未仕訳の取得(none固定)とは別の関数にしている', api, /async function fetchTransactionsByStatus\(/);
+has('仕訳化ステータスを指定できる共通関数を使う', api, /fetchTransactionsByJournalizingStatus\(\{[\s\S]{0,120}status: 'excluded'/);
+
+/* ☠ 以前は page=1 の1回取得で、501件目以降を**黙って捨てて**いた。
+ *   ①の一覧からも⑨の未仕訳件数からも消えるので、
+ *   「登録が終わった」の判定まで狂う（2026-08-05のレビューで発見）。 */
+const cli = fs.readFileSync(path.join(__dirname, '..', 'api', 'mf', '_lib', 'mf-client.js'), 'utf8');
+has('明細の取得は total_pages が尽きるまで回す', cli, /totalPages = \(data\.metadata && Number\(data\.metadata\.total_pages\)\)/);
+has('ページの上限（歯止め）がある', cli, /TX_MAX_PAGES/);
+has('未仕訳の取得も同じ経路を通る', cli, /async function fetchUnjournalizedTransactions\([\s\S]{0,220}fetchTransactionsByJournalizingStatus\(\{/);
 
 // 上限の値はソースから読む（テストにハードコードすると本体を直しても気づけない）
 const maxSrc = /const MC_EXCLUDED_MAX = (\d+);/.exec(api);

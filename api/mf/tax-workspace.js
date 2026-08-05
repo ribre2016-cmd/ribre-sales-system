@@ -19,6 +19,7 @@ const {
   MF_ACCOUNTING_API_BASE,
   mfFetch,
   fetchUnjournalizedTransactions,
+  fetchTransactionsByJournalizingStatus,
 } = require('./_lib/mf-client');
 const {
   normalizeText, addDays, VENDOR_DATE_MARGIN_DAYS,
@@ -285,19 +286,22 @@ async function redeemInvite(token, userEmail) {
     return { ok: false, error: 'invite_unusable' };
   }
 
-  /* 税理士として登録（既にいれば有効化し直す）。
+  /* 税理士として登録（既にいれば有効化し直す）。※実体は下の upsertAdvisorByEmail。
    * 役割は **管理者** にする（利用者の判断・2026-08-05）。
    * 招待リンクは顧問税理士にしか渡さない運用のため、既定の「担当者」だと
    * 登録のたびに⑤からSQLで昇格させることになり、必ず忘れる。
    * ⚠ 事務所の担当者を招待するようになったら、この既定は見直すこと。
    *   その場合は⑤の「役割を変えるSQLを見る」で個別に担当者へ戻せる。 */
-  const up = await fetch(`${SUPABASE_URL}/rest/v1/tax_advisors?on_conflict=email`, {
-    method: 'POST',
-    headers: { ...supabaseHeaders(), Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify([{
-      email: e, enabled: true, role: 'admin',
-      note: '招待リンクから登録 ' + nowIso.slice(0, 10),
-    }]),
+  /* ⚠ ここは以前 `?on_conflict=email` の upsert だったが、**必ず失敗する**書き方だった
+   *   （2026-08-05のレビューで発見）。tax_advisors の一意インデックスは
+   *   `on tax_advisors (lower(email))` という関数インデックスで、
+   *   PostgreSQL の `ON CONFLICT (email)` はこれに合致しない（42P10）。
+   *   合致する索引が無いと**衝突の有無に関係なく**プラン作成時点でエラーになる。
+   *   招待からの登録はまだ一度も使われていなかったため、発覚していなかった。
+   *   一意制約に依存しない「探す→更新 or 追加」に書き換える。 */
+  const up = await upsertAdvisorByEmail(e, {
+    enabled: true, role: 'admin',
+    note: '招待リンクから登録 ' + nowIso.slice(0, 10),
   });
   if (!up.ok) {
     // 招待だけ消費して登録できていない状態を残さないよう、使用済みを取り消す
@@ -309,6 +313,52 @@ async function redeemInvite(token, userEmail) {
     return { ok: false, error: 'advisor_register_failed' };
   }
   return { ok: true, email: e };
+}
+
+/* メールで税理士を1件、追加または更新する。
+ * ⚠ `?on_conflict=email` は使わないこと。一意索引が `lower(email)` の
+ *   関数インデックスなので `ON CONFLICT (email)` は合致せず、必ず失敗する。
+ * 大文字小文字を無視して探すため ilike を使う（索引の定義と揃える）。 */
+async function upsertAdvisorByEmail(email, patch) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return { ok: false, error: 'invalid_email' };
+  const find = async () => {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/tax_advisors?email=ilike.${encodeURIComponent(e)}&select=id&limit=1`,
+      { headers: supabaseHeaders() }
+    );
+    if (!r.ok) return null;
+    const rows = await r.json().catch(() => []);
+    return Array.isArray(rows) && rows.length ? rows[0] : null;
+  };
+
+  const existing = await find();
+  if (existing) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/tax_advisors?id=eq.${encodeURIComponent(existing.id)}`, {
+      method: 'PATCH',
+      headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify(patch),
+    });
+    return r.ok ? { ok: true, updated: true } : { ok: false, error: 'advisor_update_failed' };
+  }
+
+  const ins = await fetch(`${SUPABASE_URL}/rest/v1/tax_advisors`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+    body: JSON.stringify([Object.assign({ email: e }, patch)]),
+  });
+  if (ins.ok) return { ok: true, created: true };
+  // 取得と追加の間に他の人が入れた場合（一意索引が弾く）。もう一度探して更新する
+  const again = await find();
+  if (again) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/tax_advisors?id=eq.${encodeURIComponent(again.id)}`, {
+      method: 'PATCH',
+      headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
+      body: JSON.stringify(patch),
+    });
+    return r.ok ? { ok: true, updated: true } : { ok: false, error: 'advisor_update_failed' };
+  }
+  return { ok: false, error: 'advisor_insert_failed' };
 }
 
 async function listAdvisors() {
@@ -500,6 +550,8 @@ async function handleApproveRequest(res, advisor, accessToken, body) {
     transaction_id: reqRow.transaction_id, date: p.date, account_id: p.account_id,
     tax_id: p.tax_id, sub_account_id: p.sub_account_id, invoice_kind: p.invoice_kind,
     memo: p.memo, evidence_ids: p.evidence_ids,
+    // 依頼時に選ばれた共有ファイルも必ず引き継ぐ（落とすと黙って添付されない）
+    shared_file_keys: p.shared_file_keys,
     // 誰の判断だったかを残す。承認者ではなく依頼者の入力が元になっている
     input_source: p.input_source,
   }, { isAdmin: true, skipApproval: true });
@@ -698,26 +750,6 @@ const MC_DEFAULTS = { lookback: 4, ratio: 3, minDiff: 10000 };
 // 対象外の明細を画面に並べる上限。超えた分は件数だけ伝える（黙って切らない・制約20）
 const MC_EXCLUDED_MAX = 50;
 
-/* 指定した仕訳化ステータスの明細を取る。
- * fetchUnjournalizedTransactions は none 固定なので、対象外(excluded)を見るために分けた。
- * ⚠ journalizing_statuses は配列パラメータ。ブラケット無しで同名キーを繰り返す形式が正しい
- *   （mf-client.js の fetchUnjournalizedTransactions と同じ）。 */
-async function fetchTransactionsByStatus({ accessToken, startDate, endDate, status, perPage = 500 }) {
-  const params = new URLSearchParams({
-    start_date: startDate, end_date: endDate, per_page: String(perPage), page: '1',
-  });
-  params.append('journalizing_statuses', status);
-  const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3/transactions?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
-    err.status = res.status;
-    throw err;
-  }
-  return Array.isArray(data.transactions) ? data.transactions : [];
-}
 
 /* ---- 簡易課税の事業区分（一種／二種…）別の課税売上高 ----
  * 10人の税理士のうち、消費税の専門家と元国税の2人が**独立に1位**へ挙げた。
@@ -911,7 +943,7 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
    * ⚠ 対象外が正しいこともある（私用の引き落とし等）。正誤の判定はしない。件数と中身を見せるだけ。 */
   let excluded = { available: false, count: 0, rows: [], reason: '' };
   try {
-    const rows = await fetchTransactionsByStatus({
+    const rows = await fetchTransactionsByJournalizingStatus({
       accessToken, startDate: range.start, endDate: range.end, status: 'excluded',
     });
     excluded = {
@@ -1256,10 +1288,20 @@ async function importSharedFileAsEvidence(key, displayName) {
     return { ok: false, error: 'dup_check_failed', detail: String((e && e.message) || e) };
   }
   if (dup) {
-    return {
-      ok: false, error: 'duplicate_file',
-      detail: { file_name: dup.file_name, status: dup.status, journal_id: dup.journal_id },
-    };
+    /* すでにMFへ送り終えているなら、二度は送らない（取り消せないため）。 */
+    if (dup.status === 'attached') {
+      return {
+        ok: false, error: 'duplicate_file',
+        detail: { file_name: dup.file_name, status: dup.status, journal_id: dup.journal_id },
+      };
+    }
+    /* まだ送っていない行が残っている場合は**それを使い回す**。
+     * ⚠ ここを「重複だから拒否」にすると、添付が一度失敗しただけで
+     *   台帳に行が残り、同じファイルを二度と添付できなくなる（行き止まり）。
+     *   しかも②仕訳待ちの件数が増えたまま減らない（2026-08-05のレビューで発見）。 */
+    const full = await fetchEvidenceById(dup.id);
+    if (full && full.storage_path) return { ok: true, evidence: full, reused: true };
+    return { ok: false, error: 'duplicate_file', detail: { file_name: dup.file_name, status: dup.status } };
   }
 
   const safe = name.replace(/[^\w.\-]+/g, '_').slice(-80);
@@ -1283,6 +1325,11 @@ async function importSharedFileAsEvidence(key, displayName) {
     if (!evidence) return { ok: false, error: 'insert_failed' };
     return { ok: true, evidence };
   } catch (e) {
+    // 置いたファイルだけが残らないよう片付ける（失敗しても本筋は変えない）
+    await fetch(`${SUPABASE_URL}/storage/v1/object/${MF_EVIDENCE_BUCKET}/${storagePath}`, {
+      method: 'DELETE',
+      headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
+    }).catch(() => {});
     if (e && e.duplicate) return { ok: false, error: 'duplicate_file', detail: '同時に取り込まれました' };
     return { ok: false, error: 'insert_failed', detail: String((e && e.message) || e) };
   }
@@ -1587,6 +1634,10 @@ async function handleJournalize(res, advisor, accessToken, body, opts) {
           tax_id: body.tax_id || null, sub_account_id: body.sub_account_id || null,
           invoice_kind: body.invoice_kind, memo: body.memo || null,
           evidence_ids: evidenceIds, input_source: body.input_source || null,
+          /* ⚠ ここに入れ忘れると、担当者が選んだ共有ファイルが
+           *   承認の往復で**黙って消える**（2026-08-05のレビューで発見）。
+           *   handleJournalize へ渡す側（handleApproveRequest）も必ず合わせること。 */
+          shared_file_keys: Array.isArray(body.shared_file_keys) ? body.shared_file_keys.slice(0, 5) : [],
         },
         // 承認の実行時にこれと突き合わせ、変わっていたら実行しない（設計書§10.2-1）
         snapshot: txSnapshot(tx),
