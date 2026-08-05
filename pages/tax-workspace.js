@@ -576,6 +576,14 @@ function txwSetLoadFailed() {
   txwListSetSingleMessage('読み込めませんでした。', 'evidence-empty');
 }
 
+/* 対象月を切り替えるたびに増える番号。
+ * ⚠ 古い月の応答が、あとから新しい月の画面を上書きするのを防ぐ。
+ *   MFのAPIはレート制限と再試行があるため、**先に投げた方が先に返るとは限らない**。
+ *   月セレクタは「2026-07」なのに中身は6月、という食い違いが起こりうる
+ *   （2026-08-05のレビューで発覚）。提案の描画(txwRenderGen)は同じ守り方を
+ *   していたのに、主系統のtxwLoadだけ素通しだった。 */
+var txwLoadGen = 0;
+
 async function txwLoad() {
   txwClearGlobalError();
   var monthInput = document.getElementById('txwMonth');
@@ -584,14 +592,21 @@ async function txwLoad() {
   txwUpdateTermWarning(month); // 会計期間の警告は月とマスタだけで判定できる。登録はブロックしない
   txwSetLoading();
 
+  txwLoadGen += 1;
+  var myGen = txwLoadGen;
+
   var result;
   try {
     result = await txwApiCall('list', { month: month });
   } catch (e) {
+    if (myGen !== txwLoadGen) return;   // 古い月の失敗で、新しい月の画面を壊さない
     txwShowGlobalError('通信に失敗しました。ネットワークをご確認のうえ、もう一度お試しください。');
     txwSetLoadFailed();
     return;
   }
+  // 自分より新しい読み込みが始まっていたら、この応答は捨てる（画面に触らない）
+  if (myGen !== txwLoadGen) return;
+
   var status = result.status, data = result.data;
 
   if (status === 401) {
@@ -1158,7 +1173,19 @@ function txwBuildJournalForm(card, body, tx, evidenceCheckboxes, sharedCheckboxe
   function updateSubmitEnabled() {
     var okAccount = !!txwResolveId(txwAccountLookup, accountInput.value);
     var okInvoice = !!invoiceSelect.value;
-    submitBtn.disabled = !(okAccount && okInvoice);
+    /* ⚠ 税区分も「候補と一致しているか」を見る。
+     *   以前は勘定科目とインボイス区分しか見ておらず、
+     *   「課税仕入10」のように途中まで打った文字が残っていても登録でき、
+     *   **税区分だけ黙って未指定で送られていた**（2026-08-05の新人レビューで発覚）。
+     *   打った文字は欄に残るので、入れたつもりになる。消費税に直結する。
+     *   空欄は許す（対象外の明細もあるため）。書いてあるのに一致しないときだけ止める。 */
+    var taxText = (taxInput.value || '').trim();
+    var okTax = !taxText || !!txwResolveId(txwTaxLookup, taxText);
+    submitBtn.disabled = !(okAccount && okInvoice && okTax);
+    if (taxInput) {
+      // 一致しない文字が残っているときだけ、その欄を赤くする
+      taxInput.style.borderColor = (taxText && !okTax) ? 'var(--hm-danger)' : '';
+    }
     submitBtn.title = submitBtn.disabled
       ? (!okAccount ? '勘定科目を候補から選んでください' : 'インボイス区分を選んでください')
       : '';
@@ -1396,10 +1423,17 @@ function txwBuildListRow(tx, writable) {
   refs.registerBtn = registerBtn;
   refs.statusDiv = statusDiv;
 
+  /* 一覧表示側にもカードと同じ税区分の判定を入れる。
+   * 片方だけ直すと、見た目の違う経路で同じ事故が起きる。 */
   function updateRowEnabled() {
     var okAccount = !!txwResolveId(txwAccountLookup, accountInput.value);
     var okInvoice = !!invoiceSelect.value;
-    refs.rowState.ready = okAccount && okInvoice;
+    /* 税区分も候補と一致しているか見る。空欄は許すが、書いてあるのに
+     * 一致しないときは止める（黙って未指定で送られるのを防ぐ）。 */
+    var taxText = (taxInput.value || '').trim();
+    var okTax = !taxText || !!txwResolveId(txwTaxLookup, taxText);
+    taxInput.style.borderColor = (taxText && !okTax) ? 'var(--hm-danger)' : '';
+    refs.rowState.ready = okAccount && okInvoice && okTax;
     hint.style.display = refs.rowState.ready ? 'none' : '';
     registerBtn.disabled = !refs.rowState.ready || txwListRunning;
     if (!refs.rowState.ready) checkbox.checked = false;
@@ -1659,6 +1693,8 @@ async function txwListJournalizeRow(tx, refs) {
   };
   var taxId = txwResolveId(txwTaxLookup, refs.taxInput.value);
   if (taxId) payload.tax_id = taxId;
+  // 打った文字も送る。サーバーは「打ったのに解決できていない」を見て登録を断る
+  payload.tax_text = (refs.taxInput.value || '').trim();
   if (refs.invoiceSelect.value) payload.invoice_kind = refs.invoiceSelect.value;
   if (refs.evidenceCheckbox && refs.evidenceCheckbox.checked && refs.evidenceId) {
     payload.evidence_ids = [refs.evidenceId];
@@ -2158,6 +2194,8 @@ async function txwSubmitJournal(tx, refs) {
   };
   var taxId = txwResolveId(txwTaxLookup, refs.taxInput.value);
   if (taxId) payload.tax_id = taxId;
+  // 打った文字も送る。サーバーは「打ったのに解決できていない」を見て登録を断る
+  payload.tax_text = (refs.taxInput.value || '').trim();
   var subId = txwResolveId(txwSubAccountLookup, refs.subInput.value);
   if (subId) payload.sub_account_id = subId;
   if (refs.invoiceSelect.value) payload.invoice_kind = refs.invoiceSelect.value;
@@ -2511,6 +2549,8 @@ var TXW_ATTACH_ERRORS = {
   journal_check_failed: '仕訳の状態を確認できなかったため、送信を中止しました。',
   attach_failed: 'MFへの送信に失敗しました。',
   already_attached: 'この証憑は既に別の仕訳へ送信済みです。',
+  tax_not_resolved: '税区分が候補と一致していません。一覧から選び直すか、空欄にしてください。'
+    + '（そのままでは税区分なしで登録されてしまうため、登録していません）',
   /* 承認が必要な設定のときは管理者だけ。証憑は送ると取り消せないため、
    * 承認待ちに積む方式ではなく管理者限定にしている。 */
   admin_only_when_approval: '承認が必要な設定のため、証憑の添付は管理者のみが行えます。管理者にご依頼ください。',
@@ -3247,6 +3287,9 @@ function txwActionLabel(a) {
     set_approval_policy: '設定の変更（承認の要否）',
     advisor_set_role: '役割の変更',
     advisor_set_name: '表示名の変更',
+    invite_create: '招待リンクの発行',
+    invite_revoke: '招待リンクの取り消し',
+    advisor_set_enabled: '利用の有効・無効の切り替え',
     monthly_check_confirmed: '月次チェックの確認を記録',
     monthly_check_confirmed: '月次チェックの確認を記録',
     login: 'ログイン（その日の初回）',
@@ -3838,10 +3881,36 @@ function txwRenderMonthlyCriteria(data) {
     + '以下かつ差額' + yen(minDiff) + '以上';
 }
 
+/* 比較対象が足りない月に、判定していないことを言う。
+ * ⚠「該当する科目はありません」は「判定した結果ゼロ件」の意味。
+ *   判定していないのに同じ文言を出してはいけない（制約20と同じ話）。 */
+function txwRenderMonthlyLookbackNote(data) {
+  var box = document.getElementById('txwMonthlyLookbackNote');
+  if (!box) return;
+  clearEl(box);
+  if (data.lookback_enough !== false) { box.style.display = 'none'; return; }
+  var have = Number(data.lookback_available) || 0;
+  var need = (data.criteria && Number(data.criteria.lookback)) || 4;
+  box.style.display = 'block';
+  box.appendChild(el('div', {
+    class: 'note danger',
+    text: 'この月は、比べられる過去が' + have + 'ヶ月分しかありません（' + need + 'ヶ月分が必要です）。'
+      + 'そのため「① いつもあるのに今月まだ無い科目」「② 金額が普段と大きく違う科目」と、'
+      + '貸借対照表の「何ヶ月も動いていない」「前月から大きく動いた」は'
+      + '**判定していません**。下に何も出ていなくても「異常なし」ではありません。',
+  }));
+  box.appendChild(el('div', {
+    class: 'note',
+    text: '※ 事業年度のはじめ（3月〜6月）に起こります。前の期のデータとは比べない作りのためです。'
+      + '残高のマイナス・純資産のマイナス・符号の確認・事業区分の集計は、この月でも動いています。',
+  }));
+}
+
 function txwRenderMonthlyCheck(data) {
   txwRenderMonthlyStatus(data);
   document.getElementById('txwMonthlyBody').style.display = 'block';
   txwRenderMonthlyMissing(data);
+  txwRenderMonthlyLookbackNote(data);
   txwRenderMonthlyExcluded(data);
   txwRenderMonthlyOutliers(data);
   txwRenderMonthlySignIssues(data);
@@ -3951,7 +4020,12 @@ async function txwMonthlyConfirmRecord() {
   }
   var resData = result.data || {};
   if (!resData.ok) {
-    alert('記録に失敗しました。もう一度お試しください。');
+    /* ⚠ この機能の価値は記録が残ることだけ。残っていないのに
+     *   「記録しました」と出してはいけない（実際に長らくそうなっていた）。 */
+    alert(resData.error === 'record_failed'
+      ? '記録できませんでした。操作履歴に残っていません。'
+        + 'もう一度お試しいただき、それでも同じなら RIBRE担当者までご連絡ください。'
+      : '記録に失敗しました。もう一度お試しください。');
     btn.disabled = !checkEl.checked;
     return;
   }

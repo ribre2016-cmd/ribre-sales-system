@@ -86,7 +86,10 @@ global.fetch = async (url) => {
   queried.push(String(url));
   return { ok: fetchOk, json: async () => fetchRows };
 };
-global.recordAction = async (row) => { recorded.push(row); };
+global.recordAction = async (row) => { recorded.push(row); return true; };
+/* 通知は日付の基準を todayJst() に集約した（UTC判定のズレを直したため）。
+ * ハーネス側でも本体から読み込んで使う（テストに日付を書き写さない）。 */
+global.todayJst = eval('(' + /function todayJst\(\) \{[\s\S]*?\n\}/.exec(api)[0] + ')');
 global.notifyChatwork = async (text) => { notified.push(text); return true; };
 const notifyOnce = eval('(' + pick('async function notifyAdvisorLoginOnce(') + ')');
 

@@ -71,7 +71,11 @@ has('差し戻しの理由は必須', /reason_required/);
 has('インボイス区分は承認待ちに積む前にも必須', /invoice_kind_required/);
 has('承認・差し戻しも操作履歴に残す', /action: 'approve_journalize'[\s\S]*action: 'reject_journalize'/);
 has('CSVはBOM付き（Excelで文字化けしない）', /String\.fromCharCode\(65279\)/);
-has('CSVはadminなら全件・staffは自分の分だけ', /if \(!isAdmin\) base \+= `&actor_email=eq\./);
+/* ⚠ 履歴の閲覧範囲は、画面(action_log)とCSVで同じ基準にすること。
+ *   以前はCSVだけ isAdmin で、税理士側の管理者が画面で見えないものを
+ *   CSVでは全件取れていた（2026-08-05の所長レビューで発覚）。 */
+has('CSVは社内メンバーなら全件・それ以外は自分の分だけ', /if \(!canSeeAll\) base \+= `&actor_email=eq\./);
+has('CSVの呼び出しも isMember を渡す', /handleActionLogCsv\(res, advisor, isMember, body\)/);
 /* 招待リンクからの登録は管理者になる（利用者の判断・2026-08-05）。
  * ここが壊れると、先生が登録しても担当者のままになる。 */
 has('招待からの登録は role=admin で入れる',

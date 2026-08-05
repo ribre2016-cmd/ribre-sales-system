@@ -629,6 +629,9 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
           <!-- 「対象外」は未仕訳の件数に入らない。ここに出さないと
                「未仕訳0件＝登録完了」の表示が実態とずれる（CLAUDE.md 制約22）。
                番号付きの①〜⑤より前に、登録が終わったかどうかの話として出す。 -->
+          <!-- 比較対象が足りない月の断り書き。①②より前に出す -->
+          <div id="txwMonthlyLookbackNote" style="display:none;margin-bottom:16px;"></div>
+
           <div id="txwMonthlyExcludedBox" style="display:none;margin-bottom:16px;"></div>
 
           <h3 class="txw-monthly-h" id="txwMonthlyMissingHeading">① いつもあるのに今月まだ無い科目</h3>

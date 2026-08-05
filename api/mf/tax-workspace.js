@@ -521,7 +521,7 @@ async function saveClosedTermPolicy(policy, byEmail) {
 function isInProgressingTerm(terms, dateStr) {
   const list = Array.isArray(terms) ? terms : [];
   if (!list.length || !dateStr) return null;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayJst();   // 期の切り替わり日もJSTで判定する（上と同じ理由）
   const inTerm = (t, d) => t && t.start_date && t.end_date && d >= t.start_date && d <= t.end_date;
   const progressing = list.find((t) => inTerm(t, today));
   if (!progressing) return null;
@@ -584,7 +584,7 @@ async function handleApproveRequest(res, advisor, accessToken, body) {
   await handleJournalize(res, advisor, accessToken, {
     transaction_id: reqRow.transaction_id, date: p.date, account_id: p.account_id,
     tax_id: p.tax_id, sub_account_id: p.sub_account_id, invoice_kind: p.invoice_kind,
-    memo: p.memo, evidence_ids: p.evidence_ids,
+    memo: p.memo, evidence_ids: p.evidence_ids, tax_text: p.tax_text,
     // 依頼時に選ばれた共有ファイルも必ず引き継ぐ（落とすと黙って添付されない）
     shared_file_keys: p.shared_file_keys,
     // 誰の判断だったかを残す。承認者ではなく依頼者の入力が元になっている
@@ -635,10 +635,12 @@ function csvEscape(v) {
 const CSV_PAGE = 1000;
 const CSV_HARD_LIMIT = 100000;   // 応答が大きくなりすぎないための安全弁
 
-async function handleActionLogCsv(res, advisor, isAdmin, body) {
+/* 操作履歴のCSV。
+ * ⚠ canSeeAll は **社内メンバーかどうか**。画面側(action_log)と必ず同じ基準にすること。 */
+async function handleActionLogCsv(res, advisor, canSeeAll, body) {
   const month = String((body && body.month) || '');
   let base = `${SUPABASE_URL}/rest/v1/tax_advisor_actions?select=*&order=created_at.desc`;
-  if (!isAdmin) base += `&actor_email=eq.${encodeURIComponent(advisor.email)}`;
+  if (!canSeeAll) base += `&actor_email=eq.${encodeURIComponent(advisor.email)}`;
   const r = monthRange(month);
   if (r) base += `&created_at=gte.${r.start}T00:00:00Z&created_at=lte.${r.end}T23:59:59Z`;
 
@@ -776,9 +778,18 @@ function findTermFor(terms, monthStart) {
 }
 
 // 月がまだ終わっていないか（§11.1-2: 進行中の月は計上漏れ判定を出さない）
+/* 「今日」は必ず日本時間で数える。
+ * ⚠ UTCで数えると、日本時間の朝9時までは前日扱いになる。
+ *   月初の午前中いっぱい「先月はまだ途中」と判定され、
+ *   計上漏れ・少ない側の異常値・BSの警告が**まるごと隠れていた**
+ *   （2026-08-05のレビューで発覚）。同じファイルのログイン通知はJSTで数えており、
+ *   1つのファイルの中で基準が食い違っていた。 */
+function todayJst() {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
 function isMonthInProgress(monthEnd) {
-  const today = new Date().toISOString().slice(0, 10);
-  return today <= monthEnd;
+  return todayJst() <= monthEnd;
 }
 
 const MC_DEFAULTS = { lookback: 4, ratio: 3, minDiff: 10000 };
@@ -1004,11 +1015,14 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
   //   これが無いと「この科目の未仕訳明細をさがす」が常に0件になり、機能しない。
   const candidatesByAccount = {};
   let fetchedJournals = null;
+  // 提案用に取った仕訳の「終わりの日」。事業区分の集計で足りるかの判定に使う
+  let suggestEndDate = null;
   if (unjournalized.length) {
     try {
       const dates = unjournalized.map((t) => String(t.date || '')).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
       if (dates.length) {
         const endDate = dates[dates.length - 1];
+        suggestEndDate = endDate;
         // ①と同じ理由で会計期間ごとに分けて取る（terms はこの関数の先頭で取得済み）
         const journals = await fetchJournalsForSuggest({ accessToken, endDate, terms, fetchJournals });
         fetchedJournals = journals;   // 事業区分の集計でも使い回す（再取得しない）
@@ -1031,16 +1045,38 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
   });
 
   /* 簡易課税の事業区分別・課税売上高。
-   * 候補の割り出しで取った仕訳をそのまま使う（追加のAPI呼び出しはしない）。 */
+   * ⚠ 以前は「候補の割り出しで取った仕訳」を使い回していたが、これには2つの穴があった
+   *   （2026-08-05の税務レビューで発覚）:
+   *   (1) その取得は「未仕訳が1件以上あるとき」しか走らないため、
+   *       **未仕訳0件＝きれいに片付いた月ほど表が消える**。いちばん見たい月に出ない。
+   *   (2) 取得の終わりが「最後の未仕訳の日付」に丸められるため、
+   *       それ以降に登録済みの売上が抜ける（8/3の未仕訳が1件残ると8/4以降が消える）。
+   *   集計は対象月の**末日**まで取り直す。提案用の使い回しはやめる。
+   *   ⚠ 会計年度をまたぐ期間は400になるので、必ず fetchJournalsForSuggest を通すこと（制約18）。 */
+  let salesJournals = fetchedJournals;
+  const salesEnd = range.end;
+  const suggestEnd = suggestEndDate;   // 提案用に取った終わり（無ければ null）
+  if (!salesJournals || !salesJournals.length || !suggestEnd || suggestEnd < salesEnd) {
+    try {
+      salesJournals = await fetchJournalsForSuggest({
+        accessToken, endDate: salesEnd, terms, fetchJournals,
+      });
+    } catch (e) {
+      // 取れなければ集計を出さない。「0件」とは言わない（制約20）
+      console.error('事業区分の集計用の仕訳を取得できませんでした', e && e.message);
+      salesJournals = null;
+    }
+  }
+
   let salesByTax = null;
-  if (fetchedJournals && fetchedJournals.length) {
+  if (salesJournals && salesJournals.length) {
     const monthsBack = [];
     for (let k = MC_DEFAULTS.lookback; k >= 0; k--) {
       const d = new Date(range.start + 'T00:00:00Z');
       d.setUTCMonth(d.getUTCMonth() - k);
       monthsBack.push(d.toISOString().slice(0, 7));
     }
-    salesByTax = summarizeSalesByTax(fetchedJournals, monthsBack);
+    salesByTax = summarizeSalesByTax(salesJournals, monthsBack);
     // 簡易課税は基準期間の課税売上高5,000万円を超えると翌々期に本則へ移る。
     // 判断はしないが、年換算の数字だけ出しておく（消費税の専門家の指摘）
     const shown = salesByTax.totals.filter((v) => v > 0);
@@ -1081,6 +1117,13 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
     // 画面はこれを見て「参考表示」か「本気の警告」かを切り替える
     partial,
     criteria: { lookback: MC_DEFAULTS.lookback, ratio, min_diff: minDiff },
+    /* ⚠ 対象月より前に何か月分のデータがあるか。
+     *   事業年度が3月始まりなので、推移表はその期の月しか返らない。
+     *   3〜6月は比較対象が4か月に満たず、①②とBSの凍結・急変の判定が
+     *   **そもそも実行されない**。0件と区別できないと「異常なし」に見える
+     *   （2026-08-05の税務レビューで発覚）。画面はこれを見て断り書きを出す。 */
+    lookback_available: Math.max(0, idx),
+    lookback_enough: idx >= MC_DEFAULTS.lookback,
     missing: (inProgress ? [] : missing).map(withCandidates),
     outliers: shownOutliers.map(withCandidates),
     // BS側。登録が途中の月は残高が歪むので、止まっている科目以外は伏せる
@@ -1121,8 +1164,12 @@ async function handleMonthlyCheckConfirm(res, advisor, body) {
   }
   const range = monthRange(body.month);
   if (!range) { res.status(400).json({ ok: false, error: 'invalid_month' }); return; }
-  await recordAction({
-    advisor_email: advisor.email,
+  /* ⚠ 列名は actor_email。ここだけ advisor_email と書いていたため、
+   *   tax_advisor_actions に **一度も記録されていなかった**（存在しない列＋NOT NULL違反）。
+   *   しかも recordAction が成否を見ていなかったので画面には「記録しました」と出ていた
+   *   （2026-08-05の所長レビューで発覚）。 */
+  const recorded = await recordAction({
+    actor_email: advisor.email,
     action: 'monthly_check_confirmed',
     transaction_id: null,
     journal_id: null,
@@ -1140,6 +1187,12 @@ async function handleMonthlyCheckConfirm(res, advisor, body) {
         ? null : Number(body.unjournalized_count),
     },
   });
+  /* 記録できていないのに「記録しました」と返さない。
+   * この機能の価値は記録が残ることだけなので、失敗は失敗として伝える。 */
+  if (!recorded) {
+    res.status(200).json({ ok: false, error: 'record_failed' });
+    return;
+  }
   res.status(200).json({ ok: true, recorded_at: new Date().toISOString(), by: advisor.email });
 }
 
@@ -1148,15 +1201,28 @@ async function handleMonthlyCheckConfirm(res, advisor, body) {
 // 操作履歴に1行残す。MF側では仕訳が全て「連携アプリ」名義になり誰が作ったか
 // 分からないため、**これがこの機能の唯一の監査証跡**（設計書§5-5）。
 // 記録に失敗しても本処理は止めない（記録できないことを理由に帳簿操作を巻き戻さない）。
+/* 操作履歴へ1行追加する。
+ * ⚠ **必ず res.ok を見ること。** 以前は fetch の例外だけを拾っており、
+ *   400/409 で拒否されても成功扱いになっていた。列名を1文字間違えただけで
+ *   「唯一の監査証跡」が静かに消え、画面は「記録しました」と出し続けた。
+ * 戻り値: true=書けた / false=書けなかった。呼び出し側は必要なら画面に伝える。 */
 async function recordAction(row) {
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/tax_advisor_actions`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/tax_advisor_actions`, {
       method: 'POST',
       headers: { ...supabaseHeaders(), Prefer: 'return=minimal' },
       body: JSON.stringify([row]),
     });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      console.error('tax_advisor_actions への記録に失敗 HTTP ' + res.status + ' ' + t.slice(0, 200)
+        + ' / action=' + (row && row.action));
+      return false;
+    }
+    return true;
   } catch (e) {
-    console.error('tax_advisor_actions への記録に失敗（本処理は成功済み）', e);
+    console.error('tax_advisor_actions への記録に失敗（通信）', e && e.message, 'action=' + (row && row.action));
+    return false;
   }
 }
 
@@ -1185,7 +1251,7 @@ async function notifyChatwork(text) {
  * 日付の区切りは日本時間。 */
 async function notifyAdvisorLoginOnce(advisor) {
   try {
-    const jstDate = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const jstDate = todayJst();   // 基準は todayJst に集約（ばらばらに書かない）
     const dayStartUtc = new Date(jstDate + 'T00:00:00+09:00').toISOString();
     const url = `${SUPABASE_URL}/rest/v1/tax_advisor_actions`
       + `?actor_email=eq.${encodeURIComponent(advisor.email)}`
@@ -1768,6 +1834,7 @@ async function handleJournalize(res, advisor, accessToken, body, opts) {
           tax_id: body.tax_id || null, sub_account_id: body.sub_account_id || null,
           invoice_kind: body.invoice_kind, memo: body.memo || null,
           evidence_ids: evidenceIds, input_source: body.input_source || null,
+          tax_text: taxText || null,
           /* ⚠ ここに入れ忘れると、担当者が選んだ共有ファイルが
            *   承認の往復で**黙って消える**（2026-08-05のレビューで発見）。
            *   handleJournalize へ渡す側（handleApproveRequest）も必ず合わせること。 */
@@ -1825,6 +1892,22 @@ async function handleJournalize(res, advisor, accessToken, body, opts) {
    * 値は画面が送ってくる自己申告なので、そのまま鵜呑みにせず「申告値」として残す。 */
   const VALID_INPUT_SOURCES = ['suggested', 'edited', 'manual'];
   const inputSource = VALID_INPUT_SOURCES.indexOf(body.input_source) >= 0 ? body.input_source : 'unknown';
+
+  /* 1-3. 税区分を打ったのに候補と一致していない状態で登録させない。
+   * ⚠ 画面側にも同じ判定があるが迂回できるので、ここでも必ず見る（インボイス区分と同じ考え方）。
+   *   以前はこの確認が無く、「課税仕入10」のように途中まで打った文字が残っていても
+   *   **税区分だけ黙って未指定で登録**されていた（2026-08-05の新人レビューで発覚）。
+   *   消費税に直結し、登録した仕訳はこの画面から取り消せない（制約22）。 */
+  const taxText = String((body && body.tax_text) || '').trim();
+  if (taxText && !body.tax_id) {
+    await recordAction({
+      actor_email: advisor.email, action: 'journalize', transaction_id: transactionId,
+      account_id: accountId, result: 'failed', error_message: 'tax_not_resolved',
+      payload: { tax_text: taxText },
+    });
+    res.status(200).json({ ok: false, error: 'tax_not_resolved', tax_text: taxText });
+    return;
+  }
 
   // 2. 仕訳を作る。invoice_kind は必ず明示送信する（未確認事項C・既定値に依存しない）
   const payload = { transaction_id: transactionId, account_id: accountId };
@@ -1989,17 +2072,38 @@ module.exports = async (req, res) => {
       return;
     }
     try {
+      /* ⚠ 招待の発行・取り消し・税理士の有効無効は、この画面で最も重い操作
+       *   （管理者権限を持つ人を増やす／アクセスを止める）なのに、
+       *   長らく記録が残っていなかった（2026-08-05の所長レビューで発覚）。
+       *   tax_advisors に履歴列が無いため、消えると誰がいつやったか永久に分からない。
+       *   一覧の表示（invite_list / advisor_list）は読むだけなので記録しない。 */
       if (action === 'invite_create') {
         const inv = await createInvite(user.email, body.note);
+        await recordAction({
+          actor_email: user.email, action: 'invite_create', result: 'ok',
+          payload: { note: body.note || null, expires_at: inv.expires_at },
+        });
         res.status(200).json({ ok: true, ...inv });
       } else if (action === 'invite_list') {
         res.status(200).json({ ok: true, invites: await listInvites() });
       } else if (action === 'invite_revoke') {
-        res.status(200).json({ ok: true, revoked: await revokeInvite(body.invite_token) });
+        const revoked = await revokeInvite(body.invite_token);
+        await recordAction({
+          actor_email: user.email, action: 'invite_revoke',
+          result: revoked ? 'ok' : 'failed',
+          payload: { revoked: !!revoked },   // トークン自体は残さない（リンクの秘密のため）
+        });
+        res.status(200).json({ ok: true, revoked });
       } else if (action === 'advisor_list') {
         res.status(200).json({ ok: true, advisors: await listAdvisors() });
       } else if (action === 'advisor_set_enabled') {
-        res.status(200).json({ ok: true, updated: await setAdvisorEnabled(body.email, body.enabled) });
+        const updated = await setAdvisorEnabled(body.email, body.enabled);
+        await recordAction({
+          actor_email: user.email, action: 'advisor_set_enabled',
+          result: updated ? 'ok' : 'failed',
+          payload: { email: body.email, enabled: !!body.enabled },
+        });
+        res.status(200).json({ ok: true, updated });
       } else {
         /* ⚠ ここは以前 else の受け皿で、**何が来ても「有効・無効の切替」を実行していた**。
          *   MEMBER_ONLY に新しい action を足して分岐を書き忘れると、
@@ -2179,7 +2283,13 @@ module.exports = async (req, res) => {
 
   // 操作履歴をCSVで返す（事務所が自分で保管するため）
   if (action === 'action_log_csv') {
-    await handleActionLogCsv(res, advisor, isAdmin, body);
+      /* ⚠ 閲覧できる範囲は、画面(action_log)とCSVでそろえること。
+     *   以前は画面が isMember、CSVが isAdmin で判定しており、
+     *   税理士側の管理者は**画面で見えないものをCSVでは全件取得できた**
+     *   （社内メンバーの操作・金額・エラー内容まで含む。2026-08-05の所長レビューで発覚）。
+     *   事務所を区別する列が無いため、事務所を増やすと他事務所の分まで見える。
+     *   全件を見てよいのは社内メンバーだけにする。 */
+  await handleActionLogCsv(res, advisor, isMember, body);
     return;
   }
 
