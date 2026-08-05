@@ -155,7 +155,7 @@ tr:nth-child(even) td { background: var(--hm-canvas); }
 .btn-mini:hover:not(:disabled) { background: var(--hm-rail); }
 .btn-mini:disabled { opacity: .6; cursor: not-allowed; }
 
-/* ---- ⑤ 税理士の管理（社内メンバーのみ） ---- */
+/* ---- 税理士の管理（社内メンバーのみ） ---- */
 .admin-block { margin-bottom: 22px; }
 .admin-block:last-child { margin-bottom: 0; }
 .admin-block h3 { font-size: 15px; margin: 0 0 8px; color: var(--hm-green-dark); font-family: var(--hm-font-display); }
@@ -193,7 +193,7 @@ tr:nth-child(even) td { background: var(--hm-canvas); }
 .txw-roleguide-table td:first-child { font-weight: 700; }
 .txw-roleguide-note { color: var(--hm-muted); font-size: 12px; }
 
-/* ---- ⑨ 月次チェック ---- */
+/* ---- ⑤ 月次チェック ---- */
 .txw-monthly-h { font-size: 14.5px; margin: 22px 0 8px; color: var(--hm-green-dark); font-family: var(--hm-font-display); }
 .txw-monthly-h:first-child { margin-top: 0; }
 .txw-monthly-item { border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--hm-line); }
@@ -223,6 +223,14 @@ tr:nth-child(even) td { background: var(--hm-canvas); }
 .txw-gate-box button:hover { background: var(--hm-green-dark); }
 .txw-gate-box button.secondary { background: var(--hm-rail); color: var(--hm-ink); border: 1px solid var(--hm-line); }
 .txw-gate-box button.secondary:hover { background: var(--hm-line); }
+/* ログイン前に読める案内。既定は閉じておき、はじめての方だけ開く */
+.txw-gate-first { margin-top: 16px; border: 1px solid var(--hm-line); border-radius: 8px; background: var(--hm-canvas); text-align: left; }
+.txw-gate-first > summary { cursor: pointer; padding: 9px 12px; font-size: 13.5px; font-weight: 800; color: var(--hm-green-dark); }
+.txw-gate-first-body { padding: 0 12px 10px; font-size: 13px; color: var(--hm-ink); }
+.txw-gate-first-body ol { margin: 6px 0; padding-left: 1.3em; }
+.txw-gate-first-body li { margin: 5px 0; }
+.txw-gate-first-body p { margin: 6px 0; color: var(--hm-muted); }
+.txw-gate-first-body a { color: var(--hm-blue); font-weight: 800; }
 .txw-gate-msg { margin-top: 14px; font-size: 14.5px; color: var(--hm-danger); min-height: 18px; line-height: 1.6; font-weight: 700; }
 .txw-gate-note { margin-top: 16px; font-size: 13.5px; color: var(--hm-muted); line-height: 1.6; }
 
@@ -328,6 +336,25 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
     <button id="txwGateLoginBtn" type="button">ログイン</button>
     <button id="txwGateSignupBtn" type="button" class="secondary">新規登録</button>
     <div id="txwGateMsg" class="txw-gate-msg"></div>
+
+    <!-- ログイン前に読めるのはここだけ。使い方の全体はログイン後のタブにある。
+         ⚠ はじめての方はログインできないと何も読めないので、
+            「はじめてのログイン」の手順だけは必ずここに出す。 -->
+    <details class="txw-gate-first">
+      <summary>はじめてお使いの方へ（ログインのしかた）</summary>
+      <div class="txw-gate-first-body">
+        <ol>
+          <li>RIBREからお送りした<b>招待リンク</b>を開きます</li>
+          <li>ご自身のメールアドレスとパスワードを入れて<b>「新規登録」</b>を押します
+            （パスワードはこの画面で新しく決めていただくものです）</li>
+          <li>登録できたら、そのまま<b>「ログイン」</b>を押します</li>
+        </ol>
+        <p>2回目からは、このページを開いて<b>「ログイン」</b>だけで入れます。</p>
+        <p>招待リンクが使えない（期限切れ・使用済み）ときは、RIBRE担当者へ再発行をご依頼ください。</p>
+        <p><a href="tax-guide.html" target="_blank" rel="noopener noreferrer">画面の図つきのご利用ガイドを見る</a></p>
+      </div>
+    </details>
+
     <div class="txw-gate-note">このページは税理士ワークスペース専用です。売上管理システム本体へはこのページからは移動できません。</div>
   </div>
 </div>
@@ -357,9 +384,9 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
     <button class="tab-btn" data-t="awaiting" type="button">② 仕訳待ちの証憑</button>
     <button class="tab-btn" data-t="files" type="button">③ 共有ファイル</button>
     <button class="tab-btn" data-t="history" type="button">④ 操作履歴</button>
-    <button class="tab-btn" data-t="admin" type="button" id="txwAdminTabBtn" style="display:none">⑤ 税理士の管理</button>
-    <button class="tab-btn" data-t="monthly" type="button" id="txwMonthlyTabBtn">⑨ 月次チェック</button>
-    <button class="tab-btn" data-t="approval" type="button" id="txwApprovalTabBtn">⑩ 承認待ち</button>
+    <button class="tab-btn" data-t="monthly" type="button" id="txwMonthlyTabBtn">⑤ 月次チェック</button>
+    <button class="tab-btn" data-t="approval" type="button" id="txwApprovalTabBtn">⑥ 承認待ち</button>
+    <button class="tab-btn" data-t="admin" type="button" id="txwAdminTabBtn" style="display:none">税理士の管理</button>
     <button class="tab-btn" data-t="guide" type="button" id="txwGuideTabBtn">使い方</button>
   </div>
 
@@ -505,7 +532,7 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
     </div>
   </section>
 
-  <!-- ⑤ 税理士の管理（社内メンバーのみ。list応答の is_member:true のときだけタブを出す） -->
+  <!-- 税理士の管理（社内メンバーのみ。list応答の is_member:true のときだけタブを出す） -->
   <section class="tabpage" id="t-admin">
     <div class="panel">
       <div class="panel-head">
@@ -550,16 +577,16 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
                 <tbody>
                   <tr>
                     <td>下の「承認の設定」を<b>承認するにしたとき</b>の登録</td>
-                    <td>⑩承認待ちに積まれ、管理者が承認するまでMFへ送られません</td>
+                    <td>⑥承認待ちに積まれ、管理者が承認するまでMFへ送られません</td>
                     <td>そのまま登録できます</td>
                   </tr>
                   <tr>
-                    <td>⑩承認待ちの<b>承認・差し戻し</b></td>
+                    <td>⑥承認待ちの<b>承認・差し戻し</b></td>
                     <td>できません</td>
                     <td>できます</td>
                   </tr>
                   <tr>
-                    <td>⑧操作履歴の<b>CSV</b></td>
+                    <td>④操作履歴の<b>CSV</b></td>
                     <td>自分が操作した分だけ</td>
                     <td>事務所全員の分</td>
                   </tr>
@@ -574,19 +601,19 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
         </div>
         <div class="admin-block">
           <h3>承認の設定</h3>
-          <div class="desc">担当者の登録に管理者の承認を必須にするかどうかの設定です。⑩承認待ちタブに反映されます。選んだときに保存されます（変えられるのは管理者だけ）。</div>
+          <div class="desc">担当者の登録に管理者の承認を必須にするかどうかの設定です。⑥承認待ちタブに反映されます。選んだときに保存されます（変えられるのは管理者だけ）。</div>
           <div id="txwApprovalPolicyBox"><div class="txw-loading">読み込み中…</div></div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ⑨ 月次チェック（読み取り専用。MFの推移表から自動で確認する） -->
+  <!-- ⑤ 月次チェック（読み取り専用。MFの推移表から自動で確認する） -->
   <section class="tabpage" id="t-monthly">
     <div class="panel">
       <div class="panel-head">
         <div>
-          <h2>⑨ 月次チェック</h2>
+          <h2>⑤ 月次チェック</h2>
           <div class="desc">先月まであった費用が今月も入っているか、金額や符号がおかしくないかを、MFの推移表から自動で確認します。</div>
         </div>
         <span class="chip chip-green">読み取り専用・MFへの書き込みなし</span>
@@ -688,12 +715,12 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
     </div>
   </section>
 
-  <!-- ⑩ 承認待ち（常に表示。承認ワークフロー・設計書 TAX_WORKSPACE_PHASE6_PLAN.md §2/§10.2） -->
+  <!-- ⑥ 承認待ち（常に表示。承認ワークフロー・設計書 TAX_WORKSPACE_PHASE6_PLAN.md §2/§10.2） -->
   <section class="tabpage" id="t-approval">
     <div class="panel">
       <div class="panel-head">
         <div>
-          <h2>⑩ 承認待ち</h2>
+          <h2>⑥ 承認待ち</h2>
           <div class="desc" id="txwApprovalPolicyDesc">現在の設定を確認しています…</div>
         </div>
       </div>
@@ -742,8 +769,8 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
           <li><b>①未仕訳の明細</b>を上から片付ける。勘定科目・税区分・インボイス区分は
             過去の仕訳から下書きが入ります。<b>内容を確かめてから</b>登録してください</li>
           <li><b>②仕訳待ちの証憑</b>に残りがあれば、仕訳を選んで添付する</li>
-          <li><b>⑨月次チェック</b>を開いて、出てきた項目を確認する</li>
-          <li>確認が終わったら⑨の下で<b>「確認しました」を記録</b>する</li>
+          <li><b>⑤月次チェック</b>を開いて、出てきた項目を確認する</li>
+          <li>確認が終わったら⑤の下で<b>「確認しました」を記録</b>する</li>
         </ol>
 
         <h3>各タブの説明</h3>
@@ -765,11 +792,11 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
             <tr><td><b>④操作履歴</b></td>
               <td>誰がいつ何を登録したかの記録です。<b>消せません。</b>
                 画面には新しい200件まで、CSVでは全部出せます。</td></tr>
-            <tr><td><b>⑨月次チェック</b></td>
+            <tr><td><b>⑤月次チェック</b></td>
               <td>①いつもあるのに今月まだ無い科目／②金額が普段と大きく違う科目／
                 ③貸方・借方の向きが普段と逆／④貸借対照表の確認／⑤事業区分別の課税売上高。
                 <b>間違いだと言っているのではなく、確認をうながしているだけです。</b></td></tr>
-            <tr><td><b>⑩承認待ち</b></td>
+            <tr><td><b>⑥承認待ち</b></td>
               <td>「承認する」設定のとき、担当者の登録がここに積まれます。
                 管理者が承認するまで<b>MFへは何も送られていません。</b></td></tr>
           </tbody>
@@ -795,8 +822,8 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
         <ul>
           <li><b>正しいかどうかの判定はしません。</b>勘定科目の下書きは「過去に同じ摘要で何を使ったか」であって、
             正解ではありません。同じ取引先でも中身が違えば科目は変わります</li>
-          <li>⑨の事業区分は<b>一種か二種かの正誤を判定できません</b>。金額と構成の変化をお見せするだけです</li>
-          <li>⑨の年換算は数字を出すだけで、<b>5,000万円を超えるかどうかの判断はしません</b></li>
+          <li>⑤の事業区分は<b>一種か二種かの正誤を判定できません</b>。金額と構成の変化をお見せするだけです</li>
+          <li>⑤の年換算は数字を出すだけで、<b>5,000万円を超えるかどうかの判断はしません</b></li>
           <li>現金払いはそもそも銀行・カードの明細に出ないため、①には出てきません</li>
         </ul>
 
@@ -811,7 +838,7 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
             <tr><td>②の証憑が減らない</td>
               <td>対応する仕訳が無いためです。「仕訳を選んで添付」で付けてください。
                 中身が不要な資料だった場合は<b>RIBREへご連絡ください</b>（消す操作は社内の画面にあります）。</td></tr>
-            <tr><td>⑨で「対象外が◯件」と出た</td>
+            <tr><td>⑤で「対象外が◯件」と出た</td>
               <td>その明細は未仕訳一覧にも仕訳帳にも出ず、<b>帳簿に入っていません</b>。
                 MFの「連携サービスから入力」→「登録済一覧」→「明細一覧」→「対象外を解除」で戻せます。</td></tr>
             <tr><td>決算が終わった期に登録しようとした</td>
@@ -826,8 +853,8 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
         <h3>管理者と担当者</h3>
         <p>事務所の中を分ける設定です。違いは3つだけで、ほかは同じです。</p>
         <ul>
-          <li>「承認する」設定のとき、担当者の登録は⑩に積まれます（管理者はそのまま登録できます）</li>
-          <li>⑩の承認・差し戻しができるのは管理者だけです</li>
+          <li>「承認する」設定のとき、担当者の登録は⑥に積まれます（管理者はそのまま登録できます）</li>
+          <li>⑥の承認・差し戻しができるのは管理者だけです</li>
           <li>④の操作履歴のCSVは、担当者はご自身の分だけ、管理者は事務所全員分です</li>
         </ul>
         <p class="txw-guide-note">※ 招待リンクから登録された方は「管理者」になります。</p>

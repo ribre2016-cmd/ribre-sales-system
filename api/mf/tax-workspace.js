@@ -670,7 +670,7 @@ async function handleActionLogCsv(res, advisor, isAdmin, body) {
   });
 }
 
-/* ---------------- Phase 7: ⑨月次チェック（読み取り専用） ----------------
+/* ---------------- Phase 7: ⑤月次チェック（読み取り専用） ----------------
    設計書: docs/TAX_WORKSPACE_PHASE7_PLAN.md §2 / §11.1 / §11.2
    MFへは GET /reports/* しか呼ばない。**何も書き込まない。**
    実測(§16): report.read は再連携済みで使える。 */
@@ -968,7 +968,7 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
   /* 「対象外」にされた明細。**未仕訳にも仕訳帳にも出ないので、放っておくと帳簿から黙って抜ける。**
    * P7-Bの実測（2026-08-05）で分かったこと: 明細から作った仕訳をAPIで削除すると、
    * 明細は未仕訳(none)ではなく対象外(excluded)になる。MFの画面から対象外にすることもできる。
-   * どちらの場合も未仕訳の件数には入らないため、⑨は「登録が終わった」と誤って表示する。
+   * どちらの場合も未仕訳の件数には入らないため、⑤は「登録が終わった」と誤って表示する。
    * 読み取りだけで数えられるので必ず出す（CLAUDE.md 制約22）。
    * ⚠ 対象外が正しいこともある（私用の引き落とし等）。正誤の判定はしない。件数と中身を見せるだけ。 */
   let excluded = { available: false, count: 0, rows: [], reason: '' };
@@ -2060,7 +2060,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // Phase 7: ⑨月次チェック（読み取りのみ）
+  // Phase 7: ⑤月次チェック（読み取りのみ）
   // 承認待ちの一覧（adminは全件・staffは自分の依頼だけ）
   if (action === 'request_list') {
     const r = await listJournalRequests(advisor, isAdmin);

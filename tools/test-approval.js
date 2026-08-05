@@ -118,11 +118,11 @@ has('②仕訳待ちの件数は本当の数を返す（Content-Range）',
   /const cr = String\(res\.headers\.get\('content-range'\)[\s\S]{0,300}truncated: total > rows\.length/);
 has('②の上限は定数で持つ', /const OPEN_EVIDENCE_LIMIT = \d+;/);
 has('②の応答に切れたかどうかを載せる', /open_evidence_truncated: !!evidenceRes\.truncated/);
-has('⑩承認待ちの上限も定数で持つ', /const REQUEST_LIST_LIMIT = \d+;/);
-has('⑩の応答に本当の件数と切れたかを載せる', /total: r\.total, truncated: !!r\.truncated, limit: REQUEST_LIST_LIMIT,/);
+has('⑥承認待ちの上限も定数で持つ', /const REQUEST_LIST_LIMIT = \d+;/);
+has('⑥の応答に本当の件数と切れたかを載せる', /total: r\.total, truncated: !!r\.truncated, limit: REQUEST_LIST_LIMIT,/);
 hasUi('②で切れたら赤字で伝える', /open_evidence_truncated[\s\S]{0,200}|証憑が多いため、①の候補には新しい/);
-hasUi('⑩で切れたら赤字で伝える', /依頼が全部で ' \+ data\.total/);
-hasUi('⑩の警告は描画のあとに足す（clearElで消えないように）',
+hasUi('⑥で切れたら赤字で伝える', /依頼が全部で ' \+ data\.total/);
+hasUi('⑥の警告は描画のあとに足す（clearElで消えないように）',
   /txwRenderApprovalStaff\(rows\);[\s\S]{0,400}if \(data\.truncated\)/);
 console.log('\n===== 結果 =====');
 console.log(ng === 0 ? '全件 期待どおり ○' : (ng + '件 期待とちがう ×'));

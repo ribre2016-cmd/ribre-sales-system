@@ -8,15 +8,15 @@
  *   'suggest'（過去の仕訳から初期値を提案。listの直後に呼ぶ） /
  *   'journalize'（仕訳登録。1件ずつ） / 'set_closed_term_policy' / 'redeem_invite'（招待リンクの引き換え）/
  *   'invite_create' / 'invite_list' / 'invite_revoke' / 'advisor_list' /
- *   'advisor_set_enabled'（社内メンバー向け管理。is_member:true のときだけ⑤タブから使う）/
- *   'request_list'（⑩承認待ちの一覧。adminは全員分・担当者は自分の分） /
+ *   'advisor_set_enabled'（社内メンバー向け管理。is_member:true のときだけ税理士の管理タブから使う）/
+ *   'request_list'（⑥承認待ちの一覧。adminは全員分・担当者は自分の分） /
  *   'request_approve' / 'request_reject'（承認・差し戻し。adminのみ） /
  *   'action_log_csv'（④操作履歴のCSVダウンロード）。
  *   他のAPIエンドポイントは一切叩かない。
  * ⚠ Phase 6: 役割(role)の変更・承認要否(approval_policy)の変更は、サーバー側の関数
  *   （setAdvisorRole/saveApprovalPolicy）はあるが、それを呼ぶ action がディスパッチに
  *   まだ無い。画面側で action を作って叩くことはしない（無いAPIを画面が先回りして
- *   作らない）。⑤タブでは現在値の表示と、Supabase SQL Editorで実行するSQL例の提示だけ行う。
+ *   作らない）。税理士の管理タブでは現在値の表示と、Supabase SQL Editorで実行するSQL例の提示だけ行う。
  * ⚠ 一括登録・全件登録のボタンは作らない（設計書§5-2・§9-2）。1回の操作で1件だけ。
  * ⚠ 消費税額はアプリ側で計算しない。tax_id を渡すだけで、税額の計算はMFに任せる。
  * ⚠ 証憑候補のチェックボックスは初期状態オフ。自動では選ばない。
@@ -42,8 +42,8 @@ function txwParseInviteToken(hash) {
   return m ? m[1] : '';
 }
 var txwInviteToken = txwParseInviteToken(location.hash);
-var txwAdminLoaded = false; // ⑤タブのデータ(招待一覧・税理士一覧)を初回表示時だけ読み込むためのフラグ
-// ⑩承認待ち・⑤承認の設定で共有する直近の承認要否設定('none'/'required')。表示専用。
+var txwAdminLoaded = false; // 税理士の管理タブのデータ(招待一覧・税理士一覧)を初回表示時だけ読み込むためのフラグ
+// ⑥承認待ち・税理士の管理の承認の設定で共有する直近の承認要否設定('none'/'required')。表示専用。
 var txwApprovalPolicyValue = 'none';
 
 /* signIn()/signOut()(services/supabase-auth.js)がログイン・ログアウト後に呼ぶ共通フック。
@@ -102,8 +102,8 @@ var TXW_LIST_MAX_CHECK = 20;
 var TXW_UNMATCHED_VIEW_KEY = 'ribre_txw_unmatched_view';
 var txwUnmatchedView = 'list'; // 既定は一覧表示
 
-/* ---------------- ⑨ 月次チェック用の絞り込み(①タブと共有) ----------------
- * txwUnmatchedFilter: ⑨の各行「この科目の未仕訳明細をさがす」から①タブへ渡す絞り込み条件。
+/* ---------------- ⑤ 月次チェック用の絞り込み(①タブと共有) ----------------
+ * txwUnmatchedFilter: ⑤の各行「この科目の未仕訳明細をさがす」から①タブへ渡す絞り込み条件。
  * txwUnmatchedAllItems/txwUnmatchedWritableCache: 直近のtxwLoad()で取得した①タブの全件を
  * 保持しておき、絞り込みのON/OFFだけで再取得なしに再描画できるようにする。 */
 // 提案の根拠がこの件数未満なら「要確認」にする（過去1〜2件は根拠として弱い）
@@ -117,11 +117,11 @@ function txwAttachableSharedFiles() {
   return (txwSharedFiles || []).filter(function (f) { return f && f.attachable && f.key; });
 }
 var txwUnmatchedFilter = { active: false, account: '', ids: [] };
-// 口座・カードでの絞り込み（''なら全部）。⑨からの科目の絞り込みとは別物で、併用できる
+// 口座・カードでの絞り込み（''なら全部）。⑤からの科目の絞り込みとは別物で、併用できる
 var txwAcctFilter = '';
 var txwUnmatchedAllItems = [];
 var txwUnmatchedWritableCache = false;
-// ⑨タブの直近の応答。確認記録(monthly_check_confirm)を送るときに件数を添えるため保持する。
+// ⑤タブの直近の応答。確認記録(monthly_check_confirm)を送るときに件数を添えるため保持する。
 var txwMonthlyLastData = null;
 
 // 同じ表示名が複数あるときはIDを付けて区別する（2パス: 先に重複数を数えてから組み立てる）
@@ -636,7 +636,7 @@ async function txwLoad() {
   txwSetAdminVisible(!!data.is_member);
 }
 
-// ⑤タブ（税理士の管理）は is_member:true のときだけ出す。無いとき/falseのときは
+// 税理士の管理タブ（税理士の管理）は is_member:true のときだけ出す。無いとき/falseのときは
 // タブ自体を消し、万一そのタブが選択中だったら①へ戻す。
 function txwSetAdminVisible(visible) {
   var btn = document.getElementById('txwAdminTabBtn');
@@ -675,7 +675,7 @@ function txwUpdateUnmatchedNote(writable) {
     : 'この明細は閲覧のみです。仕訳の登録・証憑の添付はMFクラウド会計の画面で行ってください。';
 }
 
-// ⑨月次チェックの「この科目の未仕訳明細をさがす」からの絞り込み。
+// ⑤月次チェックの「この科目の未仕訳明細をさがす」からの絞り込み。
 // 提案されている勘定科目を明細ごとに持っていない(suggestは非同期・writableのカードのみ)ため、
 // 明細の内容(content)にその科目名が含まれるものを残す。バーには「何で絞ったか」を明記する(§3)。
 function txwUnmatchedFilteredItems(items) {
@@ -686,7 +686,7 @@ function txwUnmatchedFilteredItems(items) {
   }
   if (!txwUnmatchedFilter.active) return list;
   var ids = txwUnmatchedFilter.ids;
-  // ⑨が過去の仕訳から割り出した明細IDで絞る。
+  // ⑤が過去の仕訳から割り出した明細IDで絞る。
   // ⚠ 銀行明細の摘要に勘定科目名は入っていない（「フリコミ ○○フドウサン」など）ので、
   //   科目名の文字列一致で絞ると常に0件になる。IDで絞るのが唯一まともに当たる方法。
   if (ids && ids.length) {
@@ -704,7 +704,7 @@ function txwRenderAcctFilterBar() {
   if (!bar) return;
   clearEl(bar);
   var all = txwUnmatchedAllItems || [];
-  // ⑨からの科目の絞り込みが効いているときは、その範囲の中で数える
+  // ⑤からの科目の絞り込みが効いているときは、その範囲の中で数える
   var base = all;
   if (txwUnmatchedFilter.active) {
     var ids = txwUnmatchedFilter.ids || [];
@@ -789,7 +789,7 @@ function txwRenderUnmatchedFilterBar() {
   }));
 }
 
-// ⑨タブの各行から呼ぶ。①タブへ移動し、その科目の候補として割り出した明細だけを表示する。
+// ⑤タブの各行から呼ぶ。①タブへ移動し、その科目の候補として割り出した明細だけを表示する。
 function txwFilterToUnmatched(account, ids) {
   txwUnmatchedFilter = {
     active: true,
@@ -2543,7 +2543,7 @@ async function txwAttachSharedFile(file, journal, btn, box) {
   }
 }
 
-/* ---------------- ⑤ 税理士の管理（社内メンバーのみ） ---------------- */
+/* ---------------- 税理士の管理（社内メンバーのみ） ---------------- */
 function txwFormatDateTime(iso) {
   if (!iso) return '不明';
   var d = new Date(iso);
@@ -2925,7 +2925,7 @@ async function txwSetAdvisorEnabled(emailStr, enabled, btn) {
   } catch (e) { alert('更新に失敗しました。'); btn.disabled = false; }
 }
 
-/* ---------------- Phase 6: ⑩ 承認待ち ----------------
+/* ---------------- Phase 6: ⑥ 承認待ち ----------------
  * 設計書: docs/TAX_WORKSPACE_PHASE6_PLAN.md §2.3 / §10.2
  * action:'request_list' が返す is_admin で表示を分ける。
  * ⚠ admin向けの一覧は「承認待ち」(status==='pending')だけに絞る。決定済みの依頼は
@@ -3190,9 +3190,9 @@ function txwGoTab(t) {
   }
   // 操作履歴は開くたびに読み直す（自分や他の人の登録が随時増えるため）
   if (t === 'history') txwLoadActionLog();
-  // ⑨月次チェックも開くたびに読み直す（推移表・未仕訳件数とも随時変わるため）
+  // ⑤月次チェックも開くたびに読み直す（推移表・未仕訳件数とも随時変わるため）
   if (t === 'monthly') txwLoadMonthlyCheck();
-  // ⑩承認待ちも開くたびに読み直す（承認待ちの件数・状況が随時変わるため）
+  // ⑥承認待ちも開くたびに読み直す（承認待ちの件数・状況が随時変わるため）
   if (t === 'approval') txwLoadApprovalTab();
 }
 
@@ -3338,7 +3338,7 @@ async function txwDownloadActionLogCsv(scope) {
   }
 }
 
-/* ---------------- ⑨ 月次チェック ----------------
+/* ---------------- ⑤ 月次チェック ----------------
  * action:'monthly_check' は読み取り専用（MFへ書き込まない）。タブを開くたび・対象月を
  * 変えるたび・しきい値を変えて「この条件で見直す」を押すたびに呼ぶ。
  * ⚠ month_in_progress:true のときAPIはmissingを空で返す（月の途中は計上漏れ判定をしない）。
@@ -3578,7 +3578,7 @@ function txwRenderMonthlyBsItemList(containerId, rows, textFn, cls) {
 }
 
 /* 「対象外」にされた明細を出す。
- * これが無いと⑨は「未仕訳0件＝登録が終わった」と表示するが、対象外の明細は
+ * これが無いと⑤は「未仕訳0件＝登録が終わった」と表示するが、対象外の明細は
  * 未仕訳にも仕訳帳にも出ないため、実際は帳簿から抜けている（CLAUDE.md 制約22）。
  * ⚠ 対象外が正しいこともある（私用の引き落としなど）。正誤の判定はしない。 */
 function txwRenderMonthlyExcluded(data) {
@@ -3973,8 +3973,8 @@ function txwInit() {
 
   var monthInput = document.getElementById('txwMonth');
   monthInput.value = txwRestoreMonth();
-  // 対象月を変えたら①〜⑤に加え、⑨月次チェックも(表示中なら)読み直す。
-  // ⑨は「対象月に連動」が要件のため、開いていないタブへの無駄な取得はしない。
+  // 対象月を変えたら①〜税理士の管理に加え、⑤月次チェックも(表示中なら)読み直す。
+  // ⑤は「対象月に連動」が要件のため、開いていないタブへの無駄な取得はしない。
   monthInput.addEventListener('change', function () {
     txwSaveMonth(monthInput.value);
     txwLoad();
