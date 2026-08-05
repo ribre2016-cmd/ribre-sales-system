@@ -329,10 +329,15 @@ async function redeemInvite(token, userEmail) {
    *   合致する索引が無いと**衝突の有無に関係なく**プラン作成時点でエラーになる。
    *   招待からの登録はまだ一度も使われていなかったため、発覚していなかった。
    *   一意制約に依存しない「探す→更新 or 追加」に書き換える。 */
-  const up = await upsertAdvisorByEmail(e, {
+  /* 発行時に入れた「どなたに渡すか」を、登録される方の表示名として使う。
+   * 空のときは name を送らない（既に入っている名前を消さないため）。 */
+  const inviteName = String((rows[0] && rows[0].note) || '').trim().slice(0, 60);
+  const advisorPatch = {
     enabled: true, role: 'admin',
     note: '招待リンクから登録 ' + nowIso.slice(0, 10),
-  });
+  };
+  if (inviteName) advisorPatch.name = inviteName;
+  const up = await upsertAdvisorByEmail(e, advisorPatch);
   if (!up.ok) {
     // 招待だけ消費して登録できていない状態を残さないよう、使用済みを取り消す
     await fetch(`${SUPABASE_URL}/rest/v1/tax_advisor_invites?token=eq.${encodeURIComponent(t)}`, {
@@ -342,7 +347,7 @@ async function redeemInvite(token, userEmail) {
     }).catch(() => {});
     return { ok: false, error: 'advisor_register_failed' };
   }
-  return { ok: true, email: e };
+  return { ok: true, email: e, name: inviteName || null };
 }
 
 /* メールで税理士を1件、追加または更新する。
@@ -1155,6 +1160,52 @@ async function recordAction(row) {
   }
 }
 
+/* ---------------- Chatwork通知（税理士の利用をRIBREへ知らせる） ----------------
+ * auto-match.js と同じ部屋へ送る。トークン未設定なら黙って何もしない。
+ * ⚠ 通知の失敗で本処理を止めないこと。通知はおまけで、帳簿の作業が本体。 */
+const CHATWORK_API_TOKEN = process.env.CHATWORK_API_TOKEN;
+const CHATWORK_ROOM_ID = process.env.CHATWORK_ROOM_ID;
+async function notifyChatwork(text) {
+  if (!CHATWORK_API_TOKEN || !CHATWORK_ROOM_ID) return false;
+  try {
+    const res = await fetch(`https://api.chatwork.com/v2/rooms/${encodeURIComponent(CHATWORK_ROOM_ID)}/messages`, {
+      method: 'POST',
+      headers: { 'X-ChatWorkToken': CHATWORK_API_TOKEN, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ body: text }).toString(),
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+/* 税理士のログインを **1日1回だけ** 通知する。
+ * 画面を開くたびに鳴らすと、すぐ誰も読まなくなるため。
+ * 「今日すでに通知したか」は操作履歴の action='login' で数える（新しい保存先を作らない）。
+ * 日付の区切りは日本時間。 */
+async function notifyAdvisorLoginOnce(advisor) {
+  try {
+    const jstDate = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const dayStartUtc = new Date(jstDate + 'T00:00:00+09:00').toISOString();
+    const url = `${SUPABASE_URL}/rest/v1/tax_advisor_actions`
+      + `?actor_email=eq.${encodeURIComponent(advisor.email)}`
+      + `&action=eq.login&created_at=gte.${encodeURIComponent(dayStartUtc)}&select=id&limit=1`;
+    const res = await fetch(url, { headers: supabaseHeaders() });
+    if (!res.ok) return;                                  // 確かめられないなら鳴らさない（二重通知よりまし）
+    const rows = await res.json().catch(() => null);
+    if (!Array.isArray(rows) || rows.length) return;      // 今日はもう通知済み
+    await recordAction({
+      actor_email: advisor.email, action: 'login', result: 'ok',
+      payload: { name: advisor.name || null },
+    });
+    const who = advisor.name ? (advisor.name + '（' + advisor.email + '）') : advisor.email;
+    await notifyChatwork('[info][title]税理士ワークスペース[/title]'
+      + who + ' 様が本日はじめてログインしました（' + jstDate + '）[/info]');
+  } catch (e) {
+    console.error('login通知に失敗（本処理は続行）', e && e.message);
+  }
+}
+
 // その明細がまだ未仕訳かを確認する。
 // ⚠ ここで確認しても、確認と登録の間にMFの画面側で仕訳化されると二重になる（TOCTOU）。
 //    MFに冪等キーが無いため完全には防げない。登録後にも確認して警告を出す（§5-4）。
@@ -1584,6 +1635,18 @@ async function saveApprovalPolicy(policy, byEmail) {
   return res.ok;
 }
 
+/* 表示名の変更。空にしたら消す（nullへ）。長すぎる名前は60文字で切る */
+async function setAdvisorName(email, name) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return false;
+  const v = String(name || '').trim().slice(0, 60);
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/tax_advisors?email=ilike.${encodeURIComponent(e)}`,
+    { method: 'PATCH', headers: { ...supabaseHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify({ name: v || null }) }
+  );
+  return res.ok;
+}
+
 async function setAdvisorRole(email, role) {
   const e = String(email || '').trim().toLowerCase();
   if (!e || ['admin', 'staff'].indexOf(role) < 0) return false;
@@ -1887,6 +1950,12 @@ module.exports = async (req, res) => {
       res.status(500).json({ ok: false, error: 'invite_check_failed' });
       return;
     }
+    if (r.ok) {
+      // 初回登録はログインより大きな出来事なので、その場で知らせる（失敗しても登録は成功扱い）
+      const who = r.name ? (r.name + '（' + r.email + '）') : r.email;
+      await notifyChatwork('[info][title]税理士ワークスペース[/title]'
+        + who + ' 様が招待リンクから登録しました（管理者）[/info]');
+    }
     res.status(r.ok ? 200 : 200).json(r);
     return;
   }
@@ -1998,6 +2067,20 @@ module.exports = async (req, res) => {
    * ⚠ 社内メンバーだけ。税理士どうしで役割を上げ下げできてはいけない。
    * ⚠ **MEMBER_ONLY の配列には足さないこと。** あの配列は上の分岐で処理され、
    *   ここまで届かなくなる。権限の判定はこの中で行っている。 */
+  /* 税理士の表示名を変える。
+   * ⚠ 社内メンバーだけ。⚠ MEMBER_ONLY の配列には足さないこと（届かなくなる・役割と同じ理由）。 */
+  if (action === 'advisor_set_name') {
+    if (!isMember) { res.status(403).json({ ok: false, error: 'member_only' }); return; }
+    const okName = await setAdvisorName(body && body.email, body && body.name);
+    if (!okName) { res.status(200).json({ ok: false, error: 'invalid_name' }); return; }
+    await recordAction({
+      actor_email: advisor.email, action: 'advisor_set_name',
+      result: 'ok', payload: { email: body.email, name: body.name },
+    });
+    res.status(200).json({ ok: true, email: body.email, name: body.name });
+    return;
+  }
+
   if (action === 'advisor_set_role') {
     if (!isMember) { res.status(403).json({ ok: false, error: 'member_only' }); return; }
     const okRole = await setAdvisorRole(body && body.email, body && body.role);
@@ -2042,7 +2125,7 @@ module.exports = async (req, res) => {
     'bootstrap', 'list', 'journalize', 'suggest', 'monthly_check', 'monthly_check_confirm',
     'request_list', 'request_approve', 'request_reject', 'action_log_csv',
     'journal_search', 'attach_shared_file',
-    'set_approval_policy', 'advisor_set_role',
+    'set_approval_policy', 'advisor_set_role', 'advisor_set_name',
   ].indexOf(action) < 0) {
     res.status(400).json({ ok: false, error: 'invalid_action' });
     return;
@@ -2188,7 +2271,10 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // 画面の中身（未仕訳の明細・証憑候補・共有ファイル）
+  // 画面の中身（未仕訳の明細・証憑候補・共有ファイル）。ここに来るのは action='list' だけ
+  /* 税理士が今日はじめて画面を開いたことをRIBREへ知らせる。
+   * 社内メンバー自身のログインは鳴らさない。失敗しても画面は普通に出す。 */
+  if (!isMember) await notifyAdvisorLoginOnce(advisor);
   const range = monthRange(body.month);
   if (!range) {
     res.status(400).json({ ok: false, error: 'invalid_month' });

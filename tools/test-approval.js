@@ -74,7 +74,10 @@ has('CSVはBOM付き（Excelで文字化けしない）', /String\.fromCharCode\
 has('CSVはadminなら全件・staffは自分の分だけ', /if \(!isAdmin\) base \+= `&actor_email=eq\./);
 /* 招待リンクからの登録は管理者になる（利用者の判断・2026-08-05）。
  * ここが壊れると、先生が登録しても担当者のままになる。 */
-has('招待からの登録は role=admin で入れる', /upsertAdvisorByEmail\(e, \{\s*enabled: true, role: 'admin',/);
+has('招待からの登録は role=admin で入れる',
+  /const advisorPatch = \{\s*\n\s*enabled: true, role: 'admin',[\s\S]{0,300}upsertAdvisorByEmail\(e, advisorPatch\)/);
+// 発行時の名前は表示名になるが、空なら送らない（既存の名前を消さない）
+has('招待の名前は空なら送らない', /if \(inviteName\) advisorPatch\.name = inviteName;/);
 /* ☠ `?on_conflict=email` は**必ず失敗する**。一意索引が lower(email) の
  *   関数インデックスなので ON CONFLICT (email) に合致しない（42P10）。
  *   これを復活させると税理士が招待リンクから登録できなくなる。 */

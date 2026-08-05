@@ -617,6 +617,12 @@ async function txwLoad() {
   }
 
   if (data.advisor && data.advisor.email) txwSetWho(data.advisor.email);
+  /* 表示名が入っていれば、右上を「名前（メール）」にする。
+   * 税理士の管理で名前を変えた直後は、次のlist読み込みで反映される。 */
+  if (data.advisor && data.advisor.name) {
+    var whoEl = document.getElementById('txwWhoEmail');
+    if (whoEl) whoEl.textContent = data.advisor.name + '（' + data.advisor.email + '）';
+  }
   txwWritable = !!data.writable;
   // 決算済みの期の扱い。サーバーが返した値を正とする（画面で勝手に決めない）
   if (['warn', 'block'].indexOf(data.closed_term_policy) >= 0) txwClosedTermPolicy = data.closed_term_policy;
@@ -2616,7 +2622,9 @@ async function txwCreateInvite() {
   clearEl(out);
   btn.disabled = true;
   try {
-    var result = await txwApiCall('invite_create', {});
+    var nameInput = document.getElementById('txwInviteNameInput');
+    // 「どなたに渡すか」は招待の note に載り、登録時にその方の表示名になる
+    var result = await txwApiCall('invite_create', { note: ((nameInput && nameInput.value) || '').trim() });
     var data = result.data || {};
     if (!data.ok || !data.token) {
       out.appendChild(el('div', { class: 'note danger', text: '招待リンクの発行に失敗しました。' }));
@@ -2659,12 +2667,13 @@ function txwRenderInvites(invites) {
   var table = document.createElement('table');
   var thead = el('thead');
   var trh = el('tr');
-  ['発行日時', '期限', '状態', '操作'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
+  ['渡す相手', '発行日時', '期限', '状態', '操作'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
   thead.appendChild(trh);
   table.appendChild(thead);
   var tbody = document.createElement('tbody');
   invites.forEach(function (inv) {
     var tr = el('tr');
+    tr.appendChild(el('td', { text: inv.note || '—' }));
     tr.appendChild(el('td', { text: txwFormatDateTime(inv.created_at) }));
     tr.appendChild(el('td', { text: txwFormatDateTime(inv.expires_at) }));
     var st = txwInviteStatus(inv);
@@ -2714,6 +2723,25 @@ function txwRoleLabel(role) {
 }
 /* 役割を変える。押し間違いが権限の事故になるので必ず確認を出す。
  * 失敗したら一覧を触らない（画面だけ変わって実際は変わっていない、を避ける）。 */
+/* 表示名を変える。社内メンバー専用の管理機能なので prompt で足りる。
+ * 失敗したら一覧を触らない（画面だけ変わって実際は違う、を避ける）。 */
+async function txwSetAdvisorName(emailStr, current, btn) {
+  var v = prompt(emailStr + ' の表示名を入力してください（空にすると消えます）', current || '');
+  if (v === null) return;
+  btn.disabled = true;
+  try {
+    var r = await txwApiCall('advisor_set_name', { email: emailStr, name: v.trim() });
+    var d = (r && r.data) || {};
+    if (d.ok) { txwLoadAdvisors(); return; }
+    alert(d.error === 'member_only'
+      ? 'この操作はRIBREのメンバーだけが行えます。'
+      : '名前を変えられませんでした（' + (d.error || '理由不明') + '）。変更していません。');
+  } catch (e) {
+    alert('名前を変えられませんでした。変更していません。');
+  }
+  btn.disabled = false;
+}
+
 async function txwSetAdvisorRole(emailStr, newRole, btn) {
   var label = txwRoleLabel(newRole);
   var msg = newRole === 'admin'
@@ -2749,12 +2777,13 @@ function txwRenderAdvisors(advisors) {
   var table = document.createElement('table');
   var thead = el('thead');
   var trh = el('tr');
-  ['メール', '登録日時', '役割', '状態', '操作'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
+  ['名前', 'メール', '登録日時', '役割', '状態', '操作'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
   thead.appendChild(trh);
   table.appendChild(thead);
   var tbody = document.createElement('tbody');
   advisors.forEach(function (a) {
     var tr = el('tr');
+    tr.appendChild(el('td', { text: a.name || '（未設定）' }));
     tr.appendChild(el('td', { text: a.email || '' }));
     tr.appendChild(el('td', { text: txwFormatDateTime(a.created_at) }));
     var tdRole = el('td');
@@ -2781,6 +2810,10 @@ function txwRenderAdvisors(advisors) {
       txwSetAdvisorRole(a.email, newRole, roleBtn);
     });
     tdOp.appendChild(roleBtn);
+
+    var nameBtn = el('button', { type: 'button', class: 'btn-mini', text: '名前を変える' });
+    nameBtn.addEventListener('click', function () { txwSetAdvisorName(a.email, a.name || '', nameBtn); });
+    tdOp.appendChild(nameBtn);
 
     tr.appendChild(tdOp);
     tbody.appendChild(tr);
@@ -3200,10 +3233,25 @@ function txwGoTab(t) {
  * MF側では仕訳が全て「連携アプリ」名義で作られ、誰が作ったか分からない。
  * そのため**この履歴がこの機能の唯一の監査証跡**（設計書§5-5）。
  * 社内メンバーは全件、税理士は自分の操作だけ見える。 */
+/* ④操作履歴に出す操作名。
+ * ⚠ recordAction で新しい action を作ったら**必ずここにも足すこと**。
+ *   足し忘れると英語のまま出る（approve_journalize 等が長らく生で出ていた）。 */
 function txwActionLabel(a) {
-  if (a === 'journalize') return '仕訳の登録';
-  if (a === 'set_closed_term_policy') return '設定の変更';
-  return a || '-';
+  var labels = {
+    journalize: '仕訳の登録',
+    request_journalize: '登録の依頼（承認待ちへ）',
+    approve_journalize: '依頼の承認',
+    reject_journalize: '依頼の差し戻し',
+    attach_shared_file: '証憑の添付（共有ファイル/仕訳待ちから）',
+    set_closed_term_policy: '設定の変更（決算済みの期）',
+    set_approval_policy: '設定の変更（承認の要否）',
+    advisor_set_role: '役割の変更',
+    advisor_set_name: '表示名の変更',
+    monthly_check_confirmed: '月次チェックの確認を記録',
+    monthly_check_confirmed: '月次チェックの確認を記録',
+    login: 'ログイン（その日の初回）',
+  };
+  return labels[a] || a || '-';
 }
 /* 提案をそのまま使ったのか、人が直したのかの表示。
  * 「提案どおり」が多い月は、職員が根拠を見ずに押している可能性がある、という

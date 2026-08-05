@@ -548,7 +548,12 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
                （招待＝管理者になる。利用者の判断・2026-08-05）。 -->
           <div class="note warn" style="margin-bottom:10px;">
             この招待リンクから登録した方は<b>「管理者」になります</b>。顧問税理士の先生にお渡しください。
-            事務所の担当者の方に渡す場合は、登録後に下の一覧から「担当者」へ変えてください。
+            事務所の担当者の方に渡す場合は、登録後に下の一覧から「担当者」へ変えてください。下で入れたお名前は、登録された方の<b>表示名</b>になります。
+          </div>
+          <!-- 発行時に入れた名前は、登録された方の表示名になる（redeem時に tax_advisors.name へ） -->
+          <div class="jform-field" style="max-width:360px;margin-bottom:10px;">
+            <label for="txwInviteNameInput">どなたに渡しますか（お名前・任意）</label>
+            <input id="txwInviteNameInput" type="text" placeholder="例: 山田太郎 先生">
           </div>
           <button id="txwInviteCreateBtn" class="btn btn-primary" type="button">招待リンクを発行</button>
           <div id="txwInviteCreateResult"></div>
@@ -559,7 +564,7 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
         </div>
         <div class="admin-block">
           <h3>税理士の一覧<button id="txwAdvisorListReloadBtn" class="btn-mini" type="button">更新</button></h3>
-          <div class="desc">各行のボタンで、利用の有効・無効と役割（管理者／担当者）をその場で変えられます。</div>
+          <div class="desc">各行のボタンで、表示名・利用の有効・無効・役割（管理者／担当者）をその場で変えられます。</div>
           <!-- 「管理者」「担当者」と出しているだけでは何が違うのか読めないので、
                ここで違いを言い切る（利用者の指摘・2026-08-05）。 -->
           <details class="txw-roleguide">
