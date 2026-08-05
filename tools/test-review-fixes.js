@@ -102,6 +102,39 @@ console.log('\n===== ⑦b 月末の境界を実駆動 =====');
   Date.now = realNow;
 }
 
+console.log('\n===== \u2467 0\u4ef6\u66f4\u65b0\u3092\u300c\u6210\u529f\u300d\u3068\u8a18\u9332\u3057\u3066\u3044\u305f =====');
+/* PostgREST は0件更新でも200を返す。res.ok だけを見ると、存在しないメールへの
+ * 変更が「成功」として記録され、記録と実態が食い違う。 */
+/* 行数を見ているのは4つ: revokeInvite / setAdvisorEnabled / setAdvisorName / setAdvisorRole。
+ * 前2つは元から正しく、あとから足した後2つだけ res.ok しか見ていなかった。 */
+ck('0件更新を弾く関数が4つある',
+  (api.match(/return Array\.isArray\(rows\) && rows\.length > 0;/g) || []).length, 4);
+has('役割の変更が representation を使う',
+  api, /body: JSON\.stringify\(\{ role \}\)[\s\S]{0,200}rows\.length > 0/);
+has('名前の変更も representation を使う',
+  api, /body: JSON\.stringify\(\{ name: v \|\| null \}\)[\s\S]{0,200}rows\.length > 0/);
+
+console.log('\n===== \u2467b ilike \u306e\u30ef\u30a4\u30eb\u30c9\u30ab\u30fc\u30c9 =====');
+has('エスケープ関数がある', api, /function ilikeLiteral\(v\)/);
+ck('メールを ilike に渡す箇所はすべてエスケープしている',
+  (api.match(/email=ilike\.\$\{encodeURIComponent\(e\)\}/g) || []).length, 0);
+{
+  const f = eval('(' + /function ilikeLiteral\(v\) \{[\s\S]*?\n\}/.exec(api)[0] + ')');
+  ck('ふつうのメールはそのまま', f('k.sado@ribre.co.jp'), 'k.sado@ribre.co.jp');
+  ck('% を無害化する', f('k%sado@x.jp'), 'k\\%sado@x.jp');
+  ck('_ を無害化する', f('a_b@x.jp'), 'a\\_b@x.jp');
+}
+
+console.log('\n===== \u2468 \u540c\u3058\u4ed5\u8a33\u3078\u306e\u4e8c\u91cd\u9001\u4fe1 =====');
+/* 証憑ごとのclaimは「その証憑1件」を守るだけで、仕訳単位のロックではない。
+ * MFの証憑は取り消せないので、送る直前にもう一度確かめて隙間を狭める。 */
+has('送信の直前にもう一度確かめる', api, /const again = await journalVoucherState\(accessToken, journalId\);/);
+has('付いていたら送らない', api, /if \(again\.ok && again\.has_voucher\)/);
+has('その事象も操作履歴に残す', api, /error_message: 'already_has_voucher_race'/);
+has('再確認は取り込みのあと・送信の前', api,
+  /importSharedFileAsEvidence[\s\S]*const again = await journalVoucherState[\s\S]*await attachEvidence\(accessToken, imported/);
+has('完全には防げないことを注記してある', api, /完全には防げない/);
+
 console.log('\n===== 結果 =====');
 console.log(ng === 0 ? '全件 期待どおり ○' : (ng + '件 期待とちがう ×'));
 process.exit(ng === 0 ? 0 : 1);

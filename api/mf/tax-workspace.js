@@ -359,7 +359,7 @@ async function upsertAdvisorByEmail(email, patch) {
   if (!e) return { ok: false, error: 'invalid_email' };
   const find = async () => {
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/tax_advisors?email=ilike.${encodeURIComponent(e)}&select=id&limit=1`,
+      `${SUPABASE_URL}/rest/v1/tax_advisors?email=ilike.${encodeURIComponent(ilikeLiteral(e))}&select=id&limit=1`,
       { headers: supabaseHeaders() }
     );
     if (!r.ok) return null;
@@ -1589,7 +1589,26 @@ async function handleAttachSharedFile(res, advisor, accessToken, body, opts) {
     return;
   }
 
-  // (3) MFへ送る（claim先行はattachEvidenceの中）
+  /* (3) MFへ送る（claim先行はattachEvidenceの中）。
+   * ⚠ 送る直前にもう一度「まだ証憑が付いていないか」を確かめる。
+   *   証憑ごとの claim は**その証憑1件**を守るだけで、**仕訳単位のロックではない**。
+   *   同じ仕訳に別々の証憑を2人が同時に送ると、両方とも (1) の確認を通ってしまい、
+   *   MFに2件届く。MFの証憑は取り消せない（制約10）ので、あとから1件だけ消せない
+   *   （2026-08-06のレビューで発覚）。
+   *   ⚠ これは隙間を狭めるだけで、完全には防げない（MFに仕訳単位のロックが無いため）。
+   *   取り込み〜送信の間に他が割り込む余地は残る。完全な排他が要るなら
+   *   Supabase側に仕訳IDの予約テーブルを作る必要がある。 */
+  const again = await journalVoucherState(accessToken, journalId);
+  if (again.ok && again.has_voucher) {
+    await recordAction({
+      actor_email: advisor.email, action: 'attach_shared_file', journal_id: journalId,
+      result: 'failed', error_message: 'already_has_voucher_race',
+      payload: { key: key || null, evidence_id: evidenceId || null },
+    });
+    res.status(200).json({ ok: false, error: 'already_has_voucher', count: again.count });
+    return;
+  }
+
   const r = await attachEvidence(accessToken, imported.evidence.id, journalId);
   await recordAction({
     actor_email: advisor.email, action: 'attach_shared_file', journal_id: journalId,
@@ -1701,26 +1720,42 @@ async function saveApprovalPolicy(policy, byEmail) {
   return res.ok;
 }
 
+/* PostgREST の ilike に渡す値をそのまま使わない。
+ * ⚠ `%` と `_` はパターン文字なので、`k%sado@example.com` のようなメールだと
+ *   「kで始まりsado@example.comで終わる」の部分一致になり、**別人の行を巻き込む**。
+ *   メールのローカル部は仕様上これらを含められる（2026-08-06のレビューで指摘）。 */
+function ilikeLiteral(v) {
+  return String(v || '').replace(/([\\%_])/g, '\\$1');
+}
+
 /* 表示名の変更。空にしたら消す（nullへ）。長すぎる名前は60文字で切る */
 async function setAdvisorName(email, name) {
   const e = String(email || '').trim().toLowerCase();
   if (!e) return false;
   const v = String(name || '').trim().slice(0, 60);
+  /* ⚠ 0件更新でもPostgRESTは200を返す。res.ok だけを見ると、
+   *   存在しないメールへの変更が「成功」として記録され、記録と実態が食い違う
+   *   （setAdvisorEnabled は最初から行数を見ていた。2026-08-06のレビューで発覚）。 */
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/tax_advisors?email=ilike.${encodeURIComponent(e)}`,
-    { method: 'PATCH', headers: { ...supabaseHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify({ name: v || null }) }
+    `${SUPABASE_URL}/rest/v1/tax_advisors?email=ilike.${encodeURIComponent(ilikeLiteral(e))}`,
+    { method: 'PATCH', headers: { ...supabaseHeaders(), Prefer: 'return=representation' }, body: JSON.stringify({ name: v || null }) }
   );
-  return res.ok;
+  if (!res.ok) return false;
+  const rows = await res.json().catch(() => []);
+  return Array.isArray(rows) && rows.length > 0;
 }
 
 async function setAdvisorRole(email, role) {
   const e = String(email || '').trim().toLowerCase();
   if (!e || ['admin', 'staff'].indexOf(role) < 0) return false;
+  // 0件更新を成功と言わない（setAdvisorName と同じ理由）
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/tax_advisors?email=ilike.${encodeURIComponent(e)}`,
-    { method: 'PATCH', headers: { ...supabaseHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify({ role }) }
+    `${SUPABASE_URL}/rest/v1/tax_advisors?email=ilike.${encodeURIComponent(ilikeLiteral(e))}`,
+    { method: 'PATCH', headers: { ...supabaseHeaders(), Prefer: 'return=representation' }, body: JSON.stringify({ role }) }
   );
-  return res.ok;
+  if (!res.ok) return false;
+  const rows = await res.json().catch(() => []);
+  return Array.isArray(rows) && rows.length > 0;
 }
 
 const REQUEST_LIST_LIMIT = 200;
