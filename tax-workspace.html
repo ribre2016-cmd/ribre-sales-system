@@ -163,6 +163,12 @@ tr:nth-child(even) td { background: var(--hm-canvas); }
 .invite-row { display: flex; gap: 8px; align-items: center; }
 .invite-url-input { flex: 1; padding: 8px 10px; border: 1px solid var(--hm-line); border-radius: 6px; font-size: 14px; font-family: monospace; background: var(--hm-paper); }
 
+/* ①の「共有ファイルから選ぶ」。既定は閉じる（機械が見つけた候補のほうを先に見てほしい） */
+.txw-shared-pick { margin-top: 10px; border: 1px solid var(--hm-line); border-radius: 6px; background: var(--hm-paper); }
+.txw-shared-pick > summary { cursor: pointer; padding: 7px 10px; font-size: 13px; font-weight: 800; color: var(--hm-blue); }
+.txw-shared-pick-body { padding: 0 10px 10px; }
+.txw-muted { color: var(--hm-muted); }
+
 /* 役割の違いの説明（既定は閉じておき、知りたい人だけ開く） */
 .txw-roleguide { margin: 8px 0 12px; border: 1px solid var(--hm-blue); border-radius: 8px; background: var(--hm-blue-soft); }
 .txw-roleguide > summary { cursor: pointer; padding: 9px 12px; font-size: 13px; font-weight: 800; color: var(--hm-blue); }

@@ -110,6 +110,12 @@ var txwUnmatchedView = 'list'; // 既定は一覧表示
 var TXW_THIN_EVIDENCE = 3;
 // 証憑の一覧を取れなかったときの理由（空なら成功）
 var txwEvidenceLoadFailed = '';
+// ③共有ファイルの一覧。①の「共有ファイルから選ぶ」でも使うので画面全体で持つ
+var txwSharedFiles = [];
+// 証憑にできる形式（PDF・PNG・JPG）だけを返す。判定はサーバーが付けた attachable に従う
+function txwAttachableSharedFiles() {
+  return (txwSharedFiles || []).filter(function (f) { return f && f.attachable && f.key; });
+}
 var txwUnmatchedFilter = { active: false, account: '', ids: [] };
 // 口座・カードでの絞り込み（''なら全部）。⑨からの科目の絞り込みとは別物で、併用できる
 var txwAcctFilter = '';
@@ -616,11 +622,15 @@ async function txwLoad() {
   if (['warn', 'block'].indexOf(data.closed_term_policy) >= 0) txwClosedTermPolicy = data.closed_term_policy;
   txwRenderPolicyBox();
   txwUpdateTermWarning(month);
-  txwRenderUnmatched(Array.isArray(data.items) ? data.items : [], txwWritable);
-  // 「見つからない」と「取れなかった」を必ず分ける（提案で同じ見落としをしたため）
+  /* ⚠ ①のカードを描く前に用意しておくこと。
+   *   txwRenderUnmatched は txwEvidenceLoadFailed と txwSharedFiles を読む。
+   *   後から代入すると、初回は前回の値（初回は空）で描かれてしまい、
+   *   証憑の取得に失敗しても「候補が見つかりません」に化ける（制約20と同じ穴）。 */
   txwEvidenceLoadFailed = data.evidence_load_failed || '';
+  txwSharedFiles = Array.isArray(data.shared_files) ? data.shared_files : [];
+  txwRenderUnmatched(Array.isArray(data.items) ? data.items : [], txwWritable);
   txwRenderAwaiting(Number(data.open_evidence_count) || 0);
-  txwRenderFiles(Array.isArray(data.shared_files) ? data.shared_files : [], data.shared_files_load_failed || '');
+  txwRenderFiles(txwSharedFiles, data.shared_files_load_failed || '');
   txwSetAdminVisible(!!data.is_member);
 }
 
@@ -981,10 +991,41 @@ function txwRenderUnmatched(items, writable) {
         evBox.appendChild(item);
       });
     }
+
+    /* 共有ファイルからも選べるようにする（税理士がご自身の判断で・2026-08-05）。
+     * 上の「関連しそうな証憑」は日付と取引先で機械が見つけた候補。
+     * こちらは機械が候補にしないもの（請求書・明細など）を人が選ぶための欄。 */
+    var sharedCheckboxes = [];
+    if (writable) {
+      var atts = txwAttachableSharedFiles();
+      if (atts.length) {
+        var shBox = el('details', { class: 'txw-shared-pick' });
+        shBox.appendChild(el('summary', { text: '共有ファイルから選ぶ（' + atts.length + '件）' }));
+        var inner = el('div', { class: 'txw-shared-pick-body' });
+        inner.appendChild(el('div', {
+          class: 'note',
+          text: 'ご自身の判断で証憑にできます。同じファイルは二度送られません。'
+            + 'MFへ送った証憑は取り消せませんのでご注意ください。',
+        }));
+        atts.forEach(function (f) {
+          var lab = document.createElement('label');
+          lab.className = 'evidence-check-row';
+          var cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = false;   // 初期は必ずオフ（自動では選ばない）
+          lab.appendChild(cb);
+          lab.appendChild(document.createTextNode((f.month || '') + '　' + (f.name || f.key)));
+          inner.appendChild(lab);
+          sharedCheckboxes.push({ checkbox: cb, key: f.key, name: f.name });
+        });
+        shBox.appendChild(inner);
+        evBox.appendChild(shBox);
+      }
+    }
     body.appendChild(evBox);
 
     if (writable) {
-      txwBuildJournalForm(card, body, tx, evidenceCheckboxes);
+      txwBuildJournalForm(card, body, tx, evidenceCheckboxes, sharedCheckboxes);
     }
 
     card.appendChild(body);
@@ -1016,7 +1057,7 @@ function txwBuildSearchInput(datalistId, placeholder) {
   return input;
 }
 
-function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
+function txwBuildJournalForm(card, body, tx, evidenceCheckboxes, sharedCheckboxes) {
   var formWrap = el('div', { class: 'jcard-form' });
 
   if (!txwMaster.loaded) {
@@ -1121,6 +1162,7 @@ function txwBuildJournalForm(card, body, tx, evidenceCheckboxes) {
     card: card, statusArea: statusArea, submitBtn: submitBtn,
     accountInput: accountInput, subInput: subInput, taxInput: taxInput,
     invoiceSelect: invoiceSelect, memoInput: memoInput, evidenceCheckboxes: evidenceCheckboxes,
+    sharedCheckboxes: sharedCheckboxes || [],
     suggestNote: suggestNote, suggestText: suggestText, updateSubmitEnabled: updateSubmitEnabled,
   };
   submitBtn.addEventListener('click', function () { txwSubmitJournal(tx, refs); });
@@ -2117,6 +2159,10 @@ async function txwSubmitJournal(tx, refs) {
     .filter(function (c) { return c.checkbox.checked; })
     .map(function (c) { return c.evidence_id; });
   if (evidenceIds.length) payload.evidence_ids = evidenceIds;
+  var sharedKeys = (refs.sharedCheckboxes || [])
+    .filter(function (c) { return c.checkbox.checked; })
+    .map(function (c) { return { key: c.key, name: c.name }; });
+  if (sharedKeys.length) payload.shared_file_keys = sharedKeys;
 
   var result;
   try {
@@ -2188,7 +2234,7 @@ function txwRenderFiles(files, loadFailed) {
     var table = document.createElement('table');
     var thead = el('thead');
     var trh = el('tr');
-    ['ファイル名', 'サイズ', '種別'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
+    ['ファイル名', 'サイズ', '種別', '証憑にする'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
     thead.appendChild(trh);
     table.appendChild(thead);
 
@@ -2210,14 +2256,194 @@ function txwRenderFiles(files, loadFailed) {
       tr.appendChild(el('td', { class: 'num', text: txwFormatSize(f.size) }));
 
       var tdKind = el('td');
-      tdKind.appendChild(el('span', { class: 'chip ' + (f.attachable ? 'chip-blue' : 'chip-gray'), text: f.attachable ? '証憑添付可' : '閲覧のみ' }));
+      tdKind.appendChild(el('span', { class: 'chip ' + (f.attachable ? 'chip-blue' : 'chip-gray'), text: f.attachable ? 'PDF・画像' : 'Excelなど' }));
       tr.appendChild(tdKind);
+
+      /* 証憑として添付する。MFへ送ると取り消せないので、
+       * 押してすぐ送らず「仕訳を選ぶ」段を必ず挟む。 */
+      var tdAct = el('td');
+      if (f.attachable) {
+        var btn = el('button', { type: 'button', class: 'btn-mini', text: '仕訳を選んで添付' });
+        var panel = el('div', { style: 'display:none;margin-top:8px;' });
+        btn.addEventListener('click', function () {
+          var open = panel.style.display !== 'none';
+          panel.style.display = open ? 'none' : 'block';
+          btn.textContent = open ? '仕訳を選んで添付' : '閉じる';
+          if (!open && !panel.dataset.built) { txwBuildAttachPanel(panel, f); panel.dataset.built = '1'; }
+        });
+        tdAct.appendChild(btn);
+        tdAct.appendChild(panel);
+      } else {
+        tdAct.appendChild(el('span', { class: 'txw-muted', text: '—' }));
+      }
+      tr.appendChild(tdAct);
 
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
     body.appendChild(table);
   });
+}
+
+/* 共有ファイルを証憑として添付するための、仕訳を選ぶ枠。
+ * ⚠ MFの証憑は送ったら取り消せない。だから
+ *   ・押してすぐ送らない（探す→選ぶ→確認、の3段）
+ *   ・すでに証憑が付いている仕訳は**選べなくする**（サーバーでも弾く）
+ *   ・同じ中身のファイルはサーバーが弾く（画面では理由を出すだけ） */
+function txwBuildAttachPanel(panel, file) {
+  clearEl(panel);
+  panel.appendChild(el('div', {
+    class: 'note warn',
+    text: 'MFへ送った証憑は取り消せません。添付先の仕訳をよくお確かめください。',
+  }));
+
+  var row = el('div', { class: 'jform-row' });
+  function field(labelText, input) {
+    var w = el('div', { class: 'jform-field' });
+    w.appendChild(el('label', { text: labelText }));
+    w.appendChild(input);
+    return w;
+  }
+  // 既定は共有ファイルの月。月をまたぐ検索はMFが受け付けない（制約18）ので月単位にする
+  var monthVal = (file.month && /^\d{4}-\d{2}$/.test(file.month)) ? file.month : txwCurrentMonth();
+  var monthInput = el('input', { type: 'month', value: monthVal });
+  var kwInput = el('input', { type: 'text', placeholder: '摘要・勘定科目で絞る（任意）' });
+  var searchBtn = el('button', { type: 'button', class: 'btn btn-primary', text: '仕訳をさがす' });
+  row.appendChild(field('対象月', monthInput));
+  row.appendChild(field('絞り込み', kwInput));
+  panel.appendChild(row);
+  panel.appendChild(searchBtn);
+
+  var result = el('div', { style: 'margin-top:10px;' });
+  panel.appendChild(result);
+
+  searchBtn.addEventListener('click', async function () {
+    var m = String(monthInput.value || '');
+    if (!/^\d{4}-\d{2}$/.test(m)) { alert('対象月を選んでください。'); return; }
+    searchBtn.disabled = true;
+    clearEl(result);
+    result.appendChild(el('div', { class: 'txw-loading', text: 'さがしています…' }));
+    try {
+      var r = await txwApiCall('journal_search', {
+        start_date: m + '-01', end_date: txwMonthEnd(m), keyword: kwInput.value || '',
+      });
+      var d = (r && r.data) || {};
+      clearEl(result);
+      if (!d.ok) {
+        result.appendChild(el('div', { class: 'note danger', text: '仕訳をさがせませんでした（' + (d.error || '') + '）。' }));
+        return;
+      }
+      txwRenderAttachCandidates(result, d, file);
+    } catch (e) {
+      clearEl(result);
+      result.appendChild(el('div', { class: 'note danger', text: '仕訳をさがせませんでした。' }));
+    } finally {
+      searchBtn.disabled = false;
+    }
+  });
+}
+
+function txwMonthEnd(m) {
+  var y = Number(m.slice(0, 4));
+  var mo = Number(m.slice(5, 7));
+  return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
+}
+function txwCurrentMonth() {
+  var sel = document.getElementById('txwMonth');
+  var v = sel && sel.value;
+  return /^\d{4}-\d{2}$/.test(v) ? v : new Date().toISOString().slice(0, 7);
+}
+
+function txwRenderAttachCandidates(box, data, file) {
+  var list = Array.isArray(data.journals) ? data.journals : [];
+  if (!list.length) {
+    box.appendChild(el('div', { class: 'evidence-empty', text: 'この月に仕訳は見つかりませんでした。' }));
+    return;
+  }
+  if (data.truncated) {
+    box.appendChild(el('div', {
+      class: 'note danger',
+      text: '仕訳が多いため ' + list.length + '件だけ出しています（全部で ' + data.total + '件）。'
+        + '絞り込みを使ってください。',
+    }));
+  }
+  var table = document.createElement('table');
+  var thead = el('thead');
+  var trh = el('tr');
+  ['日付', '金額', '勘定科目', '摘要', ''].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
+  thead.appendChild(trh);
+  table.appendChild(thead);
+  var tbody = document.createElement('tbody');
+  list.forEach(function (j) {
+    var tr = el('tr');
+    tr.appendChild(el('td', { text: j.date || '' }));
+    tr.appendChild(el('td', { class: 'num', text: yen(j.amount) }));
+    tr.appendChild(el('td', { text: (j.accounts || []).join(' / ') }));
+    tr.appendChild(el('td', { text: j.remark || '' }));
+    var td = el('td');
+    if (j.has_voucher) {
+      // すでに証憑が付いている仕訳には足せない（MFで外せないため）
+      td.appendChild(el('span', { class: 'chip chip-gray', text: '証憑あり' }));
+    } else {
+      var b = el('button', { type: 'button', class: 'btn-mini', text: 'この仕訳に添付' });
+      b.addEventListener('click', function () { txwAttachSharedFile(file, j, b, box); });
+      td.appendChild(b);
+    }
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  var wrap = el('div', { class: 'tblwrap' });
+  wrap.appendChild(table);
+  box.appendChild(wrap);
+  box.appendChild(el('div', {
+    class: 'note',
+    text: '※「証憑あり」の仕訳には追加できません。MFでは証憑を後から外せないためです。',
+  }));
+}
+
+var TXW_ATTACH_ERRORS = {
+  already_has_voucher: 'この仕訳にはすでに証憑が付いています。MFでは後から外せないため、追加できません。',
+  duplicate_file: 'このファイルは既に証憑として取り込まれています。同じものは二度送りません。',
+  not_attachable: 'この形式は証憑にできません（PDF・PNG・JPGのみ）。',
+  read_failed: '共有ファイルを読み込めませんでした。',
+  dup_check_failed: '重複の確認ができなかったため、送信を中止しました。時間をおいてお試しください。',
+  store_failed: '証憑の保存に失敗しました。',
+  insert_failed: '証憑台帳への登録に失敗しました。',
+  journal_check_failed: '仕訳の状態を確認できなかったため、送信を中止しました。',
+  attach_failed: 'MFへの送信に失敗しました。',
+  already_attached: 'この証憑は既に別の仕訳へ送信済みです。',
+};
+
+async function txwAttachSharedFile(file, journal, btn, box) {
+  var msg = (file.name || '') + '\n↓\n' + (journal.date || '') + ' ' + yen(journal.amount)
+    + ' ' + ((journal.accounts || []).join(' / '))
+    + '\n\nこの仕訳に証憑として添付します。\nMFへ送った証憑は取り消せません。よろしいですか？';
+  if (!confirm(msg)) return;
+  btn.disabled = true;
+  btn.textContent = '送信中…';
+  try {
+    var r = await txwApiCall('attach_shared_file', {
+      key: file.key, name: file.name, journal_id: journal.id,
+    });
+    var d = (r && r.data) || {};
+    if (d.ok) {
+      btn.replaceWith(el('span', { class: 'chip chip-green', text: '添付しました' }));
+      box.appendChild(el('div', {
+        class: 'note ok',
+        text: (file.name || '') + ' を ' + (journal.date || '') + ' の仕訳へ添付しました。',
+      }));
+      return;
+    }
+    box.appendChild(el('div', {
+      class: 'note danger',
+      text: TXW_ATTACH_ERRORS[d.error] || ('添付できませんでした（' + (d.error || '理由不明') + '）。'),
+    }));
+  } catch (e) {
+    box.appendChild(el('div', { class: 'note danger', text: '添付できませんでした。' }));
+  } finally {
+    if (btn.isConnected) { btn.disabled = false; btn.textContent = 'この仕訳に添付'; }
+  }
 }
 
 /* ---------------- ⑤ 税理士の管理（社内メンバーのみ） ---------------- */

@@ -1156,6 +1156,153 @@ async function countJournalsForTransaction(accessToken, transactionId, dateStr) 
   }
 }
 
+/* ---------------- 共有ファイルを証憑としてMFへ添付する（2026-08-05） ----------------
+ * ③共有ファイル（tax-docsバケット）は、これまで「見るだけ」だった。
+ * 税理士がご自身の判断で証憑にできるようにする（利用者の指示・2026-08-05）。
+ *
+ * ⚠ MFの証憑は**送ったら取り消せない**（制約10）。したがって守るのは3つ:
+ *   (1) すでに証憑が付いている仕訳には**送らない**（GET /journals/{id} で確かめる）
+ *   (2) 同じ中身のファイルは**二度取り込まない**（SHA-256のcontent_hashで弾く）
+ *   (3) MFへ送る前に必ずDBでclaimする（制約12。attachEvidenceToJournal がやる）
+ */
+const MF_EVIDENCE_BUCKET = 'mf-evidence';
+
+function sha256Hex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+function extContentType(name) {
+  const n = String(name || '').toLowerCase();
+  if (n.endsWith('.pdf')) return 'application/pdf';
+  if (n.endsWith('.png')) return 'image/png';
+  return 'image/jpeg';
+}
+
+// 共有ファイルの中身を取る（service roleで直接。署名URLは使わない）
+async function fetchTaxDocBytes(key) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${TAX_DOCS_BUCKET}/${key}`, {
+    headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` },
+  });
+  if (!res.ok) throw new Error(`共有ファイルの読込に失敗: HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+// 同じ中身が既に証憑台帳にあるか。**二重添付を防ぐ最後の砦**
+async function findEvidenceByContentHash(hash) {
+  const url = `${SUPABASE_URL}/rest/v1/mf_evidence`
+    + `?content_hash=eq.${encodeURIComponent(hash)}`
+    + `&select=id,file_name,status,journal_id,created_at&limit=1`;
+  const res = await fetch(url, { headers: supabaseHeaders() });
+  if (!res.ok) throw new Error(`証憑台帳の検索に失敗: HTTP ${res.status}`);
+  const rows = await res.json().catch(() => []);
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+async function putEvidenceObject(path, bytes, contentType) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${MF_EVIDENCE_BUCKET}/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': contentType,
+      'x-upsert': 'false',
+    },
+    body: bytes,
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`証憑の保存に失敗: HTTP ${res.status} ${t.slice(0, 120)}`);
+  }
+}
+
+async function insertEvidenceRow(row) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/mf_evidence`, {
+    method: 'POST',
+    headers: { ...supabaseHeaders(), Prefer: 'return=representation' },
+    body: JSON.stringify([row]),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    // content_hash のunique制約に当たった場合もここに来る（DBレベルの最終防御・制約13）
+    const msg = (data && (data.message || data.error)) || `HTTP ${res.status}`;
+    const err = new Error(String(msg));
+    err.duplicate = res.status === 409 || /duplicate|unique/i.test(String(msg));
+    throw err;
+  }
+  return Array.isArray(data) && data.length ? data[0] : null;
+}
+
+/* 共有ファイル1件を証憑台帳へ取り込む（まだMFへは送らない）。
+ * 戻り値: {ok:true, evidence} / {ok:false, error, detail} */
+async function importSharedFileAsEvidence(key, displayName) {
+  const name = String(displayName || key.split('/').pop() || 'evidence');
+  if (!ATTACHABLE_EXT_RE.test(name)) {
+    return { ok: false, error: 'not_attachable', detail: name };
+  }
+  let bytes;
+  try {
+    bytes = await fetchTaxDocBytes(key);
+  } catch (e) {
+    return { ok: false, error: 'read_failed', detail: String((e && e.message) || e) };
+  }
+  const hash = sha256Hex(bytes);
+
+  // (2) 同じ中身は二度取り込まない
+  let dup;
+  try {
+    dup = await findEvidenceByContentHash(hash);
+  } catch (e) {
+    // 確かめられないのに送るのは危ない（送ったら取り消せない）。ここで止める
+    return { ok: false, error: 'dup_check_failed', detail: String((e && e.message) || e) };
+  }
+  if (dup) {
+    return {
+      ok: false, error: 'duplicate_file',
+      detail: { file_name: dup.file_name, status: dup.status, journal_id: dup.journal_id },
+    };
+  }
+
+  const safe = name.replace(/[^\w.\-]+/g, '_').slice(-80);
+  const storagePath = `tax-docs/${hash.slice(0, 16)}_${safe}`;
+  try {
+    await putEvidenceObject(storagePath, bytes, extContentType(name));
+  } catch (e) {
+    return { ok: false, error: 'store_failed', detail: String((e && e.message) || e) };
+  }
+
+  try {
+    const evidence = await insertEvidenceRow({
+      file_name: name,
+      storage_path: storagePath,
+      content_hash: hash,
+      status: 'pending',
+      source: 'tax_docs',
+      mf_file_id: null,
+      journal_id: null,
+    });
+    if (!evidence) return { ok: false, error: 'insert_failed' };
+    return { ok: true, evidence };
+  } catch (e) {
+    if (e && e.duplicate) return { ok: false, error: 'duplicate_file', detail: '同時に取り込まれました' };
+    return { ok: false, error: 'insert_failed', detail: String((e && e.message) || e) };
+  }
+}
+
+/* (1) その仕訳に既に証憑が付いていないか。
+ * 付いているものに足すと、MFでは外せない（制約10）ので、必ず送る前に見る。
+ * 取れなかったときは **付いているかもしれない側に倒す**（送らない）。 */
+async function journalVoucherState(accessToken, journalId) {
+  const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3/journals/${encodeURIComponent(journalId)}`, {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+  const j = (data && data.journal) || null;
+  if (!j) return { ok: false, error: 'journal_not_found' };
+  const ids = Array.isArray(j.voucher_file_ids) ? j.voucher_file_ids : [];
+  return { ok: true, has_voucher: ids.length > 0, count: ids.length, journal: j };
+}
+
 // 証憑1件を仕訳へ添付する。mf_evidence の行を claim してから送る
 // （MFのvouchersは取り消し不能なため、DB先行claimで二重送信を構造的に防ぐ。制約#12と同じ考え方）。
 async function attachEvidence(accessToken, evidenceId, journalId) {
@@ -1172,6 +1319,116 @@ async function attachEvidence(accessToken, evidenceId, journalId) {
   } catch (e) {
     return { ok: false, error: 'attach_failed', message: e && e.message };
   }
+}
+
+/* 共有ファイル1件を、指定した仕訳へ証憑として添付する（③からの操作）。
+ * 順番が大事: ①仕訳に証憑が付いていないか確認 → ②台帳へ取り込み(重複チェック) → ③MFへ送信
+ * ①を先にやるのは、送ってから気づいても**取り消せない**ため。 */
+async function handleAttachSharedFile(res, advisor, accessToken, body) {
+  const key = String(body.key || '').trim();
+  const journalId = String(body.journal_id || '').trim();
+  if (!key || !journalId) {
+    res.status(200).json({ ok: false, error: 'key_and_journal_required' });
+    return;
+  }
+
+  // (1) すでに証憑が付いている仕訳には送らない
+  const state = await journalVoucherState(accessToken, journalId);
+  if (!state.ok) {
+    // 確かめられないなら送らない（安全側）
+    res.status(200).json({ ok: false, error: 'journal_check_failed', detail: state.error });
+    return;
+  }
+  if (state.has_voucher) {
+    await recordAction({
+      actor_email: advisor.email, action: 'attach_shared_file', journal_id: journalId,
+      result: 'failed', error_message: 'already_has_voucher', payload: { key },
+    });
+    res.status(200).json({ ok: false, error: 'already_has_voucher', count: state.count });
+    return;
+  }
+
+  // (2) 台帳へ取り込む（同じ中身なら弾かれる）
+  const imported = await importSharedFileAsEvidence(key, body.name || '');
+  if (!imported.ok) {
+    await recordAction({
+      actor_email: advisor.email, action: 'attach_shared_file', journal_id: journalId,
+      result: 'failed', error_message: imported.error, payload: { key, detail: imported.detail },
+    });
+    res.status(200).json({ ok: false, error: imported.error, detail: imported.detail });
+    return;
+  }
+
+  // (3) MFへ送る（claim先行はattachEvidenceの中）
+  const r = await attachEvidence(accessToken, imported.evidence.id, journalId);
+  await recordAction({
+    actor_email: advisor.email, action: 'attach_shared_file', journal_id: journalId,
+    evidence_ids: r.ok ? [imported.evidence.id] : null,
+    result: r.ok ? 'ok' : 'failed',
+    error_message: r.ok ? null : (r.error || 'attach_failed'),
+    payload: { key, file_name: imported.evidence.file_name },
+  });
+  if (!r.ok) {
+    res.status(200).json({ ok: false, error: r.error || 'attach_failed', message: r.message });
+    return;
+  }
+  res.status(200).json({ ok: true, journal_id: journalId, file_name: imported.evidence.file_name });
+}
+
+/* ③から添付する相手の仕訳を探す。
+ * ⚠ GET /journals は会計期間をまたげない（制約18）ので、期間は呼び出し側が1期に収める。
+ *   ここでは「すでに証憑が付いているか」も一緒に返し、付いているものは画面で選べなくする。 */
+const JOURNAL_SEARCH_MAX = 200;
+async function handleJournalSearch(res, accessToken, body) {
+  const startDate = String(body.start_date || '').slice(0, 10);
+  const endDate = String(body.end_date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    res.status(200).json({ ok: false, error: 'date_required' });
+    return;
+  }
+  let journals;
+  try {
+    journals = await fetchJournals({ accessToken, startDate, endDate });
+  } catch (e) {
+    res.status(200).json({ ok: false, error: 'journal_fetch_failed', message: e && e.message });
+    return;
+  }
+  const kw = normalizeText(String(body.keyword || ''));
+  const rows = [];
+  (Array.isArray(journals) ? journals : []).forEach((j) => {
+    const branches = Array.isArray(j.branches) ? j.branches : [];
+    // 税込。制約2のとおり value と tax_value を足す
+    let amount = 0;
+    const accounts = [];
+    let remark = '';
+    branches.forEach((b) => {
+      const d = (b && b.debitor) || null;
+      const c = (b && b.creditor) || null;
+      if (d) { amount += (Number(d.value) || 0) + (Number(d.tax_value) || 0); if (d.account_name) accounts.push(d.account_name); }
+      if (c && c.account_name) accounts.push(c.account_name);
+      if (!remark && b && b.remark) remark = String(b.remark);
+    });
+    const hay = normalizeText(remark + ' ' + accounts.join(' '));
+    if (kw && hay.indexOf(kw) < 0) return;
+    const vids = Array.isArray(j.voucher_file_ids) ? j.voucher_file_ids : [];
+    rows.push({
+      id: j.id,
+      date: j.transaction_date,
+      amount,
+      remark,
+      accounts: Array.from(new Set(accounts)).slice(0, 4),
+      // すでに証憑が付いている仕訳は画面で選べなくする
+      has_voucher: vids.length > 0,
+      voucher_count: vids.length,
+    });
+  });
+  rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  res.status(200).json({
+    ok: true,
+    total: rows.length,
+    truncated: rows.length > JOURNAL_SEARCH_MAX,
+    journals: rows.slice(0, JOURNAL_SEARCH_MAX),
+  });
 }
 
 /* ---------------- Phase 6: 事務所の管理（役割・承認ワークフロー） ----------------
@@ -1438,6 +1695,24 @@ async function handleJournalize(res, advisor, accessToken, body, opts) {
     if (r.ok) attached.push(evId); else attachFailed.push({ evidence_id: evId, error: r.error });
   }
 
+  /* 3b. 共有ファイルからの添付（税理士がご自身の判断で選んだもの・2026-08-05）。
+   * 作ったばかりの仕訳なので証憑は付いていないが、③と同じ関門を通す。
+   * 同じ中身のファイルは importSharedFileAsEvidence が弾く。 */
+  const sharedKeys = Array.isArray(body.shared_file_keys) ? body.shared_file_keys.slice(0, 5) : [];
+  for (const sk of sharedKeys) {
+    if (!journalId) break;
+    const key = String((sk && sk.key) || sk || '');
+    if (!key) continue;
+    const imported = await importSharedFileAsEvidence(key, (sk && sk.name) || '');
+    if (!imported.ok) {
+      attachFailed.push({ shared_key: key, error: imported.error, detail: imported.detail });
+      continue;
+    }
+    const r = await attachEvidence(accessToken, imported.evidence.id, journalId);
+    if (r.ok) attached.push(imported.evidence.id);
+    else attachFailed.push({ shared_key: key, error: r.error });
+  }
+
   // 4. 二重仕訳の事後検知（TOCTOU。自動では消さない）
   const dupCount = await countJournalsForTransaction(accessToken, transactionId, dateHint);
 
@@ -1583,6 +1858,7 @@ module.exports = async (req, res) => {
   if ([
     'bootstrap', 'list', 'journalize', 'suggest', 'monthly_check', 'monthly_check_confirm',
     'request_list', 'request_approve', 'request_reject', 'action_log_csv',
+    'journal_search', 'attach_shared_file',
   ].indexOf(action) < 0) {
     res.status(400).json({ ok: false, error: 'invalid_action' });
     return;
@@ -1638,6 +1914,19 @@ module.exports = async (req, res) => {
   // 操作履歴をCSVで返す（事務所が自分で保管するため）
   if (action === 'action_log_csv') {
     await handleActionLogCsv(res, advisor, isAdmin, body);
+    return;
+  }
+
+  /* ③共有ファイルから証憑を添付する。
+   * ⚠ ここへ来られるのは有効な税理士か社内メンバーだけ（この関数の先頭で確認済み）。
+   *   list が返す writable は常にtrueの表示用フラグで、ここには存在しない。
+   *   journalize と同じ扱いにする。 */
+  if (action === 'journal_search') {
+    await handleJournalSearch(res, accessToken, body);
+    return;
+  }
+  if (action === 'attach_shared_file') {
+    await handleAttachSharedFile(res, advisor, accessToken, body);
     return;
   }
 

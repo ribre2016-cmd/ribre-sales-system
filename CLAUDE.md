@@ -112,6 +112,19 @@
     「登録は終わっています」と言い切らない。解除はMFの「連携サービスから入力」
     → 「登録済一覧」→「明細一覧」→「対象外を解除」（APIでは戻せない）
 
+23. **共有ファイル（tax-docs）を証憑にする経路は、必ず3つの関門を通すこと**（2026-08-05追加）。
+    ③共有ファイルは長らく「見るだけ」だったが、税理士がご自身の判断で証憑にできるようにした
+    （`handleAttachSharedFile` / `importSharedFileAsEvidence` / ①の `shared_file_keys`）。
+    **MFの証憑は送ったら取り消せない（制約10）**ので、順番を崩さないこと:
+    (1) `journalVoucherState` で **すでに証憑が付いていないか**を先に確かめる。
+        確かめられなかったときも送らない（安全側に倒す）
+    (2) SHA-256の `content_hash` で **同じ中身を二度取り込まない**。
+        重複の確認自体に失敗したら中止する。DBのunique制約が最後の砋（制約13）
+    (3) MFへ送るのは必ず `attachEvidence` 経由。**`postVoucher` を直接呼ばない**
+        （claim先行を飛ばすと二重送信が復活する・制約12）
+    tax-docs と mf-evidence は**別のバケット**なので中身をコピーする。
+    検証: `tools/test-shared-attach.js`（上の3つをすべて固定している）
+
 ## 環境変数（Vercel）
 
 `MF_CLIENT_ID` `MF_CLIENT_SECRET` `MF_REDIRECT_URI` `SUPABASE_URL` `SUPABASE_SERVICE_ROLE_KEY` `OPENAI_API_KEY` `SLACK_WEBHOOK_URL` `CRON_SECRET` `CHATWORK_API_TOKEN` `CHATWORK_ROOM_ID`（現在テスト用マイチャット宛） `MAIL_INGEST_SECRET`
