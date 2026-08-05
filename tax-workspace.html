@@ -163,6 +163,17 @@ tr:nth-child(even) td { background: var(--hm-canvas); }
 .invite-row { display: flex; gap: 8px; align-items: center; }
 .invite-url-input { flex: 1; padding: 8px 10px; border: 1px solid var(--hm-line); border-radius: 6px; font-size: 14px; font-family: monospace; background: var(--hm-paper); }
 
+/* 役割の違いの説明（既定は閉じておき、知りたい人だけ開く） */
+.txw-roleguide { margin: 8px 0 12px; border: 1px solid var(--hm-blue); border-radius: 8px; background: var(--hm-blue-soft); }
+.txw-roleguide > summary { cursor: pointer; padding: 9px 12px; font-size: 13px; font-weight: 800; color: var(--hm-blue); }
+.txw-roleguide-body { padding: 0 12px 12px; font-size: 13px; color: var(--hm-ink); }
+.txw-roleguide-body p { margin: 6px 0; }
+.txw-roleguide-table { width: 100%; border-collapse: collapse; margin: 8px 0; background: var(--hm-paper); }
+.txw-roleguide-table th, .txw-roleguide-table td { border: 1px solid var(--hm-line); padding: 7px 9px; text-align: left; vertical-align: top; font-size: 12.5px; }
+.txw-roleguide-table th { background: var(--hm-canvas); font-weight: 800; }
+.txw-roleguide-table td:first-child { font-weight: 700; }
+.txw-roleguide-note { color: var(--hm-muted); font-size: 12px; }
+
 /* ---- ⑨ 月次チェック ---- */
 .txw-monthly-h { font-size: 14.5px; margin: 22px 0 8px; color: var(--hm-green-dark); font-family: var(--hm-font-display); }
 .txw-monthly-h:first-child { margin-top: 0; }
@@ -502,6 +513,37 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
         <div class="admin-block">
           <h3>税理士の一覧<button id="txwAdvisorListReloadBtn" class="btn-mini" type="button">更新</button></h3>
           <div class="desc">役割の変更はこの画面からはできません。行の「役割を変えるSQLを見る」から、Supabaseで実行するSQLを確認できます。</div>
+          <!-- 「管理者」「担当者」と出しているだけでは何が違うのか読めないので、
+               ここで違いを言い切る（利用者の指摘・2026-08-05）。 -->
+          <details class="txw-roleguide">
+            <summary>「管理者」と「担当者」は何が違いますか</summary>
+            <div class="txw-roleguide-body">
+              <p>違うのは次の3つだけです。ほかは同じで、どちらも仕訳の登録・証憑の確認ができます。</p>
+              <table class="txw-roleguide-table">
+                <thead><tr><th></th><th>担当者</th><th>管理者</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td>下の「承認の設定」を<b>承認するにしたとき</b>の登録</td>
+                    <td>⑩承認待ちに積まれ、管理者が承認するまでMFへ送られません</td>
+                    <td>そのまま登録できます</td>
+                  </tr>
+                  <tr>
+                    <td>⑩承認待ちの<b>承認・差し戻し</b></td>
+                    <td>できません</td>
+                    <td>できます</td>
+                  </tr>
+                  <tr>
+                    <td>⑧操作履歴の<b>CSV</b></td>
+                    <td>自分が操作した分だけ</td>
+                    <td>事務所全員の分</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="txw-roleguide-note">※ 承認の設定が「承認しない」のときは、1つめの違いは出ません。</p>
+              <p class="txw-roleguide-note">※ RIBREの社内メンバーは、この一覧の役割に関わらず<b>常に管理者</b>として扱われます。</p>
+              <p class="txw-roleguide-note">※ 事務所の担当者がおひとりだけなら、その方を<b>管理者</b>にしてください。担当者のままで承認を必須にすると、承認する人がいなくなります。</p>
+            </div>
+          </details>
           <div id="txwAdvisorListBody"><div class="txw-loading">読み込み中…</div></div>
         </div>
         <div class="admin-block">
