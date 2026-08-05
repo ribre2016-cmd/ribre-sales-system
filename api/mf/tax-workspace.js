@@ -1929,8 +1929,15 @@ module.exports = async (req, res) => {
         res.status(200).json({ ok: true, revoked: await revokeInvite(body.invite_token) });
       } else if (action === 'advisor_list') {
         res.status(200).json({ ok: true, advisors: await listAdvisors() });
-      } else {
+      } else if (action === 'advisor_set_enabled') {
         res.status(200).json({ ok: true, updated: await setAdvisorEnabled(body.email, body.enabled) });
+      } else {
+        /* ⚠ ここは以前 else の受け皿で、**何が来ても「有効・無効の切替」を実行していた**。
+         *   MEMBER_ONLY に新しい action を足して分岐を書き忘れると、
+         *   body.enabled が undefined のまま !!undefined=false になり
+         *   **税理士を黙って無効化する**。必ず名前で分岐し、知らない名前は断ること
+         *   （2026-08-05の再レビューで発見）。 */
+        res.status(400).json({ ok: false, error: 'unknown_member_action', action });
       }
     } catch (e) {
       res.status(500).json({ ok: false, error: 'member_action_failed', message: e && e.message });
@@ -1989,7 +1996,8 @@ module.exports = async (req, res) => {
 
   /* 役割（管理者／担当者）を画面から変える。
    * ⚠ 社内メンバーだけ。税理士どうしで役割を上げ下げできてはいけない。
-   *   MEMBER_ONLY の配列にも 'advisor_set_role' を足してあること。 */
+   * ⚠ **MEMBER_ONLY の配列には足さないこと。** あの配列は上の分岐で処理され、
+   *   ここまで届かなくなる。権限の判定はこの中で行っている。 */
   if (action === 'advisor_set_role') {
     if (!isMember) { res.status(403).json({ ok: false, error: 'member_only' }); return; }
     const okRole = await setAdvisorRole(body && body.email, body && body.role);
