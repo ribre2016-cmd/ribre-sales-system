@@ -687,6 +687,29 @@ function isMonthInProgress(monthEnd) {
 }
 
 const MC_DEFAULTS = { lookback: 4, ratio: 3, minDiff: 10000 };
+// 対象外の明細を画面に並べる上限。超えた分は件数だけ伝える（黙って切らない・制約20）
+const MC_EXCLUDED_MAX = 50;
+
+/* 指定した仕訳化ステータスの明細を取る。
+ * fetchUnjournalizedTransactions は none 固定なので、対象外(excluded)を見るために分けた。
+ * ⚠ journalizing_statuses は配列パラメータ。ブラケット無しで同名キーを繰り返す形式が正しい
+ *   （mf-client.js の fetchUnjournalizedTransactions と同じ）。 */
+async function fetchTransactionsByStatus({ accessToken, startDate, endDate, status, perPage = 500 }) {
+  const params = new URLSearchParams({
+    start_date: startDate, end_date: endDate, per_page: String(perPage), page: '1',
+  });
+  params.append('journalizing_statuses', status);
+  const res = await mfFetch(`${MF_ACCOUNTING_API_BASE}/api/v3/transactions?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return Array.isArray(data.transactions) ? data.transactions : [];
+}
 
 /* ---- 簡易課税の事業区分（一種／二種…）別の課税売上高 ----
  * 10人の税理士のうち、消費税の専門家と元国税の2人が**独立に1位**へ挙げた。
@@ -872,6 +895,34 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
     unjournalizedCount = null; // 取れなくても月次チェック自体は出す
   }
 
+  /* 「対象外」にされた明細。**未仕訳にも仕訳帳にも出ないので、放っておくと帳簿から黙って抜ける。**
+   * P7-Bの実測（2026-08-05）で分かったこと: 明細から作った仕訳をAPIで削除すると、
+   * 明細は未仕訳(none)ではなく対象外(excluded)になる。MFの画面から対象外にすることもできる。
+   * どちらの場合も未仕訳の件数には入らないため、⑨は「登録が終わった」と誤って表示する。
+   * 読み取りだけで数えられるので必ず出す（CLAUDE.md 制約22）。
+   * ⚠ 対象外が正しいこともある（私用の引き落とし等）。正誤の判定はしない。件数と中身を見せるだけ。 */
+  let excluded = { available: false, count: 0, rows: [], reason: '' };
+  try {
+    const rows = await fetchTransactionsByStatus({
+      accessToken, startDate: range.start, endDate: range.end, status: 'excluded',
+    });
+    excluded = {
+      available: true,
+      count: rows.length,
+      rows: rows.slice(0, MC_EXCLUDED_MAX).map((t) => ({
+        id: t.id, date: t.date, value: t.value, side: t.side, content: t.content,
+      })),
+      truncated: rows.length > MC_EXCLUDED_MAX,
+      reason: '',
+    };
+  } catch (e) {
+    // 取れなかったことを「0件」と混同させない（CLAUDE.md 制約20）
+    excluded = {
+      available: false, count: 0, rows: [],
+      reason: '対象外の明細を取得できませんでした: ' + ((e && e.message) || e),
+    };
+  }
+
   // §11.1-3: 各科目について「その科目になりそうな未仕訳明細」を割り出す。
   // ⚠ 銀行明細の摘要に勘定科目名は入っていない（「フリコミ ○○フドウサン」など）ので、
   //   科目名で文字列検索しても当たらない。Phase 4 の提案（過去の仕訳から推定）を使う。
@@ -949,6 +1000,9 @@ async function handleMonthlyCheck(res, advisor, accessToken, body) {
     // 未仕訳が残っている月では、計上漏れは「当然の結果」なので参考表示にする（§11.1-1）
     unjournalized_count: unjournalizedCount,
     registration_done: registrationDone,
+    /* 対象外にされた明細。未仕訳の件数には入らないので、これが無いと
+     * 「未仕訳0件＝登録完了」の判定が実態とずれる（CLAUDE.md 制約22）。 */
+    excluded,
     // 画面はこれを見て「参考表示」か「本気の警告」かを切り替える
     partial,
     criteria: { lookback: MC_DEFAULTS.lookback, ratio, min_diff: minDiff },

@@ -3009,9 +3009,16 @@ function txwRenderMonthlyStatus(data) {
         + '下の「まだ無い科目」は当然の結果です。まず①未仕訳の明細を片付けてから、このチェックを見てください。'
     }));
   } else if (data.registration_done === true) {
+    /* 「対象外」の明細は未仕訳の件数に入らない。あるのに「登録は終わっています」と
+     * 言い切ると、帳簿から抜けている分を見落とす（CLAUDE.md 制約22）。 */
+    var exCount = (data.excluded && Number(data.excluded.count)) || 0;
     box.appendChild(el('div', {
       class: 'note danger',
-      text: monthLabel + 'の未仕訳明細は0件です。登録は終わっています。下の「まだ無い科目」は、計上漏れの疑いがあります。'
+      text: monthLabel + 'の未仕訳明細は0件です。'
+        + (exCount > 0
+          ? 'ただし「対象外」にされた明細が' + exCount + '件あります（下に出しています）。この分は帳簿に入っていません。'
+          : '登録は終わっています。')
+        + '下の「まだ無い科目」は、計上漏れの疑いがあります。'
     }));
   }
   if (data.month_in_progress === true) {
@@ -3175,6 +3182,79 @@ function txwRenderMonthlyBsItemList(containerId, rows, textFn, cls) {
   });
 }
 
+/* 「対象外」にされた明細を出す。
+ * これが無いと⑨は「未仕訳0件＝登録が終わった」と表示するが、対象外の明細は
+ * 未仕訳にも仕訳帳にも出ないため、実際は帳簿から抜けている（CLAUDE.md 制約22）。
+ * ⚠ 対象外が正しいこともある（私用の引き落としなど）。正誤の判定はしない。 */
+function txwRenderMonthlyExcluded(data) {
+  var box = document.getElementById('txwMonthlyExcludedBox');
+  if (!box) return;
+  clearEl(box);
+  var ex = data.excluded || null;
+  if (!ex) { box.style.display = 'none'; return; }
+
+  // 取れなかったことを「0件」と混同させない
+  if (ex.available === false) {
+    box.style.display = 'block';
+    box.appendChild(el('div', {
+      class: 'note danger',
+      text: '「対象外」にされた明細は確認できませんでした。'
+        + (ex.reason ? String(ex.reason) : '') + ' 0件という意味ではありません。',
+    }));
+    return;
+  }
+
+  var count = Number(ex.count) || 0;
+  if (count === 0) { box.style.display = 'none'; return; }
+
+  box.style.display = 'block';
+  box.appendChild(el('div', {
+    class: 'note warn',
+    text: 'この月には「対象外」にされた明細が ' + count + '件あります。'
+      + '対象外の明細は未仕訳にも仕訳帳にも出てこないため、'
+      + '未仕訳が0件でも帳簿には入っていません。',
+  }));
+
+  var rows = Array.isArray(ex.rows) ? ex.rows : [];
+  var table = document.createElement('table');
+  var thead = el('thead');
+  var trh = el('tr');
+  ['日付', '金額', '収支', '内容'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
+  thead.appendChild(trh);
+  table.appendChild(thead);
+  var tbody = document.createElement('tbody');
+  rows.forEach(function (r) {
+    var tr = el('tr');
+    tr.appendChild(el('td', { text: r.date || '' }));
+    tr.appendChild(el('td', { class: 'num', text: yen(r.value) }));
+    tr.appendChild(el('td', { text: r.side === 'INCOME' ? '入金' : '出金' }));
+    tr.appendChild(el('td', { text: r.content || '' }));
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  var wrap = el('div', { class: 'tblwrap' });
+  wrap.appendChild(table);
+  box.appendChild(wrap);
+
+  if (ex.truncated) {
+    box.appendChild(el('div', {
+      class: 'note danger',
+      text: '※ 多いため ' + rows.length + '件だけ表示しています（全部で ' + count + '件）。',
+    }));
+  }
+
+  box.appendChild(el('div', {
+    class: 'note',
+    text: '※ 対象外が正しいこともあります（私用の引き落としなど）。'
+      + 'この画面では正しいかどうかの判定はしません。件数と中身をお見せしているだけです。',
+  }));
+  box.appendChild(el('div', {
+    class: 'note',
+    text: '※ 対象外を解除するには、MFの「連携サービスから入力」→ 右上の「登録済一覧」'
+      + ' → 対象の連携サービスの「明細一覧」→「対象外を解除」です。この画面からは戻せません。',
+  }));
+}
+
 function txwRenderMonthlyBs(data) {
   var bs = data.bs || null;
   var unavailBox = document.getElementById('txwMonthlyBsUnavailable');
@@ -3319,6 +3399,7 @@ function txwRenderMonthlyCheck(data) {
   txwRenderMonthlyStatus(data);
   document.getElementById('txwMonthlyBody').style.display = 'block';
   txwRenderMonthlyMissing(data);
+  txwRenderMonthlyExcluded(data);
   txwRenderMonthlyOutliers(data);
   txwRenderMonthlySignIssues(data);
   txwRenderMonthlyBs(data);
