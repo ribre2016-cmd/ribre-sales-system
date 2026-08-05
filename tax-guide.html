@@ -174,8 +174,12 @@ img { max-width: 100%; }
       <li><a href="#s3">画面の見方</a></li>
       <li><a href="#s4">① 未仕訳の明細</a></li>
       <li><a href="#s5">③ 共有ファイル</a></li>
-      <li><a href="#s6">よくある質問</a></li>
-      <li><a href="#s7">今後の予定</a></li>
+      <li><a href="#s6">証憑を仕訳に付ける（②③から）</a></li>
+      <li><a href="#s7">⑨ 月次チェック</a></li>
+      <li><a href="#s8">やり直せない操作</a></li>
+      <li><a href="#s9">管理者と担当者・⑩承認待ち</a></li>
+      <li><a href="#s10">よくある質問</a></li>
+      <li><a href="#s11">はじめてお使いになるとき</a></li>
     </ol>
   </div>
 
@@ -260,8 +264,12 @@ img { max-width: 100%; }
         <div class="mock-tab">② 仕訳待ちの証憑</div>
         <div class="mock-tab">③ 共有ファイル</div>
         <div class="mock-tab">④ 操作履歴</div>
+        <div class="mock-tab">⑨ 月次チェック</div>
+        <div class="mock-tab">⑩ 承認待ち</div>
+        <div class="mock-tab">使い方</div>
       </div>
-      <div class="figure-caption">上部のタブを押すと表示が切り替わります。「対象月」を変更すると、その月のデータに切り替わります。</div>
+      <div class="figure-caption">上部のタブを押すと表示が切り替わります。「対象月」を変更すると、その月のデータに切り替わります。
+        <b>対象月は次に開いたときも覚えています。</b></div>
     </div>
 
     <ul>
@@ -269,7 +277,14 @@ img { max-width: 100%; }
       <li><b>② 仕訳待ちの証憑</b> — 対応する仕訳が無いために送信を保留している証憑の件数です。①で仕訳ができると自然に減っていきます。</li>
       <li><b>③ 共有ファイル</b> — 給与明細・請求書・売上管理表など、RIBREから税理士さまへお渡ししているファイルの一覧です。</li>
       <li><b>④ 操作履歴</b> — 誰が・いつ・どの明細を・どの科目で登録したかが、成功・失敗も含めて記録されます。MFクラウド会計側では操作した方が分からないため、<b>この記録が唯一の証跡</b>になります（消すことはできません）。</li>
+      <li><b>⑨ 月次チェック</b> — 月末に、計上漏れや残高のおかしなところを機械で拾います（第7章）。</li>
+      <li><b>⑩ 承認待ち</b> — 「承認する」設定のとき、担当者の登録がここに積まれます（第9章）。</li>
+      <li><b>使い方</b> — このガイドの要点を画面の中でも読めます。</li>
     </ul>
+    <div class="note info">
+      <b>②③の証憑は、ご自身の判断でも仕訳に付けられます。</b>
+      自動で見つからなかったものは、一覧の「仕訳を選んで添付」から付けてください（第6章）。
+    </div>
   </section>
 
   <!-- 4. ①未仕訳の明細 -->
@@ -356,13 +371,202 @@ img { max-width: 100%; }
     <p>月ごとにファイルがまとまって表示されるので、対象月を切り替えながら必要なファイルを探してください。</p>
   </section>
 
-  <!-- 6. よくある質問 -->
+  <!-- 6. 証憑を仕訳に付ける -->
   <section class="sec" id="s6">
-    <h2><span class="sec-num">6</span>よくある質問</h2>
+    <h2><span class="sec-num">6</span>証憑を仕訳に付ける（②③から）</h2>
+    <p>
+      領収書・請求書は、①で仕訳を作れば<b>自動で仕訳に添付されます</b>。
+      日付や取引先が合わずに自動で見つからないものは、
+      <b>②仕訳待ちの証憑</b>と<b>③共有ファイル</b>の一覧から、税理士さまご自身の判断で付けられます。
+    </p>
+
+    <div class="figure-frame">
+      <span class="figure-tag">※これは画面の説明用の図です（実際の画面を再現したイメージです）</span>
+      <div style="overflow-x:auto;">
+        <table class="mock-file-table">
+          <thead><tr><th>日付</th><th>取引先</th><th>金額</th><th>ファイル</th><th>状態</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>2026-07-31</td>
+              <td>サンプル商事株式会社</td>
+              <td>462,000円</td>
+              <td class="badge-anchor" style="position:relative;">
+                <span class="badge" style="top:-9px; left:-9px;">①</span>
+                <a href="#" onclick="return false;">請求書（サンプル）.pdf</a>
+              </td>
+              <td><span class="mock-chip gray">仕訳待ち</span></td>
+              <td class="badge-anchor" style="position:relative;">
+                <span class="badge right" style="top:-9px; right:-9px;">②</span>
+                <span class="mock-chip blue">仕訳を選んで添付</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="figure-caption">
+        <b>①</b> ファイル名を押すと中身を確認できます。付ける前に必ずご確認ください。<br>
+        <b>②</b> 押すと対象月の仕訳が一覧で出ます。付けたい仕訳の「この仕訳に添付」を押します。
+      </div>
+    </div>
+
+    <div class="figure-frame">
+      <span class="figure-tag">※これは画面の説明用の図です（実際の画面を再現したイメージです）</span>
+      <div style="overflow-x:auto;">
+        <table class="mock-file-table">
+          <thead><tr><th>日付</th><th>金額</th><th>勘定科目</th><th>摘要</th><th></th></tr></thead>
+          <tbody>
+            <tr>
+              <td>2026-07-31</td><td>462,000円</td><td>仕入高 / 未払金</td><td>振込 サンプルシヨウジ</td>
+              <td><span class="mock-chip blue">この仕訳に添付</span></td>
+            </tr>
+            <tr>
+              <td>2026-07-15</td><td>1,100円</td><td>支払手数料</td><td>FB基本手数料</td>
+              <td class="badge-anchor" style="position:relative;">
+                <span class="badge right" style="top:-9px; right:-9px;">③</span>
+                <span class="mock-chip gray">証憑あり</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="figure-caption">
+        <b>③</b> <b>すでに証憑が付いている仕訳には追加できません。</b>
+        MFでは証憑を後から外せないためです。ボタンは出ず「証憑あり」と表示されます。
+      </div>
+    </div>
+
+    <div class="note info">
+      同じファイルを二度送ることはありません。中身が同じものは自動で止まります。
+    </div>
+    <div class="note warn">
+      ②の証憑を<b>この画面から消すことはできません。</b>
+      不要な資料が入っていた場合は、RIBRE担当者までご連絡ください。
+    </div>
+  </section>
+
+  <!-- 7. ⑨月次チェック -->
+  <section class="sec" id="s7">
+    <h2><span class="sec-num">7</span>⑨ 月次チェック</h2>
+    <p>
+      対象月の登録が終わったら開いてください。5つの観点で、確認したほうがよい点を機械で拾います。
+      <b>「間違っている」という判断ではありません。確認をうながしているだけです。</b>
+    </p>
+
+    <div class="figure-frame">
+      <span class="figure-tag">※これは画面の説明用の図です（実際の画面を再現したイメージです）</span>
+      <div style="background:#fff; border:1px solid #dbe3ef; border-radius:8px; padding:14px; min-width:280px;">
+        <div class="note danger" style="margin:0 0 10px;">
+          2026年7月の未仕訳明細は0件です。ただし「対象外」にされた明細が1件あります。この分は帳簿に入っていません。
+        </div>
+        <div style="font-size:12.5px; font-weight:900; color:#123a7a; margin:12px 0 4px;">① いつもあるのに今月まだ無い科目</div>
+        <div style="font-size:12px; color:#475569;">通信費 … 過去4ヶ月は毎月ありましたが、今月はまだありません。</div>
+        <div style="font-size:12.5px; font-weight:900; color:#123a7a; margin:12px 0 4px;">② 金額が普段と大きく違う科目</div>
+        <div style="font-size:12px; color:#475569;">消耗品費 … 平均 12,000円 → 今月 180,000円</div>
+        <div style="font-size:12.5px; font-weight:900; color:#123a7a; margin:12px 0 4px;">③ 貸方・借方の向きが普段と逆</div>
+        <div style="font-size:12.5px; font-weight:900; color:#123a7a; margin:12px 0 4px;">④ 貸借対照表の確認</div>
+        <div style="font-size:12px; color:#475569;">商品（棚卸資産合計）2,061,000円が5ヶ月間まったく動いていません。</div>
+        <div style="font-size:12.5px; font-weight:900; color:#123a7a; margin:12px 0 4px;">⑤ 事業区分別の課税売上高（簡易課税）</div>
+        <div style="font-size:12px; color:#475569;">課売 10% 一種／二種を月ごとに集計します。</div>
+      </div>
+      <div class="figure-caption">
+        出てきた項目は<b>確認の合図</b>です。問題なければそのままで構いません。
+        確認が終わったら、画面の下で<b>「確認しました」を記録</b>できます。
+      </div>
+    </div>
+
+    <div class="note warn">
+      <b>「対象外」にされた明細は、未仕訳一覧にも仕訳帳にも出てきません。</b>
+      帳簿から抜けている状態なので、⑨で件数をお知らせします。
+      戻すときはMFクラウド会計の「連携サービスから入力」→「登録済一覧」→「明細一覧」→「対象外を解除」です。
+    </div>
+    <div class="note danger">
+      <b>この画面が判定しないこと。</b>
+      売上が一種（小売）か二種（卸売）かの<b>正誤は判定できません</b>。金額と構成の変化をお見せするだけです。
+      年換算の課税売上高も数字を出すだけで、<b>5,000万円を超えるかどうかの判断はしません</b>。
+    </div>
+  </section>
+
+  <!-- 8. やり直せない操作 -->
+  <section class="sec" id="s8">
+    <h2><span class="sec-num">8</span>やり直せない操作</h2>
+    <p>ここだけは先に知っておいてください。</p>
+
+    <div class="note danger">
+      <b>証憑をMFへ送ると、取り消せません。</b>
+      MFの仕様で、送った証憑は後から外すことも消すこともできません（電子帳簿保存法の要件のためです）。
+      そのため、すでに証憑が付いている仕訳には追加できないようにし、送る前に必ず確認の画面を出しています。
+    </div>
+
+    <div class="note warn">
+      <b>登録した仕訳を、この画面から取り消すことはできません。</b>
+      実際に試したところ、仕訳を削除しても元の明細は未仕訳に戻らず「対象外」になり、
+      未仕訳一覧からも仕訳帳からも消えてしまうことが分かりました。
+      帳簿から黙って1件抜けるため、<b>取り消しの機能はあえて作っていません</b>。
+      間違えたときは<b>MFクラウド会計の仕訳帳から削除</b>してください。
+    </div>
+
+    <p>
+      逆に、<b>やり直せるもの</b>もあります。決算が終わった期への登録は、設定により警告を出すか止めるかを選べます。
+      設定は⑤の画面で管理者が切り替えられます。
+    </p>
+  </section>
+
+  <!-- 9. 管理者と担当者 -->
+  <section class="sec" id="s9">
+    <h2><span class="sec-num">9</span>管理者と担当者・⑩ 承認待ち</h2>
+    <p>事務所の中を分ける設定です。違いは3つだけで、ほかは同じです。</p>
+    <div style="overflow-x:auto;">
+      <table class="mock-file-table">
+        <thead><tr><th></th><th>担当者</th><th>管理者</th></tr></thead>
+        <tbody>
+          <tr><td>「承認する」設定のときの登録</td><td>⑩に積まれ、承認までMFへ送られない</td><td>そのまま登録できる</td></tr>
+          <tr><td>⑩の承認・差し戻し</td><td>できない</td><td>できる</td></tr>
+          <tr><td>④操作履歴のCSV</td><td>ご自身の分だけ</td><td>事務所全員分</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note info">
+      招待リンクから登録された方は<b>「管理者」</b>になります。
+      「承認しない」設定のときは、実際に効くのは3つめ（CSVの範囲）だけです。
+    </div>
+    <div class="note warn">
+      「承認する」設定のとき、<b>証憑の添付は管理者だけが行えます。</b>
+      証憑は送ると取り消せないため、承認待ちに積む形にしていません。
+    </div>
+  </section>
+
+  <!-- 10. よくある質問 -->
+  <section class="sec" id="s10">
+    <h2><span class="sec-num">10</span>よくある質問</h2>
 
     <div class="faq-item">
       <div class="faq-q">Q. MFクラウド会計の画面と何が違うのですか？</div>
       <div class="faq-a">A. この画面では、共有ファイル（給与明細・請求書など）と未仕訳の明細を同じ画面でまとめてご覧いただけます。MFクラウド会計には入っていない資料もこちらで見られます。仕訳の登録もこの画面から行えます（登録された仕訳はMFクラウド会計にそのまま作られます）。複雑な複合仕訳や決算整理は、これまでどおりMFクラウド会計の画面で行ってください。</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q. 勘定科目や税区分の下書きが入りません。</div>
+      <div class="faq-a">A. 「提案の根拠」の欄に理由が出ます。過去に同じ摘要が無い／同じ摘要でも科目が割れている／過去が複合仕訳ばかりでその側が1本に定まらない、のいずれかです。手でお選びください。<b>次に同じ摘要が来たときは、今回の登録が根拠になります。</b>なお下書きは「過去に何を使ったか」であって、正解ではありません。同じ取引先でも中身が違えば科目は変わります。</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q. ②仕訳待ちの証憑が減りません。</div>
+      <div class="faq-a">A. 対応する仕訳がまだ無いためです。①で仕訳を作れば自動で添付されます。日付や取引先が合わずに自動で見つからないものは、②の一覧の<b>「仕訳を選んで添付」</b>からご自身で付けてください（第6章）。</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q. ⑨に「対象外が◯件あります」と出ました。</div>
+      <div class="faq-a">A. その明細は未仕訳一覧にも仕訳帳にも出てこず、<b>帳簿に入っていません</b>。MFクラウド会計の「連携サービスから入力」→ 右上の「登録済一覧」→ 対象の連携サービスの「明細一覧」→「対象外を解除」で戻せます。この画面からは戻せません。</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q. 「取得できませんでした」と出ました。データが無いということですか？</div>
+      <div class="faq-a">A. <b>いいえ。「無い」ではなく「確認できていない」という意味です。</b>この2つは必ず言葉を分けています。少し時間をおいて画面を読み込み直してください。何度も出るようならRIBRE担当者までご連絡ください。</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Q. 間違えて登録してしまいました。取り消せますか？</div>
+      <div class="faq-a">A. <b>この画面からは取り消せません。</b>MFクラウド会計の仕訳帳から削除してください。理由は第8章に書いています（仕訳を消しても元の明細が未仕訳に戻らず、帳簿から抜けてしまうためです）。証憑についても、送った後は取り消せません。</div>
     </div>
 
     <div class="faq-item">
@@ -382,8 +586,8 @@ img { max-width: 100%; }
   </section>
 
   <!-- 7. 今後の予定 -->
-  <section class="sec" id="s7">
-    <h2><span class="sec-num">7</span>今後の予定</h2>
+  <section class="sec" id="s11">
+    <h2><span class="sec-num">11</span>はじめてお使いになるとき</h2>
     <p>
       <b>この画面からの仕訳登録は、すでにご利用いただけます。</b>
       ただし、まだどなたにも実際にお使いいただいたことがありません。
@@ -394,11 +598,28 @@ img { max-width: 100%; }
       MFクラウド会計の画面と操作が重なる部分です。<b>この画面から登録してよいかご判断のうえ、RIBRE担当者までお知らせください。</b>
       使わないという判断でも構いません（その場合はこれまでどおりMFクラウド会計でご登録ください）。
     </div>
+    <p><b>最初の1ヶ月は、この順で試していただくのがおすすめです。</b></p>
+    <ol>
+      <li>右上で対象月を選び、<b>①で金額の小さい明細を1件だけ</b>登録して、MFの仕訳帳で確認する</li>
+      <li>問題なければ、その月の①を最後まで片付ける</li>
+      <li><b>③または②から証憑を1件だけ</b>付けてみて、MFの仕訳に付いていることを確認する</li>
+      <li>月末に<b>⑨月次チェック</b>を開き、出てきた項目を確認して「確認しました」を記録する</li>
+    </ol>
+
+    <p><b>画面上部で選べる設定</b>（決算が終わった期の明細に登録しようとしたときの動作）</p>
+    <ul>
+      <li><b>警告を出すだけ（登録はできる）</b> … 前期の修正が必要な場合もあるため、こちらが初期設定です</li>
+      <li><b>登録できないようにする</b> … 確定した期の帳簿を絶対に触らせたくない場合</li>
+    </ul>
     <p>
-      あわせて、<b>決算が終わった期の明細に仕訳を登録しようとしたときの動作</b>を画面上部で選べます。
-      「警告を出すだけ（登録はできる）」と「登録できないようにする」のどちらがよいか、ご希望をお知らせください。
-      初期設定は「警告を出すだけ」です。
+      <b>承認の要否</b>（担当者の登録に管理者の承認を必須にするか）と<b>役割</b>の変更も、
+      ⑤の画面から切り替えられます。どちらも初期設定は「承認しない」です。
     </p>
+
+    <div class="note ok">
+      ご不明な点、実際と説明が違う点がありましたら、RIBRE担当者までお知らせください。
+      このガイドは画面の中の<b>「使い方」タブ</b>からも要点を読めます。
+    </div>
   </section>
 
   <div class="footer-badge">
