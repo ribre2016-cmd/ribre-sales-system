@@ -146,22 +146,32 @@ function accountLabelFor(labels, tx) {
  *   「候補となる証憑は見つかりませんでした」としか出ず、不具合が「無い」に化ける。
  *   提案（handleSuggest）でまったく同じ見落としをして原因を3回取り違えた。
  *   失敗は必ず失敗として上へ伝えること（所長レビューの指摘・2026-08-04）。 */
+/* ⚠ 上限で切れた件数を「これが全部です」と見せないこと。
+ *   ②の見出しは件数だけを出すので、切れていると**数字がそのまま嘘になる**
+ *   （2026-08-05の10人視点レビューで発見）。Content-Rangeで本当の件数を取る。 */
+const OPEN_EVIDENCE_LIMIT = 300;
+
 async function fetchOpenEvidence() {
   const url =
     `${SUPABASE_URL}/rest/v1/mf_evidence` +
     `?select=id,ocr_date,ocr_amount,ocr_currency,ocr_vendor,file_name,status,storage_path` +
     `&status=in.(pending,awaiting_match,box_saved)&storage_path=not.is.null` +
-    `&order=ocr_date.desc&limit=300`;
+    `&order=ocr_date.desc&limit=${OPEN_EVIDENCE_LIMIT}`;
   let res;
   try {
-    res = await fetch(url, { headers: supabaseHeaders() });
+    res = await fetch(url, { headers: { ...supabaseHeaders(), Prefer: 'count=exact' } });
   } catch (e) {
     return { ok: false, rows: [], reason: '通信に失敗しました' };
   }
   if (!res.ok) return { ok: false, rows: [], reason: 'HTTP ' + res.status };
   const rows = await res.json().catch(() => null);
   if (!Array.isArray(rows)) return { ok: false, rows: [], reason: '応答の形式が想定と違います' };
-  return { ok: true, rows, reason: '' };
+  /* Content-Range は "0-299/1234" の形。分母が上限より多ければ、
+   * 一覧は切れているが**件数だけは本当の数**を出す。 */
+  const cr = String(res.headers.get('content-range') || '');
+  const totalStr = cr.split('/')[1];
+  const total = /^\d+$/.test(totalStr || '') ? Number(totalStr) : rows.length;
+  return { ok: true, rows, total, truncated: total > rows.length, reason: '' };
 }
 
 // 明細と証憑の突き合わせ。api/mf/awaiting-reason.js と同じ規則。
@@ -1371,12 +1381,31 @@ async function attachEvidence(accessToken, evidenceId, journalId) {
 /* 共有ファイル1件を、指定した仕訳へ証憑として添付する（③からの操作）。
  * 順番が大事: ①仕訳に証憑が付いていないか確認 → ②台帳へ取り込み(重複チェック) → ③MFへ送信
  * ①を先にやるのは、送ってから気づいても**取り消せない**ため。 */
-async function handleAttachSharedFile(res, advisor, accessToken, body) {
+async function handleAttachSharedFile(res, advisor, accessToken, body, opts) {
+  const isAdmin = !!(opts && opts.isAdmin);
   const key = String(body.key || '').trim();
   const journalId = String(body.journal_id || '').trim();
   if (!key || !journalId) {
     res.status(200).json({ ok: false, error: 'key_and_journal_required' });
     return;
+  }
+
+  /* 承認が必要な設定のとき、担当者ひとりでは添付させない（利用者の指示・2026-08-05）。
+   * ⚠ 仕訳の登録と同じ「承認待ちに積む」にはしない。
+   *   仕訳は承認前ならMFに何も送られていないので差し戻せるが、
+   *   証憑は**送ってしまえば取り消せない**（制約10）。
+   *   積んでも「やっぱりやめる」ができないのだから、待たせる意味がない。
+   *   管理者だけができる、で塞ぐほうが確実で、作りも増えない。 */
+  if (!isAdmin) {
+    const policy = await fetchApprovalPolicy();
+    if (policy === 'required') {
+      await recordAction({
+        actor_email: advisor.email, action: 'attach_shared_file', journal_id: journalId,
+        result: 'failed', error_message: 'admin_only_when_approval', payload: { key },
+      });
+      res.status(200).json({ ok: false, error: 'admin_only_when_approval' });
+      return;
+    }
   }
 
   // (1) すでに証憑が付いている仕訳には送らない
@@ -1528,15 +1557,20 @@ async function setAdvisorRole(email, role) {
   return res.ok;
 }
 
+const REQUEST_LIST_LIMIT = 200;
 // 承認待ちの一覧。admin は全件、staff は自分の依頼だけ
 async function listJournalRequests(advisor, isAdmin) {
-  let url = `${SUPABASE_URL}/rest/v1/tax_journal_requests?select=*&order=created_at.desc&limit=200`;
+  let url = `${SUPABASE_URL}/rest/v1/tax_journal_requests?select=*&order=created_at.desc&limit=${REQUEST_LIST_LIMIT}`;
   if (!isAdmin) url += `&requested_by=eq.${encodeURIComponent(advisor.email)}`;
-  const res = await fetch(url, { headers: supabaseHeaders() });
+  const res = await fetch(url, { headers: { ...supabaseHeaders(), Prefer: 'count=exact' } });
   if (!res.ok) return { ok: false, rows: [], reason: 'HTTP ' + res.status };
   const rows = await res.json().catch(() => null);
   if (!Array.isArray(rows)) return { ok: false, rows: [], reason: '応答の形式が想定と違います' };
-  return { ok: true, rows, reason: '' };
+  // 承認待ちが上限を超えたら黙って隠さない（承認漏れは実害が大きい）
+  const cr = String(res.headers.get('content-range') || '');
+  const totalStr = cr.split('/')[1];
+  const total = /^\d+$/.test(totalStr || '') ? Number(totalStr) : rows.length;
+  return { ok: true, rows, total, truncated: total > rows.length, reason: '' };
 }
 
 async function createJournalRequest(row) {
@@ -1837,6 +1871,10 @@ module.exports = async (req, res) => {
     return;
   }
 
+  /* 役割の判定はここで一度だけ行い、以降の分岐で使い回す。
+   * ⚠ set_closed_term_policy より**前**で定義すること（下で定義すると未定義参照になる）。 */
+  const isAdmin = isAdvisorAdmin(advisor, isMember);
+
   // 招待と税理士の管理は社内メンバーだけ
   const MEMBER_ONLY = ['invite_create', 'invite_list', 'invite_revoke', 'advisor_list', 'advisor_set_enabled'];
   if (MEMBER_ONLY.indexOf(action) >= 0) {
@@ -1889,8 +1927,19 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // 決算済みの期の扱いは税理士自身が決める（設計書§6-E）。社内メンバーも変更できる。
+  /* 決算済みの期の扱いは税理士自身が決める（設計書§6-E）。社内メンバーも変更できる。
+   * ⚠ ただし**管理者だけ**。担当者が変えられると、
+   *   「登録できないようにする」を自分で「警告だけ」に戻して
+   *   決算が終わった期へ登録できてしまう（2026-08-05の10人視点レビューで発見）。 */
   if (action === 'set_closed_term_policy') {
+    if (!isAdmin) {
+      await recordAction({
+        actor_email: advisor.email, action: 'set_closed_term_policy',
+        result: 'failed', error_message: 'admin_only', payload: { policy: body && body.policy },
+      });
+      res.status(403).json({ ok: false, error: 'admin_only' });
+      return;
+    }
     const okSave = await saveClosedTermPolicy(body && body.policy, advisor.email);
     if (!okSave) {
       res.status(200).json({ ok: false, error: 'invalid_policy' });
@@ -1928,13 +1977,12 @@ module.exports = async (req, res) => {
   }
 
   // Phase 7: ⑨月次チェック（読み取りのみ）
-  const isAdmin = isAdvisorAdmin(advisor, isMember);
-
   // 承認待ちの一覧（adminは全件・staffは自分の依頼だけ）
   if (action === 'request_list') {
     const r = await listJournalRequests(advisor, isAdmin);
     res.status(200).json({
       ok: r.ok, requests: r.rows, is_admin: isAdmin,
+      total: r.total, truncated: !!r.truncated, limit: REQUEST_LIST_LIMIT,
       approval_policy: await fetchApprovalPolicy(),
       error: r.ok ? undefined : 'request_list_failed', message: r.reason,
     });
@@ -1977,7 +2025,7 @@ module.exports = async (req, res) => {
     return;
   }
   if (action === 'attach_shared_file') {
-    await handleAttachSharedFile(res, advisor, accessToken, body);
+    await handleAttachSharedFile(res, advisor, accessToken, body, { isAdmin });
     return;
   }
 
@@ -2121,7 +2169,10 @@ module.exports = async (req, res) => {
     closed_term_policy: await fetchClosedTermPolicy(),
     items,
     shared_files: sharedFiles,
-    open_evidence_count: evidences.length,
+    // 一覧は上限で切れることがあるが、件数は本当の数を返す（切れたら伝える）
+    open_evidence_count: (evidenceRes.total != null ? evidenceRes.total : evidences.length),
+    open_evidence_truncated: !!evidenceRes.truncated,
+    open_evidence_shown: evidences.length,
     // 失敗を「無い」に化けさせない。画面はこれを見て「見つからない」と「取れなかった」を分ける
     evidence_load_failed: evidenceRes.ok ? null : evidenceRes.reason,
     shared_files_load_failed: sharedRes.ok ? null : sharedRes.reason,

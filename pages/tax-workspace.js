@@ -629,7 +629,8 @@ async function txwLoad() {
   txwEvidenceLoadFailed = data.evidence_load_failed || '';
   txwSharedFiles = Array.isArray(data.shared_files) ? data.shared_files : [];
   txwRenderUnmatched(Array.isArray(data.items) ? data.items : [], txwWritable);
-  txwRenderAwaiting(Number(data.open_evidence_count) || 0);
+  txwRenderAwaiting(Number(data.open_evidence_count) || 0,
+    !!data.open_evidence_truncated, Number(data.open_evidence_shown) || 0);
   txwRenderFiles(txwSharedFiles, data.shared_files_load_failed || '');
   txwSetAdminVisible(!!data.is_member);
 }
@@ -2191,7 +2192,7 @@ async function txwSubmitJournal(tx, refs) {
 }
 
 /* ---------------- ② 仕訳待ちの証憑 ---------------- */
-function txwRenderAwaiting(count) {
+function txwRenderAwaiting(count, truncated, shown) {
   var body = document.getElementById('txwAwaitingBody');
   clearEl(body);
   body.appendChild(el('span', { class: 'chip ' + (count > 0 ? 'chip-yellow' : 'chip-green'), text: '仕訳待ちの証憑 ' + count + '件' }));
@@ -2199,6 +2200,15 @@ function txwRenderAwaiting(count) {
     class: 'note',
     text: '仕訳が無いために送信を保留している証憑の件数です。①未仕訳の明細で該当する明細の仕訳を作れば解消します。'
   }));
+  /* ⚠ 件数は本当の数だが、①に出す候補は上限で切れていることがある。
+   *   黙って隠すと「候補が無い＝証憑が無い」と読み違える（制約20）。 */
+  if (truncated) {
+    body.appendChild(el('div', {
+      class: 'note danger',
+      text: '証憑が多いため、①の候補には新しい ' + shown + '件だけを使っています。'
+        + '古い分は候補に出ません。まず溜まっている分を片付けてください。'
+    }));
+  }
 }
 
 /* 添付に失敗した理由を日本語にする。
@@ -2426,6 +2436,9 @@ var TXW_ATTACH_ERRORS = {
   journal_check_failed: '仕訳の状態を確認できなかったため、送信を中止しました。',
   attach_failed: 'MFへの送信に失敗しました。',
   already_attached: 'この証憑は既に別の仕訳へ送信済みです。',
+  /* 承認が必要な設定のときは管理者だけ。証憑は送ると取り消せないため、
+   * 承認待ちに積む方式ではなく管理者限定にしている。 */
+  admin_only_when_approval: '承認が必要な設定のため、証憑の添付は管理者のみが行えます。管理者にご依頼ください。',
 };
 
 async function txwAttachSharedFile(file, journal, btn, box) {
@@ -2831,6 +2844,20 @@ async function txwLoadApprovalTab() {
   var rows = Array.isArray(data.requests) ? data.requests : [];
   if (data.is_admin) txwRenderApprovalAdmin(rows);
   else txwRenderApprovalStaff(rows);
+
+  /* ⚠ 承認待ちが上限で切れているのに黙っていると、承認漏れがそのまま埋もれる。
+   *   件数だけは本当の数をサーバーが返すので必ず伝える（制約20）。
+   *   ⚠ 描画関数が clearEl するので、**描いた後に**足すこと。 */
+  if (data.truncated) {
+    var box = document.getElementById('txwApprovalBody');
+    if (box) {
+      box.appendChild(el('div', {
+        class: 'note danger',
+        text: '依頼が全部で ' + data.total + '件あり、新しい ' + rows.length + '件だけを表示しています。'
+          + '残りは処理を進めると出てきます。'
+      }));
+    }
+  }
 }
 
 function txwApprovalErrorMessage(data) {

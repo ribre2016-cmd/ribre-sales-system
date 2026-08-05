@@ -50,6 +50,16 @@ console.log('\n===== 記録と権限 =====');
 has('成功も失敗も操作履歴に残す', api, /action: 'attach_shared_file'[\s\S]{0,400}result: r\.ok \? 'ok' : 'failed'/);
 has('actionの許可リストに入っている', api, /'journal_search', 'attach_shared_file',/);
 
+console.log('\n===== 承認が必要な設定のときは管理者のみ =====');
+/* ☠ 証憑は送ったら取り消せないので、承認待ちに積む方式ではなく管理者限定で塞ぐ。
+ *   担当者が単独で実行できてはいけない（利用者の指示・2026-08-05）。 */
+has('isAdmin を受け取る', api, /async function handleAttachSharedFile\(res, advisor, accessToken, body, opts\)/);
+has('ディスパッチが isAdmin を渡している', api, /handleAttachSharedFile\(res, advisor, accessToken, body, \{ isAdmin \}\)/);
+has('required のとき担当者は弾かれる', api, /if \(!isAdmin\) \{[\s\S]{0,500}policy === 'required'[\s\S]{0,400}admin_only_when_approval/);
+has('弾いたことも操作履歴に残す', api, /error_message: 'admin_only_when_approval'/);
+has('弾くのはMFへ送る前（取り込みより先）', api, /admin_only_when_approval[\s\S]*?journalVoucherState\(accessToken, journalId\)/);
+has('画面に理由の文言がある', ui, /admin_only_when_approval: '承認が必要な設定のため/);
+
 console.log('\n===== ①登録時に共有ファイルを選べる =====');
 has('shared_file_keys を受ける', api, /body\.shared_file_keys\) \? body\.shared_file_keys\.slice\(0, 5\)/);
 has('①でも同じ取り込み関数を通す', api, /for \(const sk of sharedKeys\)[\s\S]{0,400}importSharedFileAsEvidence\(key/);
