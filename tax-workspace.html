@@ -163,18 +163,12 @@ tr:nth-child(even) td { background: var(--hm-canvas); }
 .invite-row { display: flex; gap: 8px; align-items: center; }
 .invite-url-input { flex: 1; padding: 8px 10px; border: 1px solid var(--hm-line); border-radius: 6px; font-size: 14px; font-family: monospace; background: var(--hm-paper); }
 
-/* 使い方タブ。長文なので読みやすさを優先し、本文幅を絞る */
-.txw-guide { max-width: 900px; }
-.txw-guide h3 { font-size: 15.5px; margin: 26px 0 8px; color: var(--hm-green-dark); font-family: var(--hm-font-display); }
-.txw-guide h3:first-child { margin-top: 0; }
-.txw-guide h3.txw-guide-danger-h { color: var(--hm-danger); }
-.txw-guide p { margin: 8px 0; }
-.txw-guide ul, .txw-guide ol { margin: 8px 0; padding-left: 1.4em; }
-.txw-guide li { margin: 5px 0; }
-.txw-guide-table { margin: 10px 0; }
-.txw-guide-table th { width: 210px; vertical-align: top; }
-.txw-guide-table td { vertical-align: top; }
-.txw-guide-note { color: var(--hm-muted); font-size: 13px; }
+/* 使い方タブ。図つきガイドをそのまま読み込む枠 */
+.txw-guide-frame {
+  width: 100%; height: 78vh; min-height: 520px;
+  border: 1px solid var(--hm-line); border-radius: 8px; background: var(--hm-paper);
+  margin-top: 12px;
+}
 
 /* ①の「共有ファイルから選ぶ」。既定は閉じる（機械が見つけた候補のほうを先に見てほしい） */
 .txw-shared-pick { margin-top: 10px; border: 1px solid var(--hm-line); border-radius: 6px; background: var(--hm-paper); }
@@ -735,129 +729,31 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
 
   <!-- 使い方。初めて開く方がここだけ読めば一通り分かるように書く。
        ⚠ 機能を変えたらここも直すこと。画面と説明がずれるのがいちばん困る。 -->
+  <!-- 使い方。図つきのご利用ガイド(tax-guide.html)をそのまま読み込む。
+       ⚠ 文字版を別に持たないこと。同じ説明を2箇所に置くと必ずずれる
+          （実際、図つきガイドが Phase 3 のまま1年分古くなっていた）。
+          直すのは tax-guide.html だけ。 -->
   <section class="tabpage" id="t-guide">
     <div class="panel">
       <div class="panel-head">
         <div>
           <h2>使い方</h2>
-          <div class="desc">はじめての方はここからお読みください。</div>
+          <div class="desc">画面の図つきのご利用ガイドです。はじめての方はここからお読みください。</div>
         </div>
+        <a class="btn-mini" id="txwGuideOpenLink" href="tax-guide.html" target="_blank" rel="noopener noreferrer">別の画面で開く</a>
       </div>
-      <div class="panel-body txw-guide">
-
-        <div class="note info">
-          <b>画面の図つきの詳しいガイドもあります。</b>
-          はじめてお使いになるときは、
-          <a href="tax-guide.html" target="_blank" rel="noopener noreferrer">ご利用ガイド（別の画面で開きます）</a>
-          をご覧ください。こちらのタブは、その要点を手元で読めるようにしたものです。
+      <div class="panel-body">
+        <!-- ここだけは、スクロールしなくても目に入る位置に置く -->
+        <div class="note danger" style="margin-top:0;">
+          <b>やり直せない操作が2つあります。</b>
+          ①MFへ送った証憑は取り消せません。②登録した仕訳はこの画面からは取り消せません
+          （MFの仕訳帳から削除してください）。くわしくはガイドの「やり直せない操作」をご覧ください。
         </div>
-
-        <h3>この画面は何をするものか</h3>
-        <p><b>マネーフォワードの代わりではありません。</b>MFへ登録する作業を楽にするための補助です。
-          仕訳はMFに作られ、帳簿はこれまでどおりMFにあります。</p>
-        <p>できることは4つです。</p>
-        <ul>
-          <li>未仕訳の明細を、過去の仕訳をもとにした<b>勘定科目・税区分の下書きつき</b>で登録する</li>
-          <li>領収書・請求書を<b>証憑としてMFの仕訳に添付する</b></li>
-          <li>月末に<b>計上漏れや残高のおかしなところを機械で拾う</b></li>
-          <li>誰がいつ何を登録したかを<b>記録に残す</b></li>
-        </ul>
-
-        <h3>毎月の進め方</h3>
-        <ol>
-          <li><b>右上で対象月を選ぶ</b>（次に開いたときも覚えています）</li>
-          <li><b>①未仕訳の明細</b>を上から片付ける。勘定科目・税区分・インボイス区分は
-            過去の仕訳から下書きが入ります。<b>内容を確かめてから</b>登録してください</li>
-          <li><b>②仕訳待ちの証憑</b>に残りがあれば、仕訳を選んで添付する</li>
-          <li><b>⑤月次チェック</b>を開いて、出てきた項目を確認する</li>
-          <li>確認が終わったら⑤の下で<b>「確認しました」を記録</b>する</li>
-        </ol>
-
-        <h3>各タブの説明</h3>
-        <table class="txw-guide-table">
-          <thead><tr><th>タブ</th><th>何をする場所か</th></tr></thead>
-          <tbody>
-            <tr><td><b>①未仕訳の明細</b></td>
-              <td>銀行・カードの明細のうち、まだ仕訳になっていないものを登録します。
-                <b>1件ずつです。一括登録はありません。</b>
-                「提案の根拠」の欄に、過去何件中何件が同じだったかが出ます。
-                根拠が3件未満のものは<b>要確認</b>の色が付きます。</td></tr>
-            <tr><td><b>②仕訳待ちの証憑</b></td>
-              <td>先に届いた領収書・請求書のうち、対応する仕訳がまだ無いものです。
-                ①で仕訳を作れば自動で添付されます。自動で見つからないものは
-                <b>「仕訳を選んで添付」</b>からご自身で付けられます。</td></tr>
-            <tr><td><b>③共有ファイル</b></td>
-              <td>通帳・請求書・給与明細など、RIBREからお渡ししている資料です。
-                PDF・画像は<b>「仕訳を選んで添付」</b>で証憑にできます。</td></tr>
-            <tr><td><b>④操作履歴</b></td>
-              <td>誰がいつ何を登録したかの記録です。<b>消せません。</b>
-                画面には新しい200件まで、CSVでは全部出せます。</td></tr>
-            <tr><td><b>⑤月次チェック</b></td>
-              <td>①いつもあるのに今月まだ無い科目／②金額が普段と大きく違う科目／
-                ③貸方・借方の向きが普段と逆／④貸借対照表の確認／⑤事業区分別の課税売上高。
-                <b>間違いだと言っているのではなく、確認をうながしているだけです。</b></td></tr>
-            <tr><td><b>⑥承認待ち</b></td>
-              <td>「承認する」設定のとき、担当者の登録がここに積まれます。
-                管理者が承認するまで<b>MFへは何も送られていません。</b></td></tr>
-          </tbody>
-        </table>
-
-        <h3 class="txw-guide-danger-h">やり直せない操作</h3>
-        <p>ここだけは先に知っておいてください。</p>
-        <div class="note danger">
-          <b>証憑をMFへ送ると、取り消せません。</b>
-          MFの仕様で、送った証憑は後から外すことも消すこともできません（電子帳簿保存法の要件のためです）。
-          そのため、すでに証憑が付いている仕訳には追加できないようにしてあります。
-          添付の前に必ず確認の画面が出ます。
+        <iframe id="txwGuideFrame" class="txw-guide-frame" src="tax-guide.html"
+                title="税理士ワークスペース ご利用ガイド" loading="lazy"></iframe>
+        <div class="note">
+          うまく表示されないときは、上の<a href="tax-guide.html" target="_blank" rel="noopener noreferrer">「別の画面で開く」</a>からご覧ください。
         </div>
-        <div class="note warn">
-          <b>登録した仕訳を、この画面から取り消すことはできません。</b>
-          MFの仕様を実際に試したところ、仕訳を消しても元の明細は未仕訳に戻らず
-          「対象外」になり、未仕訳一覧からも仕訳帳からも消えてしまいます。
-          帳簿から黙って1件抜けるため、取り消しの機能は<b>あえて作っていません</b>。
-          間違えたときは<b>MFの仕訳帳から削除</b>してください。
-        </div>
-
-        <h3>この画面がしないこと</h3>
-        <ul>
-          <li><b>正しいかどうかの判定はしません。</b>勘定科目の下書きは「過去に同じ摘要で何を使ったか」であって、
-            正解ではありません。同じ取引先でも中身が違えば科目は変わります</li>
-          <li>⑤の事業区分は<b>一種か二種かの正誤を判定できません</b>。金額と構成の変化をお見せするだけです</li>
-          <li>⑤の年換算は数字を出すだけで、<b>5,000万円を超えるかどうかの判断はしません</b></li>
-          <li>現金払いはそもそも銀行・カードの明細に出ないため、①には出てきません</li>
-        </ul>
-
-        <h3>困ったとき</h3>
-        <table class="txw-guide-table">
-          <thead><tr><th>こんなとき</th><th>どうするか</th></tr></thead>
-          <tbody>
-            <tr><td>提案（下書き）が入らない</td>
-              <td>「提案の根拠」に理由が出ます。過去に同じ摘要が無い／科目が割れている／
-                過去が複合仕訳ばかり、のいずれかです。手で選んでください。
-                <b>次に同じ摘要が来たときは、今回の登録が根拠になります。</b></td></tr>
-            <tr><td>②の証憑が減らない</td>
-              <td>対応する仕訳が無いためです。「仕訳を選んで添付」で付けてください。
-                中身が不要な資料だった場合は<b>RIBREへご連絡ください</b>（消す操作は社内の画面にあります）。</td></tr>
-            <tr><td>⑤で「対象外が◯件」と出た</td>
-              <td>その明細は未仕訳一覧にも仕訳帳にも出ず、<b>帳簿に入っていません</b>。
-                MFの「連携サービスから入力」→「登録済一覧」→「明細一覧」→「対象外を解除」で戻せます。</td></tr>
-            <tr><td>決算が終わった期に登録しようとした</td>
-              <td>設定により、警告が出るか登録できないかが変わります。
-                設定を変えられるのは管理者だけです。</td></tr>
-            <tr><td>画面が「取得できませんでした」と出た</td>
-              <td><b>「無い」ではなく「確認できていない」という意味です。</b>
-                少し時間をおいて読み込み直してください。</td></tr>
-          </tbody>
-        </table>
-
-        <h3>管理者と担当者</h3>
-        <p>事務所の中を分ける設定です。違いは3つだけで、ほかは同じです。</p>
-        <ul>
-          <li>「承認する」設定のとき、担当者の登録は⑥に積まれます（管理者はそのまま登録できます）</li>
-          <li>⑥の承認・差し戻しができるのは管理者だけです</li>
-          <li>④の操作履歴のCSVは、担当者はご自身の分だけ、管理者は事務所全員分です</li>
-        </ul>
-        <p class="txw-guide-note">※ 招待リンクから登録された方は「管理者」になります。</p>
       </div>
     </div>
   </section>
