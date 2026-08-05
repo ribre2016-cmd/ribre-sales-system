@@ -150,6 +150,26 @@ function accountLabelFor(labels, tx) {
  *   ②の見出しは件数だけを出すので、切れていると**数字がそのまま嘘になる**
  *   （2026-08-05の10人視点レビューで発見）。Content-Rangeで本当の件数を取る。 */
 const OPEN_EVIDENCE_LIMIT = 300;
+// ②に並べる件数。多すぎると署名URLの発行だけで時間がかかる
+const OPEN_EVIDENCE_SHOW = 60;
+
+/* 証憑の中身を見るための署名付きURL。取れなければ null（リンクを出さない）。
+ * ⚠ ファイル名を download= で渡さないと、保存時の内部名で落ちてきて何の書類か分からなくなる。 */
+async function signEvidenceUrl(storagePath, fileName) {
+  if (!storagePath) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${MF_EVIDENCE_BUCKET}/${storagePath}`, {
+      method: 'POST', headers: supabaseHeaders(), body: JSON.stringify({ expiresIn: SIGN_EXPIRES_SEC }),
+    });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => null);
+    if (!d || !d.signedURL) return null;
+    const name = fileName || String(storagePath).split('/').pop();
+    return `${SUPABASE_URL}/storage/v1${d.signedURL}&download=${encodeURIComponent(name)}`;
+  } catch (e) {
+    return null;
+  }
+}
 
 async function fetchOpenEvidence() {
   const url =
@@ -1383,9 +1403,14 @@ async function attachEvidence(accessToken, evidenceId, journalId) {
  * ①を先にやるのは、送ってから気づいても**取り消せない**ため。 */
 async function handleAttachSharedFile(res, advisor, accessToken, body, opts) {
   const isAdmin = !!(opts && opts.isAdmin);
+  /* 添付する元は2通り:
+   *   key         … ③共有ファイル（tax-docs）。台帳へ取り込んでから送る
+   *   evidence_id … ②仕訳待ちの証憑。すでに台帳にあるのでそのまま送る
+   * どちらも通る関門は同じ（すでに証憑が付いた仕訳には送らない・承認設定・claim先行）。 */
   const key = String(body.key || '').trim();
+  const evidenceId = String(body.evidence_id || '').trim();
   const journalId = String(body.journal_id || '').trim();
-  if (!key || !journalId) {
+  if ((!key && !evidenceId) || !journalId) {
     res.status(200).json({ ok: false, error: 'key_and_journal_required' });
     return;
   }
@@ -1401,7 +1426,8 @@ async function handleAttachSharedFile(res, advisor, accessToken, body, opts) {
     if (policy === 'required') {
       await recordAction({
         actor_email: advisor.email, action: 'attach_shared_file', journal_id: journalId,
-        result: 'failed', error_message: 'admin_only_when_approval', payload: { key },
+        result: 'failed', error_message: 'admin_only_when_approval',
+        payload: { key: key || null, evidence_id: evidenceId || null },
       });
       res.status(200).json({ ok: false, error: 'admin_only_when_approval' });
       return;
@@ -1418,18 +1444,29 @@ async function handleAttachSharedFile(res, advisor, accessToken, body, opts) {
   if (state.has_voucher) {
     await recordAction({
       actor_email: advisor.email, action: 'attach_shared_file', journal_id: journalId,
-      result: 'failed', error_message: 'already_has_voucher', payload: { key },
+      result: 'failed', error_message: 'already_has_voucher',
+      payload: { key: key || null, evidence_id: evidenceId || null },
     });
     res.status(200).json({ ok: false, error: 'already_has_voucher', count: state.count });
     return;
   }
 
-  // (2) 台帳へ取り込む（同じ中身なら弾かれる）
-  const imported = await importSharedFileAsEvidence(key, body.name || '');
+  // (2) 台帳の行を用意する。②からの場合は既にあるので取り込みはしない
+  let imported;
+  if (evidenceId) {
+    const ev = await fetchEvidenceById(evidenceId);
+    if (!ev) imported = { ok: false, error: 'evidence_not_found' };
+    else if (!ev.storage_path) imported = { ok: false, error: 'no_storage_path' };
+    else if (ev.status === 'attached') imported = { ok: false, error: 'already_attached' };
+    else imported = { ok: true, evidence: ev };
+  } else {
+    imported = await importSharedFileAsEvidence(key, body.name || '');
+  }
   if (!imported.ok) {
     await recordAction({
       actor_email: advisor.email, action: 'attach_shared_file', journal_id: journalId,
-      result: 'failed', error_message: imported.error, payload: { key, detail: imported.detail },
+      result: 'failed', error_message: imported.error,
+      payload: { key: key || null, evidence_id: evidenceId || null, detail: imported.detail },
     });
     res.status(200).json({ ok: false, error: imported.error, detail: imported.detail });
     return;
@@ -1442,7 +1479,7 @@ async function handleAttachSharedFile(res, advisor, accessToken, body, opts) {
     evidence_ids: r.ok ? [imported.evidence.id] : null,
     result: r.ok ? 'ok' : 'failed',
     error_message: r.ok ? null : (r.error || 'attach_failed'),
-    payload: { key, file_name: imported.evidence.file_name },
+    payload: { key: key || null, evidence_id: evidenceId || null, file_name: imported.evidence.file_name },
   });
   if (!r.ok) {
     res.status(200).json({ ok: false, error: r.error || 'attach_failed', message: r.message });
@@ -2169,6 +2206,19 @@ module.exports = async (req, res) => {
     closed_term_policy: await fetchClosedTermPolicy(),
     items,
     shared_files: sharedFiles,
+    /* ⚠ 以前は件数しか返しておらず、税理士は②に何が溜まっているのか見られなかった。
+     *   証憑インボックスは社内メンバー専用なので、**税理士側に手の打ちようが無かった**
+     *   （2026-08-05の指摘）。中身と、署名付きのプレビューURLを返す。 */
+    open_evidence: await Promise.all(evidences.slice(0, OPEN_EVIDENCE_SHOW).map(async (ev) => ({
+      evidence_id: ev.id,
+      file_name: ev.file_name,
+      ocr_date: ev.ocr_date,
+      ocr_amount: ev.ocr_amount,
+      ocr_currency: ev.ocr_currency || 'JPY',
+      ocr_vendor: ev.ocr_vendor,
+      status: ev.status,
+      url: await signEvidenceUrl(ev.storage_path, ev.file_name),
+    }))),
     // 一覧は上限で切れることがあるが、件数は本当の数を返す（切れたら伝える）
     open_evidence_count: (evidenceRes.total != null ? evidenceRes.total : evidences.length),
     open_evidence_truncated: !!evidenceRes.truncated,

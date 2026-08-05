@@ -80,6 +80,18 @@ console.log('\n===== 画面を描く順番（制約20と同じ穴を作らない
 has('共有ファイルと証憑の失敗理由は①を描く前に入れる', ui,
   /txwEvidenceLoadFailed = data\.evidence_load_failed[\s\S]{0,200}txwSharedFiles = [\s\S]{0,120}txwRenderUnmatched\(/);
 
+console.log('\n===== ②仕訳待ちの証憑も同じ関門を通る =====');
+/* ☠ 税理士側に手が無いと、詰まった証憑は御社頼みになる（2026-08-05の指摘）。
+ *   ②からも同じ「仕訳を選んで添付」ができること。 */
+has('evidence_id でも添付できる', api, /const evidenceId = String\(body\.evidence_id \|\| ''\)\.trim\(\);/);
+has('key も evidence_id も無ければ断る', api, /if \(\(!key && !evidenceId\) \|\| !journalId\)/);
+has('②からのときは取り込み直さない', api, /if \(evidenceId\) \{[\s\S]{0,400}fetchEvidenceById\(evidenceId\)/);
+has('送り済みの証憑は二度送らない', api, /ev\.status === 'attached'\) imported = \{ ok: false, error: 'already_attached' \}/);
+has('どちらからの操作かを記録に残す', api, /evidence_id: evidenceId \|\| null, file_name/);
+has('②の一覧とプレビューURLを返す', api, /open_evidence: await Promise\.all/);
+has('署名URLはファイル名つきで落とせる', api, /async function signEvidenceUrl\([\s\S]{0,700}download=\$\{encodeURIComponent\(name\)\}/);
+has('画面が evidence_id を送る', ui, /key: file\.key, evidence_id: file\.evidence_id, name: file\.name, journal_id: journal\.id/);
+
 console.log('\n===== 見た目 =====');
 has('①の選択欄のCSSがある', html, /\.txw-shared-pick \{/);
 

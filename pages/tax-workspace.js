@@ -630,7 +630,8 @@ async function txwLoad() {
   txwSharedFiles = Array.isArray(data.shared_files) ? data.shared_files : [];
   txwRenderUnmatched(Array.isArray(data.items) ? data.items : [], txwWritable);
   txwRenderAwaiting(Number(data.open_evidence_count) || 0,
-    !!data.open_evidence_truncated, Number(data.open_evidence_shown) || 0);
+    !!data.open_evidence_truncated, Number(data.open_evidence_shown) || 0,
+    Array.isArray(data.open_evidence) ? data.open_evidence : []);
   txwRenderFiles(txwSharedFiles, data.shared_files_load_failed || '');
   txwSetAdminVisible(!!data.is_member);
 }
@@ -2192,13 +2193,18 @@ async function txwSubmitJournal(tx, refs) {
 }
 
 /* ---------------- ② 仕訳待ちの証憑 ---------------- */
-function txwRenderAwaiting(count, truncated, shown) {
+/* ② 仕訳待ちの証憑。
+ * ⚠ 以前は件数しか出しておらず、税理士は中身も見られず手も出せなかった。
+ *   証憑インボックスは社内メンバー専用なので、詰まったら御社頼みだった
+ *   （2026-08-05の指摘）。中身を見せて、③と同じ「仕訳を選んで添付」を出す。 */
+function txwRenderAwaiting(count, truncated, shown, rows) {
   var body = document.getElementById('txwAwaitingBody');
   clearEl(body);
   body.appendChild(el('span', { class: 'chip ' + (count > 0 ? 'chip-yellow' : 'chip-green'), text: '仕訳待ちの証憑 ' + count + '件' }));
   body.appendChild(el('div', {
     class: 'note',
-    text: '仕訳が無いために送信を保留している証憑の件数です。①未仕訳の明細で該当する明細の仕訳を作れば解消します。'
+    text: '仕訳が無いために送信を保留している証憑です。①未仕訳の明細で該当する明細の仕訳を作れば自動で解消します。'
+      + '自動で見つからないものは、下の「仕訳を選んで添付」からご自身で付けられます。'
   }));
   /* ⚠ 件数は本当の数だが、①に出す候補は上限で切れていることがある。
    *   黙って隠すと「候補が無い＝証憑が無い」と読み違える（制約20）。 */
@@ -2209,6 +2215,69 @@ function txwRenderAwaiting(count, truncated, shown) {
         + '古い分は候補に出ません。まず溜まっている分を片付けてください。'
     }));
   }
+
+  var list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return;
+  var table = document.createElement('table');
+  var thead = el('thead');
+  var trh = el('tr');
+  ['日付', '取引先', '金額', 'ファイル', '状態', '操作'].forEach(function (h) { trh.appendChild(el('th', { text: h })); });
+  thead.appendChild(trh);
+  table.appendChild(thead);
+  var tbody = document.createElement('tbody');
+  list.forEach(function (ev) {
+    var tr = el('tr');
+    tr.appendChild(el('td', { text: ev.ocr_date || '日付不明' }));
+    tr.appendChild(el('td', { text: ev.ocr_vendor || '取引先不明' }));
+    tr.appendChild(el('td', { class: 'num', text: txwEvidenceAmountText(ev) }));
+    var tdF = el('td');
+    if (ev.url && /^https:\/\//.test(ev.url)) {
+      tdF.appendChild(el('a', { href: ev.url, target: '_blank', rel: 'noopener noreferrer', text: ev.file_name || '(ファイル名なし)' }));
+    } else {
+      tdF.textContent = ev.file_name || '(ファイル名なし)';
+      tdF.appendChild(el('div', { class: 'file-attach-note', text: '中身を表示できませんでした' }));
+    }
+    tr.appendChild(tdF);
+    tr.appendChild(el('td', { text: txwEvidenceStatusText(ev.status) }));
+
+    var tdA = el('td');
+    var btn = el('button', { type: 'button', class: 'btn-mini', text: '仕訳を選んで添付' });
+    var panel = el('div', { style: 'display:none;margin-top:8px;' });
+    btn.addEventListener('click', function () {
+      var open = panel.style.display !== 'none';
+      panel.style.display = open ? 'none' : 'block';
+      btn.textContent = open ? '仕訳を選んで添付' : '閉じる';
+      if (!open && !panel.dataset.built) {
+        // ③と同じ枠を使う。既定の月は証憑の日付から
+        txwBuildAttachPanel(panel, {
+          evidence_id: ev.evidence_id,
+          name: ev.file_name,
+          month: (ev.ocr_date || '').slice(0, 7),
+        });
+        panel.dataset.built = '1';
+      }
+    });
+    tdA.appendChild(btn);
+    tdA.appendChild(panel);
+    tr.appendChild(tdA);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  var wrap = el('div', { class: 'tblwrap', style: 'margin-top:12px;' });
+  wrap.appendChild(table);
+  body.appendChild(wrap);
+  body.appendChild(el('div', {
+    class: 'note',
+    text: '※ ここから証憑を消すことはできません。不要な証憑は御社にご連絡ください。'
+      + 'MFへ送った証憑は取り消せないため、消す操作は社内の画面だけに置いています。'
+  }));
+}
+
+function txwEvidenceStatusText(st) {
+  if (st === 'awaiting_match') return '仕訳待ち';
+  if (st === 'pending') return '送信前';
+  if (st === 'box_saved') return 'MF保存済み';
+  return st || '不明';
 }
 
 /* 添付に失敗した理由を日本語にする。
@@ -2449,8 +2518,10 @@ async function txwAttachSharedFile(file, journal, btn, box) {
   btn.disabled = true;
   btn.textContent = '送信中…';
   try {
+    /* file は ③共有ファイル（key）でも ②仕訳待ちの証憑（evidence_id）でもよい。
+     * サーバー側は同じ関門を通す。 */
     var r = await txwApiCall('attach_shared_file', {
-      key: file.key, name: file.name, journal_id: journal.id,
+      key: file.key, evidence_id: file.evidence_id, name: file.name, journal_id: journal.id,
     });
     var d = (r && r.data) || {};
     if (d.ok) {
