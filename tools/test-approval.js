@@ -72,6 +72,9 @@ has('インボイス区分は承認待ちに積む前にも必須', /invoice_kin
 has('承認・差し戻しも操作履歴に残す', /action: 'approve_journalize'[\s\S]*action: 'reject_journalize'/);
 has('CSVはBOM付き（Excelで文字化けしない）', /String\.fromCharCode\(65279\)/);
 has('CSVはadminなら全件・staffは自分の分だけ', /if \(!isAdmin\) base \+= `&actor_email=eq\./);
+/* 招待リンクからの登録は管理者になる（利用者の判断・2026-08-05）。
+ * ここが壊れると、先生が登録しても担当者のままになる。 */
+has('招待からの登録は role=admin で入れる', /email: e, enabled: true, role: 'admin',/);
 has('CSVは最後まで取り切る（ページを回す）', /for \(let offset = 0; offset < CSV_HARD_LIMIT/);
 has('CSVが打ち切られたら必ず伝える', /truncated, hard_limit: CSV_HARD_LIMIT/);
 
@@ -86,6 +89,13 @@ hasUi('画面がCSVの件数を出す', /txwCsvResultNote/);
 hasUi('打ち切りのときは危険色で警告する', /data\.truncated[\s\S]{0,200}note danger/);
 hasUi('候補が割れている行にも理由を書く', /件は別の内容でした/);
 hasUi('根拠が少ない行にも理由を書く', /根拠は過去/);
+hasUi('登録した本人にも「管理者」と伝える', /税理士（管理者）として登録しました/);
+const html = fs.readFileSync(path.join(__dirname, '..', 'tax-workspace.html'), 'utf8');
+{
+  const ok = /この招待リンクから登録した方は<b>「管理者」になります<\/b>/.test(html);
+  if (!ok) ng++;
+  console.log((ok ? '  ○ ' : '  × ') + '発行画面に「管理者になる」と書いてある');
+}
 
 console.log('\n===== 結果 =====');
 console.log(ng === 0 ? '全件 期待どおり ○' : (ng + '件 期待とちがう ×'));

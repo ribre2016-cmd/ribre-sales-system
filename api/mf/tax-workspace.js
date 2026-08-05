@@ -285,11 +285,19 @@ async function redeemInvite(token, userEmail) {
     return { ok: false, error: 'invite_unusable' };
   }
 
-  // 税理士として登録（既にいれば有効化し直す）
+  /* 税理士として登録（既にいれば有効化し直す）。
+   * 役割は **管理者** にする（利用者の判断・2026-08-05）。
+   * 招待リンクは顧問税理士にしか渡さない運用のため、既定の「担当者」だと
+   * 登録のたびに⑤からSQLで昇格させることになり、必ず忘れる。
+   * ⚠ 事務所の担当者を招待するようになったら、この既定は見直すこと。
+   *   その場合は⑤の「役割を変えるSQLを見る」で個別に担当者へ戻せる。 */
   const up = await fetch(`${SUPABASE_URL}/rest/v1/tax_advisors?on_conflict=email`, {
     method: 'POST',
     headers: { ...supabaseHeaders(), Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify([{ email: e, enabled: true, note: '招待リンクから登録 ' + nowIso.slice(0, 10) }]),
+    body: JSON.stringify([{
+      email: e, enabled: true, role: 'admin',
+      note: '招待リンクから登録 ' + nowIso.slice(0, 10),
+    }]),
   });
   if (!up.ok) {
     // 招待だけ消費して登録できていない状態を残さないよう、使用済みを取り消す

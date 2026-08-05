@@ -373,7 +373,8 @@ function txwRedeemInvite(token) {
   return txwApiCall('redeem_invite', { invite_token: token }).then(function (result) {
     var data = result.data || {};
     if (data.ok) {
-      txwShowInfoBanner('税理士として登録しました（' + (data.email || '') + '）');
+      // 招待からの登録は管理者になる。何になったかを本人にも伝える（2026-08-05）
+      txwShowInfoBanner('税理士（管理者）として登録しました（' + (data.email || '') + '）');
     } else if (data.error === 'invite_unusable') {
       txwShowInfoBanner('この招待リンクは使用済み・取り消し済み・期限切れです。管理者に新しいリンクを発行してもらってください。', 'error');
     } else if (data.error === 'invalid_invite') {

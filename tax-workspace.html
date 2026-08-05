@@ -503,6 +503,12 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
         </div>
         <div class="admin-block">
           <h3>招待リンクを発行</h3>
+          <!-- 誰にでも渡せるように見えるボタンなので、何が起きるかを押す前に書く
+               （招待＝管理者になる。利用者の判断・2026-08-05）。 -->
+          <div class="note warn" style="margin-bottom:10px;">
+            この招待リンクから登録した方は<b>「管理者」になります</b>。顧問税理士の先生にお渡しください。
+            事務所の担当者の方に渡す場合は、登録後に下の一覧から「担当者」へ変えてください。
+          </div>
           <button id="txwInviteCreateBtn" class="btn btn-primary" type="button">招待リンクを発行</button>
           <div id="txwInviteCreateResult"></div>
         </div>
