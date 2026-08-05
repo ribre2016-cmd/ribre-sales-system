@@ -2712,12 +2712,31 @@ async function txwRevokeInvite(token, btn) {
 function txwRoleLabel(role) {
   return role === 'admin' ? '管理者' : '担当者';
 }
-/* 役割の変更API(advisor_set_role等)はディスパッチに無い。ここでAPIを先回りして
- * 作らず、Supabase SQL Editorで実行するSQLの文字列を組み立てて見せるだけにする
- * （利用者の指示・supabase_tax_approval.sql §4のSQLと同じ形）。 */
-function txwRoleSql(emailStr, newRole) {
-  var safeEmail = String(emailStr || '').replace(/'/g, "''");
-  return "update tax_advisors set role = '" + newRole + "' where lower(email) = lower('" + safeEmail + "');";
+/* 役割を変える。押し間違いが権限の事故になるので必ず確認を出す。
+ * 失敗したら一覧を触らない（画面だけ変わって実際は変わっていない、を避ける）。 */
+async function txwSetAdvisorRole(emailStr, newRole, btn) {
+  var label = txwRoleLabel(newRole);
+  var msg = newRole === 'admin'
+    ? emailStr + ' を「管理者」にします。'
+      + '承認・差し戻しができるようになり、事務所全員分の操作履歴も見られるようになります。よろしいですか？'
+    : emailStr + ' を「担当者」に戻します。'
+      + '承認・差し戻しができなくなり、操作履歴はご自身の分だけになります。よろしいですか？';
+  if (!confirm(msg)) return;
+  btn.disabled = true;
+  var before = btn.textContent;
+  btn.textContent = '変更中…';
+  try {
+    var r = await txwApiCall('advisor_set_role', { email: emailStr, role: newRole });
+    var d = (r && r.data) || {};
+    if (d.ok) { txwLoadAdvisors(); return; }
+    alert(d.error === 'member_only'
+      ? 'この操作はRIBREのメンバーだけが行えます。'
+      : '役割を変えられませんでした（' + (d.error || '理由不明') + '）。変更していません。');
+  } catch (e) {
+    alert('役割を変えられませんでした。変更していません。');
+  }
+  btn.disabled = false;
+  btn.textContent = before;
 }
 
 function txwRenderAdvisors(advisors) {
@@ -2749,28 +2768,19 @@ function txwRenderAdvisors(advisors) {
     toggleBtn.addEventListener('click', function () { txwSetAdvisorEnabled(a.email, !a.enabled, toggleBtn); });
     tdOp.appendChild(toggleBtn);
 
-    // 役割の切り替え: この画面からは変更できない。SQLの例を表示するだけ（§ガイド方針）。
+    /* 役割の切り替え。
+     * ⚠ 以前はSQLの文字列を見せるだけだった。保存処理(setAdvisorRole)は
+     *   サーバーに前からあり、**呼ぶ口が無かっただけ**（2026-08-05の指摘）。
+     *   このパネルは社内メンバーにしか出ないので、押せる形にする。 */
     var newRole = a.role === 'admin' ? 'staff' : 'admin';
-    var sqlBtn = el('button', { type: 'button', class: 'btn-mini', text: '役割を変えるSQLを見る' });
-    var sqlBox = el('div', { class: 'invite-box', style: 'display:none;margin-top:8px;' });
-    var sqlRow = el('div', { class: 'invite-row' });
-    var sqlInput = el('input', { type: 'text', readonly: 'readonly', class: 'invite-url-input' });
-    sqlInput.value = txwRoleSql(a.email, newRole);
-    sqlRow.appendChild(sqlInput);
-    var copyBtn = el('button', { type: 'button', class: 'btn-mini', text: 'コピー' });
-    copyBtn.addEventListener('click', function () { txwCopyInviteUrl(sqlInput, copyBtn); });
-    sqlRow.appendChild(copyBtn);
-    sqlBox.appendChild(sqlRow);
-    sqlBox.appendChild(el('div', {
-      class: 'note warn',
-      text: '役割はこの画面からは変更できません。Supabaseの SQL Editor で上のSQLを実行すると「'
-        + txwRoleLabel(newRole) + '」に変わります。'
-    }));
-    sqlBtn.addEventListener('click', function () {
-      sqlBox.style.display = (sqlBox.style.display === 'none') ? 'block' : 'none';
+    var roleBtn = el('button', {
+      type: 'button', class: 'btn-mini',
+      text: txwRoleLabel(newRole) + 'にする',
     });
-    tdOp.appendChild(sqlBtn);
-    tdOp.appendChild(sqlBox);
+    roleBtn.addEventListener('click', function () {
+      txwSetAdvisorRole(a.email, newRole, roleBtn);
+    });
+    tdOp.appendChild(roleBtn);
 
     tr.appendChild(tdOp);
     tbody.appendChild(tr);
@@ -2779,10 +2789,12 @@ function txwRenderAdvisors(advisors) {
   body.appendChild(table);
 }
 
-/* ---------------- Phase 6: 承認の設定（表示のみ・保存APIは未接続） ----------------
- * saveApprovalPolicy はサーバーにあるが、それを呼ぶ action がディスパッチに無い。
- * ここでは 'request_list' が返す approval_policy を表示するだけにし、
- * 変更はSupabaseのSQLで行う案内を出す（利用者の指示・APIに無い機能は作らない）。 */
+/* ---------------- Phase 6: 承認の設定 ----------------
+ * ⚠ 以前はラジオを出しておきながら「この画面からは変更できません」とSQLを見せていた。
+ *   保存処理(saveApprovalPolicy)はサーバーに前からあり、**呼ぶ口が無かっただけ**。
+ *   しかもSQLの案内文は古い設計の名残で `'"none"'::jsonb` と書かれており、
+ *   そのまま実行しても失敗する内容だった（2026-08-05の指摘で発覚）。
+ *   選んだらその場で保存する。SQLは見せない。 */
 function txwApprovalPolicyLabel(v) {
   return v === 'required' ? '承認する（管理者の承認が必要）' : '承認しない（担当者がそのまま登録できます）';
 }
@@ -2808,39 +2820,84 @@ async function txwLoadApprovalPolicyBlock() {
   }
   var policy = (data.approval_policy === 'required') ? 'required' : 'none';
   txwApprovalPolicyValue = policy;
+  // 変えられるのは管理者だけ（サーバーでも弾く）。担当者には選べない形で今の値を見せる
+  var canEdit = !!data.is_admin;
 
+  var note = el('div', { class: 'note' });
   var row = el('div', { style: 'display:flex;gap:16px;flex-wrap:wrap;align-items:center;' });
+  var radios = [];
   [
     { v: 'none', label: '承認しない（既定）' },
     { v: 'required', label: '承認する（管理者の承認が必要）' }
   ].forEach(function (opt) {
     var id = 'txwApprovalPolicyView_' + opt.v;
     var wrap = el('label', { class: 'txw-policy-opt', for: id });
-    // ⚠ 保存できないため常にdisabled。現在値の表示専用。
-    var radio = el('input', { type: 'radio', name: 'txwApprovalPolicyRadio', id: id, value: opt.v, disabled: 'disabled' });
+    var attrs = { type: 'radio', name: 'txwApprovalPolicyRadio', id: id, value: opt.v };
+    if (!canEdit) attrs.disabled = 'disabled';
+    var radio = el('input', attrs);
     radio.checked = (policy === opt.v);
+    radios.push(radio);
+    if (canEdit) {
+      radio.addEventListener('change', function () {
+        if (!radio.checked) return;
+        txwSaveApprovalPolicy(opt.v, radios, note);
+      });
+    }
     wrap.appendChild(radio);
     wrap.appendChild(el('span', { text: ' ' + opt.label, style: 'font-weight:800' }));
     row.appendChild(wrap);
   });
   box.appendChild(row);
-  box.appendChild(el('div', { class: 'note', text: '現在の設定: ' + txwApprovalPolicyLabel(policy) }));
+  note.textContent = '現在の設定: ' + txwApprovalPolicyLabel(policy);
+  box.appendChild(note);
+  if (!canEdit) {
+    box.appendChild(el('div', {
+      class: 'note warn',
+      text: 'この設定を変えられるのは管理者だけです。',
+    }));
+  }
+}
 
-  var sqlBox = el('div', { class: 'invite-box' });
-  var sqlRow = el('div', { class: 'invite-row' });
-  var sqlInput = el('input', { type: 'text', readonly: 'readonly', class: 'invite-url-input' });
-  sqlInput.value = "update tax_workspace_settings set approval_policy = 'required' where id = 1;";
-  sqlRow.appendChild(sqlInput);
-  var copyBtn = el('button', { type: 'button', class: 'btn-mini', text: 'コピー' });
-  copyBtn.addEventListener('click', function () { txwCopyInviteUrl(sqlInput, copyBtn); });
-  sqlRow.appendChild(copyBtn);
-  sqlBox.appendChild(sqlRow);
-  sqlBox.appendChild(el('div', {
-    class: 'note warn',
-    text: '変更はこの画面からはできません。Supabaseの SQL Editor で上のSQLを実行してください'
-      + '（「承認しない」に戻す場合は値を \'"none"\'::jsonb に変えて実行します）。'
-  }));
-  box.appendChild(sqlBox);
+/* 選んだ値をその場で保存する。失敗したら**いま実際に保存されている値へ戻す**。
+ * ⚠ 戻す先に「画面を開いたときの値」を使ってはいけない。
+ *   一度成功したあとに失敗すると、実際は required なのに画面は none に戻り、
+ *   **画面だけ変わって実際は違う**という一番まずい状態になる
+ *   （2026-08-05、自動テストで発見）。現在値は txwApprovalPolicyValue が持つ。 */
+async function txwSaveApprovalPolicy(policy, radios, note) {
+  var prev = (txwApprovalPolicyValue === 'required') ? 'required' : 'none';
+  var label = txwApprovalPolicyLabel(policy);
+  var TXW_NL = String.fromCharCode(10);   // 改行（エスケープが化けるのを避ける）
+  if (policy === 'required'
+    && !confirm('担当者の登録に管理者の承認を必須にします。' + TXW_NL + TXW_NL
+      + '担当者が登録しても、管理者が承認するまでMFへは送られません。' + TXW_NL + TXW_NL
+      + 'よろしいですか？')) {
+    radios.forEach(function (r) { r.checked = (r.value === prev); });
+    return;
+  }
+  radios.forEach(function (r) { r.disabled = true; });
+  note.className = 'note';
+  note.textContent = '保存しています…';
+  try {
+    var r = await txwApiCall('set_approval_policy', { policy: policy });
+    var d = (r && r.data) || {};
+    if (d.ok) {
+      txwApprovalPolicyValue = policy;
+      note.className = 'note ok';
+      note.textContent = '「' + label + '」に変えました。';
+    } else {
+      radios.forEach(function (x) { x.checked = (x.value === prev); });
+      note.className = 'note danger';
+      note.textContent = d.error === 'admin_only'
+        ? '管理者だけが変えられます。変更していません。'
+        : '保存できませんでした（' + (d.error || '理由不明') + '）。変更していません。';
+    }
+  } catch (e) {
+    radios.forEach(function (x) { x.checked = (x.value === prev); });
+    note.className = 'note danger';
+    note.textContent = '保存できませんでした。変更していません。';
+  } finally {
+    radios.forEach(function (x) { x.disabled = false; });
+  }
 }
 
 async function txwLoadAdvisors() {

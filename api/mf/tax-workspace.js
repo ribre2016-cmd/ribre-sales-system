@@ -1964,6 +1964,44 @@ module.exports = async (req, res) => {
     return;
   }
 
+  /* 承認の要否を画面から変える（管理者のみ）。
+   * ⚠ 保存処理(saveApprovalPolicy)は前からあったのに、**呼ぶ口が無かった**ため
+   *   画面はラジオを出しておきながら「変更できません」とSQLを見せていた。
+   *   しかもその案内は古い設計の名残で `'"none"'::jsonb` と書いており、
+   *   そのまま実行しても失敗する文面だった（2026-08-05の指摘で発覚）。 */
+  if (action === 'set_approval_policy') {
+    if (!isAdmin) {
+      res.status(403).json({ ok: false, error: 'admin_only' });
+      return;
+    }
+    const okSave = await saveApprovalPolicy(body && body.policy, advisor.email);
+    if (!okSave) {
+      res.status(200).json({ ok: false, error: 'invalid_policy' });
+      return;
+    }
+    await recordAction({
+      actor_email: advisor.email, action: 'set_approval_policy',
+      result: 'ok', payload: { policy: body.policy },
+    });
+    res.status(200).json({ ok: true, approval_policy: body.policy });
+    return;
+  }
+
+  /* 役割（管理者／担当者）を画面から変える。
+   * ⚠ 社内メンバーだけ。税理士どうしで役割を上げ下げできてはいけない。
+   *   MEMBER_ONLY の配列にも 'advisor_set_role' を足してあること。 */
+  if (action === 'advisor_set_role') {
+    if (!isMember) { res.status(403).json({ ok: false, error: 'member_only' }); return; }
+    const okRole = await setAdvisorRole(body && body.email, body && body.role);
+    if (!okRole) { res.status(200).json({ ok: false, error: 'invalid_role' }); return; }
+    await recordAction({
+      actor_email: advisor.email, action: 'advisor_set_role',
+      result: 'ok', payload: { email: body.email, role: body.role },
+    });
+    res.status(200).json({ ok: true, email: body.email, role: body.role });
+    return;
+  }
+
   /* 決算済みの期の扱いは税理士自身が決める（設計書§6-E）。社内メンバーも変更できる。
    * ⚠ ただし**管理者だけ**。担当者が変えられると、
    *   「登録できないようにする」を自分で「警告だけ」に戻して
@@ -1996,6 +2034,7 @@ module.exports = async (req, res) => {
     'bootstrap', 'list', 'journalize', 'suggest', 'monthly_check', 'monthly_check_confirm',
     'request_list', 'request_approve', 'request_reject', 'action_log_csv',
     'journal_search', 'attach_shared_file',
+    'set_approval_policy', 'advisor_set_role',
   ].indexOf(action) < 0) {
     res.status(400).json({ ok: false, error: 'invalid_action' });
     return;

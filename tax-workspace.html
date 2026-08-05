@@ -524,7 +524,7 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
         </div>
         <div class="admin-block">
           <h3>税理士の一覧<button id="txwAdvisorListReloadBtn" class="btn-mini" type="button">更新</button></h3>
-          <div class="desc">役割の変更はこの画面からはできません。行の「役割を変えるSQLを見る」から、Supabaseで実行するSQLを確認できます。</div>
+          <div class="desc">各行のボタンで、利用の有効・無効と役割（管理者／担当者）をその場で変えられます。</div>
           <!-- 「管理者」「担当者」と出しているだけでは何が違うのか読めないので、
                ここで違いを言い切る（利用者の指摘・2026-08-05）。 -->
           <details class="txw-roleguide">
@@ -560,7 +560,7 @@ tr.txw-lt-group .txw-acct-toggle { float: right; }
         </div>
         <div class="admin-block">
           <h3>承認の設定</h3>
-          <div class="desc">担当者の登録に管理者の承認を必須にするかどうかの設定です。⑩承認待ちタブに反映されます。この画面からの変更はできません（下のSQLをSupabaseで実行してください）。</div>
+          <div class="desc">担当者の登録に管理者の承認を必須にするかどうかの設定です。⑩承認待ちタブに反映されます。選んだときに保存されます（変えられるのは管理者だけ）。</div>
           <div id="txwApprovalPolicyBox"><div class="txw-loading">読み込み中…</div></div>
         </div>
       </div>
