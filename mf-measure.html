@@ -46,6 +46,24 @@
     <div id="verdicts"></div>
   </div>
 
+  <!-- ⚠ ここだけは本番の帳簿に書き込む。上の「実測する」とは必ず見た目を分ける。 -->
+  <div class="card" style="border-color:#dc2626;">
+    <h2 style="margin:0 0 8px;font-size:16px;">P7-B: 登録の取り消しができるか</h2>
+    <div class="note warn"><b>これだけは本番の帳簿に書き込みます。</b>
+      1円の仕訳を作って、すぐ消します。消す前に中身を控えます。
+      <br>まず「どの明細にも紐付かない1円の仕訳」で試し、消せたときだけ、
+      実在の未仕訳明細（金額がいちばん小さいもの）1件で試します。
+      <br><b>消せなかった場合</b>は、残った仕訳のIDを画面に出します。MFの画面から手で消してください。</div>
+    <div style="margin-top:12px;">
+      <label style="display:block;margin-bottom:8px;">
+        <input type="checkbox" id="undoAgree"> 上の内容を理解しました
+      </label>
+      <button id="undoBtn" type="button" disabled style="background:#dc2626;">本番の帳簿で実測する</button>
+    </div>
+    <div id="undoMsg" class="note" style="display:none;margin-top:12px;"></div>
+    <pre id="undoRaw" style="display:none;"></pre>
+  </div>
+
   <div class="card" id="rawCard" style="display:none;">
     <div class="sub" style="margin:0 0 8px;">詳細（そのまま貼っていただければ読みます）</div>
     <pre id="raw"></pre>
@@ -104,6 +122,43 @@
       show(msg, '失敗しました: ' + (e && e.message ? e.message : e), 'warn');
     } finally {
       runBtn.disabled = false;
+    }
+  });
+
+  // ---- P7-B（本番の帳簿に書き込む） ----
+  var undoAgree = document.getElementById('undoAgree');
+  var undoBtn = document.getElementById('undoBtn');
+  var undoMsg = document.getElementById('undoMsg');
+  undoAgree.addEventListener('change', function () { undoBtn.disabled = !undoAgree.checked; });
+
+  undoBtn.addEventListener('click', async function () {
+    if (!undoAgree.checked) return;
+    undoBtn.disabled = true;
+    show(undoMsg, '実測しています… 途中で画面を閉じないでください');
+    try {
+      var s = (typeof sess === 'function') ? sess() : null;
+      if (!s || !s.access_token) throw new Error('ログインし直してください');
+      var res = await fetch('/api/mf/measure-undo', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + s.access_token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: 'P7B-WRITE-AND-DELETE' })
+      });
+      var d = await res.json().catch(function () { return {}; });
+      if (res.status === 401) throw new Error('ログインし直してください');
+      if (res.status === 403) throw new Error('このページはRIBREのメンバーだけが使えます');
+      var text = JSON.stringify(d, null, 2);
+      document.getElementById('undoRaw').textContent = text;
+      document.getElementById('undoRaw').style.display = '';
+      lastText = text;
+      copyBtn.style.display = '';
+      var v = d['判定'] || '(結果なし)';
+      var left = (d['手で消す必要がある仕訳'] || []).length;
+      if (left) v += ' ／ ⚠ 手で消す必要がある仕訳が ' + left + '件あります';
+      show(undoMsg, v, v.indexOf('○') === 0 ? 'ok' : 'warn');
+    } catch (e) {
+      show(undoMsg, '失敗しました: ' + (e && e.message ? e.message : e), 'warn');
+    } finally {
+      undoBtn.disabled = false;
     }
   });
 
