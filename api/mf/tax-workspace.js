@@ -247,6 +247,11 @@ async function fetchSharedFiles() {
         //   税理士が受け取ったときに何のファイルか分からなくなるため必ず元の名前を渡す。
         //   api/mf/evidence-action.js は同じ理由で先に対応済み（そちらに合わせた）。
         url: `${SUPABASE_URL}/storage/v1${signData.signedURL}&download=${encodeURIComponent(meta.name || key.split('/').pop())}`,
+        /* 画面の中で開くためのURL。
+         * ⚠ download= を**付けない**こと。付けると保存になり、その場で見られない
+         *   （利用者の指摘・2026-08-07）。ファイル名を渡す必要があるのは
+         *   保存するときだけなので、上の url と用途を分ける。 */
+        preview_url: `${SUPABASE_URL}/storage/v1${signData.signedURL}`,
       });
     }
   }

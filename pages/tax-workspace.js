@@ -2394,8 +2394,45 @@ function txwRenderFiles(files, loadFailed) {
 
       tr.appendChild(el('td', { class: 'num', text: txwFormatSize(f.size) }));
 
+      /* 種別を押すと、その場で中身を見られるようにする（利用者の指摘・2026-08-07）。
+       * ファイル名のリンクは download= 付きなので「保存」になる。用途を分けている。
+       * ⚠ Excelなどは画面で開けないので、押せるようにしない。 */
       var tdKind = el('td');
-      tdKind.appendChild(el('span', { class: 'chip ' + (f.attachable ? 'chip-blue' : 'chip-gray'), text: f.attachable ? 'PDF・画像' : 'Excelなど' }));
+      var canPreview = f.attachable && f.preview_url && /^https:\/\//.test(f.preview_url);
+      if (canPreview) {
+        var kindBtn = el('button', {
+          type: 'button', class: 'chip chip-blue txw-kind-btn', title: '押すと中身を表示します',
+          text: 'PDF・画像',
+        });
+        var pvBox = el('div', { class: 'txw-preview', style: 'display:none;' });
+        kindBtn.addEventListener('click', function () {
+          var open = pvBox.style.display !== 'none';
+          if (open) { pvBox.style.display = 'none'; kindBtn.textContent = 'PDF・画像'; return; }
+          pvBox.style.display = 'block';
+          kindBtn.textContent = '閉じる';
+          if (pvBox.dataset.built) return;
+          pvBox.dataset.built = '1';
+          // 画像とPDFで出し方が違う
+          if (/\.(png|jpe?g)$/i.test(f.name || '')) {
+            pvBox.appendChild(el('img', { src: f.preview_url, alt: f.name || '', class: 'txw-preview-img' }));
+          } else {
+            pvBox.appendChild(el('iframe', {
+              src: f.preview_url, title: f.name || 'プレビュー', class: 'txw-preview-frame',
+            }));
+          }
+          pvBox.appendChild(el('div', {
+            class: 'note',
+            text: '表示されないときは、ファイル名を押すとダウンロードできます。',
+          }));
+        });
+        tdKind.appendChild(kindBtn);
+        tdKind.appendChild(pvBox);
+      } else {
+        tdKind.appendChild(el('span', {
+          class: 'chip ' + (f.attachable ? 'chip-blue' : 'chip-gray'),
+          text: f.attachable ? 'PDF・画像' : 'Excelなど',
+        }));
+      }
       tr.appendChild(tdKind);
 
       /* 証憑として添付する。MFへ送ると取り消せないので、
