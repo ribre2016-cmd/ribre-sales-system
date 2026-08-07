@@ -2416,8 +2416,15 @@ function txwRenderFiles(files, loadFailed) {
           if (/\.(png|jpe?g)$/i.test(f.name || '')) {
             pvBox.appendChild(el('img', { src: f.preview_url, alt: f.name || '', class: 'txw-preview-img' }));
           } else {
+            /* PDFはブラウザ内蔵のビューアで開く。
+             * ⚠ 左のページ一覧（サムネイル）は場所を取るだけなので閉じた状態で開く
+             *   （利用者の指摘・2026-08-07）。#以降はビューアへの指定で、
+             *   サーバーには送られない（署名URLの ?token= には影響しない）。
+             *   pagemode=none / navpanes=0 はどちらも「パネルを出さない」指定。
+             *   ビューアによっては効かないので、そのときは左パネルが出るだけ（害はない）。 */
             pvBox.appendChild(el('iframe', {
-              src: f.preview_url, title: f.name || 'プレビュー', class: 'txw-preview-frame',
+              src: f.preview_url + '#pagemode=none&navpanes=0',
+              title: f.name || 'プレビュー', class: 'txw-preview-frame',
             }));
           }
           pvBox.appendChild(el('div', {

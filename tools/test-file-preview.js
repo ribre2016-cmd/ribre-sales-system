@@ -109,7 +109,12 @@ ck('押すと開く', pdfBox.style.display, 'block');
 ck('ボタンの文字が変わる', pdfBtn.textContent, '閉じる');
 ck('PDFは枠(iframe)で出す', pdfBox.querySelectorAll('IFRAME').length, 1);
 /* ここが本題。保存用URLを使うと、押しても保存になってしまう。 */
-ck('閲覧用URL（download無し）を使う', pdfBox.querySelector('IFRAME').attrs.src, S);
+/* ☠ PDFは左のページ一覧（サムネイル）を閉じた状態で開く。
+ *   #以降はビューアへの指定で、署名URLの ?token= には影響しない。 */
+ck('閲覧用URL（download無し）を使う',
+  pdfBox.querySelector('IFRAME').attrs.src, S + '#pagemode=none&navpanes=0');
+ck('token を壊していない（#は?のあと）',
+  pdfBox.querySelector('IFRAME').attrs.src.indexOf('?token=t#') > 0, true);
 pdfBtn.click();
 ck('もう一度押すと閉じる', pdfBox.style.display, 'none');
 
@@ -119,7 +124,8 @@ imgBtn.click();
 const imgBox = rows[1].children[2].querySelectorAll('DIV').filter((d) => d.className === 'txw-preview')[0];
 ck('画像は<img>で出す', imgBox.querySelectorAll('IMG').length, 1);
 ck('枠(iframe)にはしない', imgBox.querySelectorAll('IFRAME').length, 0);
-ck('閲覧用URLを使う', imgBox.querySelector('IMG').attrs.src, S);
+// 画像にはビューアの指定を付けない（<img> には意味が無い）
+ck('閲覧用URLをそのまま使う', imgBox.querySelector('IMG').attrs.src, S);
 imgBtn.click(); imgBtn.click();
 ck('開き直しても中身を作り直さない', imgBox.querySelectorAll('IMG').length, 1);
 
