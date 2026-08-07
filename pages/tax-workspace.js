@@ -28,8 +28,11 @@
  * ⚠ innerHTMLに外部由来の文字列を入れない。DOM組み立て（el()）とtextContentのみを使う。
  * ⚠ services/auth-gate.js は読み込まない（社内メール専用の入口ガードで税理士は弾かれる）。
  *   代わりにこのファイルが自前のログインゲートを持つ。
- * ⚠ 招待トークンは画面のURL欄（招待リンク発行時の読み取り専用input）以外に出さない。
- *   console.log等のログにも出さない。
+ * ⚠ 招待トークンを出してよいのは、社内メンバー専用パネルの読み取り専用inputだけ
+ *   （発行直後の欄と、発行済み一覧の「リンクを見る」）。
+ *   一覧側は 2026-08-07 に追加。2人分を続けて発行すると先のリンクが画面から消え、
+ *   渡せなくなっていたため。トークンは元から一覧APIの応答に含まれている。
+ *   console.log等のログには出さない。取り消し済み・使用済み・期限切れの行には出さない。
  */
 'use strict';
 
@@ -2723,9 +2726,35 @@ function txwRenderInvites(invites) {
     var tdOp = el('td');
     var usable = !inv.revoked_at && !inv.used_at && inv.expires_at && new Date(inv.expires_at).getTime() >= Date.now();
     if (usable) {
+      /* ⚠ 発行の欄は「最後に発行した1件」しか出さないため、
+       *   2人分を続けて発行すると、先に出したリンクが画面から消えて分からなくなっていた
+       *   （利用者の指摘・2026-08-07）。トークンは一覧にも入っているので、
+       *   ここから取り出せるようにする。既定は隠しておき、押したときだけ出す。 */
+      var showBtn = el('button', { type: 'button', class: 'btn-mini', text: 'リンクを見る' });
+      var linkBox = el('div', { class: 'invite-box', style: 'display:none;margin-top:8px;' });
+      var linkRow = el('div', { class: 'invite-row' });
+      var linkInput = el('input', { type: 'text', readonly: 'readonly', class: 'invite-url-input' });
+      linkInput.value = location.origin + '/tax-workspace#invite=' + inv.token;
+      linkRow.appendChild(linkInput);
+      var copyBtn2 = el('button', { type: 'button', class: 'btn-mini', text: 'コピー' });
+      copyBtn2.addEventListener('click', function () { txwCopyInviteUrl(linkInput, copyBtn2); });
+      linkRow.appendChild(copyBtn2);
+      linkBox.appendChild(linkRow);
+      linkBox.appendChild(el('div', {
+        class: 'note',
+        text: 'このリンクは1回だけ使えます。渡す相手ごとに別のリンクをお使いください。',
+      }));
+      showBtn.addEventListener('click', function () {
+        var open = linkBox.style.display !== 'none';
+        linkBox.style.display = open ? 'none' : 'block';
+        showBtn.textContent = open ? 'リンクを見る' : '隠す';
+      });
+      tdOp.appendChild(showBtn);
+
       var revokeBtn = el('button', { type: 'button', class: 'btn-mini', text: '取り消す' });
       revokeBtn.addEventListener('click', function () { txwRevokeInvite(inv.token, revokeBtn); });
       tdOp.appendChild(revokeBtn);
+      tdOp.appendChild(linkBox);
     }
     tr.appendChild(tdOp);
     tbody.appendChild(tr);
