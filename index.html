@@ -93,6 +93,8 @@
           <button class="btn primary" data-action="open-tx-modal" data-kind="sale" data-mode="meisai">＋ 売上を登録</button>
           <button class="btn primary" data-action="open-tx-modal" data-kind="purchase" data-mode="meisai">＋ 仕入を登録</button>
           <button class="btn" data-action="goto-evidence">📎 証憑を貼る</button>
+          <!-- 別タブで開く（上のカードと同じ理由） -->
+          <a class="btn" href="/tax-workspace" target="_blank" rel="noopener noreferrer">🧾 税理士ワークスペース</a>
         </div>
       </div>
 
@@ -325,6 +327,23 @@
         <h2>証憑インボックス（マネーフォワード連携）</h2>
         <div class="muted">証憑の貼り付け・承認・マッチングは既存の証憑ページで行います。</div>
         <div style="margin-top:14px"><a href="/mf-evidence?from=app" class="btn primary">証憑インボックスを開く →</a></div>
+      </div>
+
+      <!-- 税理士ワークスペース。
+           ⚠ 別タブで開くこと。あちらは税理士アカウントでのログインが要るため、
+              同じタブで開くと売上管理表のログインに戻れず迷子になる。 -->
+      <div class="card">
+        <h2>税理士ワークスペース</h2>
+        <div class="muted">
+          税理士の先生が使う画面です。未仕訳の明細の登録・証憑の添付・月次チェックを行います。
+          こちらから中身を確認したり、招待リンクを発行したりできます。
+        </div>
+        <div style="margin-top:14px">
+          <a href="/tax-workspace" target="_blank" rel="noopener noreferrer" class="btn primary">税理士ワークスペースを開く →</a>
+        </div>
+        <div class="muted" style="margin-top:10px;font-size:12px">
+          別のタブで開きます。招待リンクの発行は「税理士の管理」タブから。
+        </div>
       </div>
     </section>
 
